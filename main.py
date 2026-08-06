@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,9 +18,10 @@ from pydantic import BaseModel, Field
 from starlette.middleware.sessions import SessionMiddleware
 
 import ui as ui_module
+import plans as plans_module
+from jobs import enqueue_restores, job_key
 from pbs_client import list_vm_backups
 from pve_client import (
-    allocate_sequential_free_vmids,
     archive_path,
     connect_proxmox,
     extract_vm_config,
@@ -50,10 +50,6 @@ def load_config() -> dict[str, Any]:
 def redis_client() -> redis.Redis:
     cfg = load_config()
     return redis.from_url(cfg["redis"]["url"], decode_responses=True)
-
-
-def job_key(cfg: dict[str, Any], job_id: str) -> str:
-    return f"{cfg['redis']['job_key_prefix']}{job_id}"
 
 
 def utc_now_iso() -> str:
@@ -128,47 +124,27 @@ def _enqueue_restores(
     vmid_start: int,
     live_restore: bool,
     bwlimit: int,
+    plan_run_id: str = "",
+    plan_group_index: int | None = None,
 ) -> dict[str, Any]:
-    """Allocate sequential VMIDs and enqueue one restore job per row."""
-    proxmox = connect_proxmox(cfg)
+    """API wrapper around jobs.enqueue_restores (maps errors to HTTP)."""
     try:
-        in_use = qemu_vmids_in_use_on_node(proxmox, node)
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Cannot list QEMU guests on node {node!r}: {exc}") from exc
-
-    try:
-        allocated_ids, _ = allocate_sequential_free_vmids(set(in_use), vmid_start, len(rows))
+        return enqueue_restores(
+            r,
+            cfg,
+            rows,
+            node=node,
+            target_storage=target_storage,
+            vmid_start=vmid_start,
+            live_restore=live_restore,
+            bwlimit=bwlimit,
+            plan_run_id=plan_run_id,
+            plan_group_index=plan_group_index,
+        )
     except RuntimeError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    job_ids: list[str] = []
-    for row, target_vmid in zip(rows, allocated_ids, strict=True):
-        job_id = str(uuid.uuid4())
-        now = utc_now_iso()
-        archive = archive_path(row["pve_storage"], row["voltail"])
-        mapping = {
-            "job_id": job_id,
-            "state": RestoreState.PENDING.value,
-            "backup_id": row["backup_id"],
-            "vm_name": row["name"],
-            "source_vmid": str(row["vmid"]),
-            "source_label": row.get("source_label", ""),
-            "proxmox_vmid": str(target_vmid),
-            "proxmox_node": node,
-            "proxmox_storage": target_storage,
-            "live_restore": "1" if live_restore else "0",
-            "bwlimit": str(int(bwlimit or 0)),
-            "archive": archive,
-            "progress": "0",
-            "error": "",
-            "created_at": now,
-            "updated_at": now,
-        }
-        r.hset(job_key(cfg, job_id), mapping=mapping)
-        r.rpush(cfg["redis"]["queue_key"], job_id)
-        job_ids.append(job_id)
-
-    return {"enqueued": len(job_ids), "job_ids": job_ids, "proxmox_vmids_assigned": allocated_ids}
+        msg = str(exc)
+        code = 503 if msg.startswith("Cannot list QEMU") else 400
+        raise HTTPException(status_code=code, detail=msg) from exc
 
 
 class BackupItem(BaseModel):
@@ -379,6 +355,267 @@ def restore_tag_group(body: RestoreTagGroupRequest) -> dict[str, Any]:
     )
     result["matched_vmids"] = [row["vmid"] for row in selected]
     return result
+
+
+# --- Recovery orchestration (groups / locations / plans) ---
+
+
+class GroupUpsert(BaseModel):
+    name: str = Field(min_length=1)
+    tags: list[str] = Field(default_factory=list)
+    source_ids: list[str] = Field(default_factory=list)
+    vmids: list[int] = Field(default_factory=list)
+
+
+class LocationUpsert(BaseModel):
+    name: str = Field(min_length=1)
+    node: str = Field(min_length=1)
+    storage: str = Field(min_length=1)
+    vmid_start: int = Field(default=100, ge=100)
+    bwlimit: int = Field(default=0, ge=0)
+    live_restore: bool = False
+
+
+class PlanUpsert(BaseModel):
+    name: str = Field(min_length=1)
+    group_ids: list[str] = Field(min_length=1)
+    location_id: str = Field(min_length=1)
+    halt_on_error: bool = True
+    enabled: bool = True
+
+
+class PlanRunRequest(BaseModel):
+    at_or_before: str | None = None
+    location_id: str | None = None
+
+
+def _http_value_error(exc: ValueError) -> HTTPException:
+    return HTTPException(status_code=400, detail=str(exc))
+
+
+@api.get("/groups")
+def api_list_groups() -> list[dict[str, Any]]:
+    cfg = load_config()
+    return plans_module.list_groups(redis_client(), cfg)
+
+
+@api.post("/groups")
+def api_create_group(body: GroupUpsert) -> dict[str, Any]:
+    cfg = load_config()
+    try:
+        return plans_module.create_group(redis_client(), cfg, body.model_dump())
+    except ValueError as exc:
+        raise _http_value_error(exc) from exc
+
+
+@api.get("/groups/{group_id}")
+def api_get_group(group_id: str) -> dict[str, Any]:
+    cfg = load_config()
+    data = plans_module.get_group(redis_client(), cfg, group_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Group not found")
+    return data
+
+
+@api.put("/groups/{group_id}")
+def api_update_group(group_id: str, body: GroupUpsert) -> dict[str, Any]:
+    cfg = load_config()
+    try:
+        return plans_module.update_group(redis_client(), cfg, group_id, body.model_dump())
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Group not found") from exc
+    except ValueError as exc:
+        raise _http_value_error(exc) from exc
+
+
+@api.delete("/groups/{group_id}")
+def api_delete_group(group_id: str) -> dict[str, str]:
+    cfg = load_config()
+    if not plans_module.delete_group(redis_client(), cfg, group_id):
+        raise HTTPException(status_code=404, detail="Group not found")
+    return {"status": "deleted"}
+
+
+@api.get("/locations")
+def api_list_locations() -> list[dict[str, Any]]:
+    cfg = load_config()
+    return plans_module.list_locations(redis_client(), cfg)
+
+
+@api.post("/locations")
+def api_create_location(body: LocationUpsert) -> dict[str, Any]:
+    cfg = load_config()
+    try:
+        return plans_module.create_location(redis_client(), cfg, body.model_dump())
+    except ValueError as exc:
+        raise _http_value_error(exc) from exc
+
+
+@api.get("/locations/{location_id}")
+def api_get_location(location_id: str) -> dict[str, Any]:
+    cfg = load_config()
+    data = plans_module.get_location(redis_client(), cfg, location_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Location not found")
+    return data
+
+
+@api.put("/locations/{location_id}")
+def api_update_location(location_id: str, body: LocationUpsert) -> dict[str, Any]:
+    cfg = load_config()
+    try:
+        return plans_module.update_location(redis_client(), cfg, location_id, body.model_dump())
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Location not found") from exc
+    except ValueError as exc:
+        raise _http_value_error(exc) from exc
+
+
+@api.delete("/locations/{location_id}")
+def api_delete_location(location_id: str) -> dict[str, str]:
+    cfg = load_config()
+    if not plans_module.delete_location(redis_client(), cfg, location_id):
+        raise HTTPException(status_code=404, detail="Location not found")
+    return {"status": "deleted"}
+
+
+@api.get("/plans")
+def api_list_plans() -> list[dict[str, Any]]:
+    cfg = load_config()
+    return plans_module.list_plans(redis_client(), cfg)
+
+
+@api.post("/plans")
+def api_create_plan(body: PlanUpsert) -> dict[str, Any]:
+    cfg = load_config()
+    r = redis_client()
+    for gid in body.group_ids:
+        if not plans_module.get_group(r, cfg, gid):
+            raise HTTPException(status_code=400, detail=f"Unknown group_id: {gid}")
+    if not plans_module.get_location(r, cfg, body.location_id):
+        raise HTTPException(status_code=400, detail=f"Unknown location_id: {body.location_id}")
+    try:
+        return plans_module.create_plan(r, cfg, body.model_dump())
+    except ValueError as exc:
+        raise _http_value_error(exc) from exc
+
+
+@api.get("/plans/{plan_id}")
+def api_get_plan(plan_id: str) -> dict[str, Any]:
+    cfg = load_config()
+    data = plans_module.get_plan(redis_client(), cfg, plan_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    return data
+
+
+@api.put("/plans/{plan_id}")
+def api_update_plan(plan_id: str, body: PlanUpsert) -> dict[str, Any]:
+    cfg = load_config()
+    r = redis_client()
+    for gid in body.group_ids:
+        if not plans_module.get_group(r, cfg, gid):
+            raise HTTPException(status_code=400, detail=f"Unknown group_id: {gid}")
+    if not plans_module.get_location(r, cfg, body.location_id):
+        raise HTTPException(status_code=400, detail=f"Unknown location_id: {body.location_id}")
+    try:
+        return plans_module.update_plan(r, cfg, plan_id, body.model_dump())
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Plan not found") from exc
+    except ValueError as exc:
+        raise _http_value_error(exc) from exc
+
+
+@api.delete("/plans/{plan_id}")
+def api_delete_plan(plan_id: str) -> dict[str, str]:
+    cfg = load_config()
+    if not plans_module.delete_plan(redis_client(), cfg, plan_id):
+        raise HTTPException(status_code=404, detail="Plan not found")
+    return {"status": "deleted"}
+
+
+def _resolve_plan_group_rows(
+    cfg: dict[str, Any],
+    plan: dict[str, Any],
+    *,
+    cutoff: str,
+    node: str,
+) -> list[list[dict[str, Any]]]:
+    r = redis_client()
+    backups = list_vm_backups(cfg)
+    groups: list[dict[str, Any]] = []
+    for gid in plan["group_ids"]:
+        group = plans_module.get_group(r, cfg, gid)
+        if not group:
+            raise HTTPException(status_code=400, detail=f"Missing group in plan: {gid}")
+        groups.append(group)
+
+    need_tags = any(g.get("tags") for g in groups)
+    tags_by_id: dict[str, list[str]] = {}
+    if need_tags:
+        # Resolve tags only for latest-per-vmid candidates under the cutoff.
+        candidates = _latest_per_vmid(backups, cutoff)
+        tags_by_id = _resolve_tags(cfg, candidates, node)
+
+    return [
+        plans_module.resolve_group_rows(group, backups, cutoff=cutoff, tags_by_backup_id=tags_by_id)
+        for group in groups
+    ]
+
+
+@api.post("/plans/{plan_id}/run")
+def api_run_plan(plan_id: str, body: PlanRunRequest) -> dict[str, Any]:
+    cfg = load_config()
+    r = redis_client()
+    plan = plans_module.get_plan(r, cfg, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    if not plan.get("enabled", True):
+        raise HTTPException(status_code=400, detail="Plan is disabled")
+
+    location_id = (body.location_id or plan.get("location_id") or "").strip()
+    location = plans_module.get_location(r, cfg, location_id)
+    if not location:
+        raise HTTPException(status_code=400, detail=f"Unknown location_id: {location_id}")
+
+    cutoff = normalize_cutoff(body.at_or_before)
+    group_rows = _resolve_plan_group_rows(cfg, plan, cutoff=cutoff, node=location["node"])
+    if not any(group_rows):
+        raise HTTPException(status_code=400, detail="Plan resolved to zero backups at this point in time")
+
+    try:
+        run = plans_module.start_plan_run(
+            r,
+            cfg,
+            plan=plan,
+            location=location,
+            cutoff=cutoff,
+            group_rows=group_rows,
+            enqueue_fn=_enqueue_restores,
+        )
+    except ValueError as exc:
+        raise _http_value_error(exc) from exc
+    except HTTPException:
+        raise
+    return plans_module.aggregate_plan_run(r, cfg, run, job_key_fn=job_key)
+
+
+@api.get("/plan-runs")
+def api_list_plan_runs(plan_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+    cfg = load_config()
+    r = redis_client()
+    runs = plans_module.list_plan_runs(r, cfg, plan_id=plan_id, limit=limit)
+    return [plans_module.aggregate_plan_run(r, cfg, run, job_key_fn=job_key) for run in runs]
+
+
+@api.get("/plan-runs/{run_id}")
+def api_get_plan_run(run_id: str) -> dict[str, Any]:
+    cfg = load_config()
+    r = redis_client()
+    run = plans_module.get_plan_run(r, cfg, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Plan run not found")
+    return plans_module.aggregate_plan_run(r, cfg, run, job_key_fn=job_key)
 
 
 def _hash_to_record(data: dict[str, str]) -> JobRecord:

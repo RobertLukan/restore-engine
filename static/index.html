@@ -35,7 +35,7 @@
       flex-wrap: wrap;
     }
     h1 { font-size: 1.125rem; font-weight: 600; margin: 0; }
-    main { max-width: 56rem; margin: 0 auto; padding: 1.5rem; }
+    main { max-width: 64rem; margin: 0 auto; padding: 1.5rem; }
     .card {
       background: var(--panel);
       border: 1px solid var(--border);
@@ -219,6 +219,9 @@
       <h1>Restore orchestrator</h1>
       <nav class="actions">
         <button type="button" class="secondary nav active" id="nav-backups">Backups</button>
+        <button type="button" class="secondary nav" id="nav-plans">Plans</button>
+        <button type="button" class="secondary nav" id="nav-groups">Groups</button>
+        <button type="button" class="secondary nav" id="nav-locations">Locations</button>
         <button type="button" class="secondary nav" id="nav-jobs">Restores</button>
         <button type="button" class="secondary nav" id="nav-credentials">Settings</button>
         <button type="button" class="secondary" id="btn-logout">Sign out</button>
@@ -297,6 +300,102 @@
             </table>
           </div>
           <p class="empty-state hidden" id="jobs-empty">No restore jobs yet.</p>
+        </div>
+      </div>
+
+      <div id="view-groups" class="hidden">
+        <div class="card">
+          <h2>Inventory groups</h2>
+          <p class="hint">Saved sets of VMs by tags (all tags must match) and/or explicit VMIDs. Used as building blocks in recovery plans.</p>
+          <div class="row">
+            <div><label>Name</label><input id="group-name" placeholder="Tier-1 apps" /></div>
+            <div><label>Tags (comma-separated, AND)</label><input id="group-tags" placeholder="prod, app" /></div>
+          </div>
+          <label>VMIDs (comma-separated, optional)</label>
+          <input id="group-vmids" placeholder="100, 101" />
+          <input type="hidden" id="group-edit-id" value="" />
+          <div class="actions">
+            <button type="button" class="primary" id="btn-save-group">Save group</button>
+            <button type="button" class="secondary" id="btn-reset-group">Clear form</button>
+          </div>
+          <div id="groups-status" class="hint" style="margin-top:0.75rem;"></div>
+          <table class="vm-table" id="groups-table" style="margin-top:1rem;">
+            <thead><tr><th>Name</th><th>Tags</th><th>VMIDs</th><th></th></tr></thead>
+            <tbody id="groups-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="view-locations" class="hidden">
+        <div class="card">
+          <h2>Recovery locations</h2>
+          <p class="hint">Named restore targets (node, storage, VMID start, defaults).</p>
+          <div class="row">
+            <div><label>Name</label><input id="loc-name" placeholder="Primary DR" /></div>
+            <div><label>Node</label><input id="loc-node" placeholder="pve" /></div>
+          </div>
+          <div class="row">
+            <div><label>Target storage</label><input id="loc-storage" placeholder="local-lvm" /></div>
+            <div><label>VMID start</label><input id="loc-vmid-start" type="number" min="100" value="100" /></div>
+          </div>
+          <div class="row">
+            <div><label>Bandwidth limit (KiB/s)</label><input id="loc-bwlimit" type="number" min="0" value="0" /></div>
+            <div class="inline" style="align-items:flex-end; padding-bottom:0.75rem;">
+              <input type="checkbox" id="loc-live" />
+              <label for="loc-live" style="margin:0">Live restore</label>
+            </div>
+          </div>
+          <input type="hidden" id="loc-edit-id" value="" />
+          <div class="actions">
+            <button type="button" class="primary" id="btn-save-location">Save location</button>
+            <button type="button" class="secondary" id="btn-reset-location">Clear form</button>
+          </div>
+          <div id="locations-status" class="hint" style="margin-top:0.75rem;"></div>
+          <table class="vm-table" id="locations-table" style="margin-top:1rem;">
+            <thead><tr><th>Name</th><th>Node</th><th>Storage</th><th>VMID start</th><th></th></tr></thead>
+            <tbody id="locations-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="view-plans" class="hidden">
+        <div class="card">
+          <h2>Recovery plans</h2>
+          <p class="hint">Ordered inventory groups restored to a location. Groups run sequentially; VMs within a group use worker concurrency.</p>
+          <div class="row">
+            <div><label>Name</label><input id="plan-name" placeholder="App stack restore" /></div>
+            <div><label>Location</label><select id="plan-location"></select></div>
+          </div>
+          <label>Groups (order = restore order; Ctrl/Cmd-click multi-select)</label>
+          <select id="plan-groups" multiple size="5" style="height:auto; min-height:6rem;"></select>
+          <div class="inline">
+            <input type="checkbox" id="plan-halt" checked />
+            <label for="plan-halt" style="margin:0">Halt on group failure</label>
+            <input type="checkbox" id="plan-enabled" checked style="margin-left:1rem;" />
+            <label for="plan-enabled" style="margin:0">Enabled</label>
+          </div>
+          <input type="hidden" id="plan-edit-id" value="" />
+          <div class="actions">
+            <button type="button" class="primary" id="btn-save-plan">Save plan</button>
+            <button type="button" class="secondary" id="btn-reset-plan">Clear form</button>
+          </div>
+          <div id="plans-status" class="hint" style="margin-top:0.75rem;"></div>
+          <table class="vm-table" id="plans-table" style="margin-top:1rem;">
+            <thead><tr><th>Name</th><th>Groups</th><th>Location</th><th>State</th><th></th></tr></thead>
+            <tbody id="plans-tbody"></tbody>
+          </table>
+        </div>
+        <div class="card">
+          <h2>Plan runs</h2>
+          <p class="hint">Recent plan executions. Refresh while a run is active to watch group progress.</p>
+          <div class="actions" style="margin-bottom:0.75rem;">
+            <button type="button" class="secondary" id="btn-refresh-plan-runs">Refresh runs</button>
+          </div>
+          <table class="vm-table" id="plan-runs-table">
+            <thead><tr><th>Plan</th><th>Status</th><th>Jobs</th><th>Started</th><th>Finished</th><th></th></tr></thead>
+            <tbody id="plan-runs-tbody"></tbody>
+          </table>
+          <div id="plan-run-detail" class="hint" style="margin-top:0.75rem;"></div>
         </div>
       </div>
 
@@ -412,6 +511,22 @@
     </div>
   </div>
 
+  <div id="planrun-modal" class="modal-backdrop">
+    <div class="modal">
+      <h3>Run recovery plan</h3>
+      <p class="hint" id="planrun-summary"></p>
+      <input type="hidden" id="planrun-plan-id" value="" />
+      <label for="planrun-cutoff">Point in time (blank = now)</label>
+      <input id="planrun-cutoff" type="datetime-local" />
+      <label for="planrun-location">Location override (optional)</label>
+      <select id="planrun-location"><option value="">Use plan default</option></select>
+      <div class="actions">
+        <button type="button" class="primary" id="btn-planrun-confirm">Run plan</button>
+        <button type="button" class="secondary" id="btn-planrun-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     let credentialsVerified = false;
     let jobsPollTimer = null;
@@ -461,12 +576,16 @@
     }
 
     function showView(name) {
-      ["backups", "jobs", "credentials"].forEach((v) => {
-        document.getElementById("view-" + v).classList.toggle("hidden", v !== name);
-        document.getElementById("nav-" + v).classList.toggle("active", v === name);
+      ["backups", "jobs", "credentials", "groups", "locations", "plans"].forEach((v) => {
+        const view = document.getElementById("view-" + v);
+        const nav = document.getElementById("nav-" + v);
+        if (view) view.classList.toggle("hidden", v !== name);
+        if (nav) nav.classList.toggle("active", v === name);
       });
       if (name === "jobs") startJobsPoll();
       else stopJobsPoll();
+      if (name === "plans") startPlanRunsPoll();
+      else stopPlanRunsPoll();
     }
 
     async function refreshHealth() {
@@ -527,6 +646,9 @@
       loadBackupList();
     };
     document.getElementById("nav-jobs").onclick = () => showView("jobs");
+    document.getElementById("nav-groups").onclick = () => { showView("groups"); loadGroups(); };
+    document.getElementById("nav-locations").onclick = () => { showView("locations"); loadLocations(); };
+    document.getElementById("nav-plans").onclick = () => { showView("plans"); loadPlansPage(); };
     document.getElementById("nav-credentials").onclick = () => {
       showView("credentials");
       loadCredentialsForm();
@@ -1109,6 +1231,346 @@
     }
 
     document.getElementById("btn-refresh-jobs").onclick = loadJobs;
+
+    let planRunsPollTimer = null;
+    let cachedGroups = [];
+    let cachedLocations = [];
+
+    function parseCsv(value) {
+      return String(value || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+
+    function resetGroupForm() {
+      document.getElementById("group-edit-id").value = "";
+      document.getElementById("group-name").value = "";
+      document.getElementById("group-tags").value = "";
+      document.getElementById("group-vmids").value = "";
+    }
+
+    async function loadGroups() {
+      const status = document.getElementById("groups-status");
+      try {
+        cachedGroups = await api("/api/groups");
+        const tbody = document.getElementById("groups-tbody");
+        tbody.innerHTML = "";
+        for (const g of cachedGroups) {
+          const tr = document.createElement("tr");
+          tr.innerHTML =
+            "<td>" + escapeHtml(g.name) + "</td>" +
+            "<td>" + escapeHtml((g.tags || []).join(", ")) + "</td>" +
+            "<td>" + escapeHtml((g.vmids || []).join(", ")) + "</td>" +
+            '<td><button type="button" class="secondary tiny btn-edit-group" data-id="' + escapeHtml(g.id) + '">Edit</button> ' +
+            '<button type="button" class="danger tiny btn-del-group" data-id="' + escapeHtml(g.id) + '">Delete</button></td>';
+          tbody.appendChild(tr);
+        }
+        status.textContent = cachedGroups.length ? cachedGroups.length + " group(s)" : "No groups yet";
+        tbody.querySelectorAll(".btn-edit-group").forEach((btn) => {
+          btn.onclick = () => {
+            const g = cachedGroups.find((x) => x.id === btn.dataset.id);
+            if (!g) return;
+            document.getElementById("group-edit-id").value = g.id;
+            document.getElementById("group-name").value = g.name;
+            document.getElementById("group-tags").value = (g.tags || []).join(", ");
+            document.getElementById("group-vmids").value = (g.vmids || []).join(", ");
+          };
+        });
+        tbody.querySelectorAll(".btn-del-group").forEach((btn) => {
+          btn.onclick = async () => {
+            try {
+              await api("/api/groups/" + encodeURIComponent(btn.dataset.id), { method: "DELETE" });
+              loadGroups();
+            } catch (e) {
+              banner(document.getElementById("global-banner"), "err", e.message);
+            }
+          };
+        });
+      } catch (e) {
+        status.textContent = "";
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    }
+
+    document.getElementById("btn-reset-group").onclick = resetGroupForm;
+    document.getElementById("btn-save-group").onclick = async () => {
+      const body = {
+        name: document.getElementById("group-name").value.trim(),
+        tags: parseCsv(document.getElementById("group-tags").value),
+        vmids: parseCsv(document.getElementById("group-vmids").value).map((v) => Number(v)),
+        source_ids: [],
+      };
+      const id = document.getElementById("group-edit-id").value;
+      try {
+        if (id) await api("/api/groups/" + encodeURIComponent(id), { method: "PUT", body: JSON.stringify(body) });
+        else await api("/api/groups", { method: "POST", body: JSON.stringify(body) });
+        resetGroupForm();
+        loadGroups();
+      } catch (e) {
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    };
+
+    function resetLocationForm() {
+      document.getElementById("loc-edit-id").value = "";
+      document.getElementById("loc-name").value = "";
+      document.getElementById("loc-node").value = "";
+      document.getElementById("loc-storage").value = "";
+      document.getElementById("loc-vmid-start").value = "100";
+      document.getElementById("loc-bwlimit").value = "0";
+      document.getElementById("loc-live").checked = false;
+    }
+
+    async function loadLocations() {
+      const status = document.getElementById("locations-status");
+      try {
+        cachedLocations = await api("/api/locations");
+        const tbody = document.getElementById("locations-tbody");
+        tbody.innerHTML = "";
+        for (const loc of cachedLocations) {
+          const tr = document.createElement("tr");
+          tr.innerHTML =
+            "<td>" + escapeHtml(loc.name) + "</td>" +
+            "<td>" + escapeHtml(loc.node) + "</td>" +
+            "<td>" + escapeHtml(loc.storage) + "</td>" +
+            "<td>" + escapeHtml(loc.vmid_start) + "</td>" +
+            '<td><button type="button" class="secondary tiny btn-edit-loc" data-id="' + escapeHtml(loc.id) + '">Edit</button> ' +
+            '<button type="button" class="danger tiny btn-del-loc" data-id="' + escapeHtml(loc.id) + '">Delete</button></td>';
+          tbody.appendChild(tr);
+        }
+        status.textContent = cachedLocations.length ? cachedLocations.length + " location(s)" : "No locations yet";
+        tbody.querySelectorAll(".btn-edit-loc").forEach((btn) => {
+          btn.onclick = () => {
+            const loc = cachedLocations.find((x) => x.id === btn.dataset.id);
+            if (!loc) return;
+            document.getElementById("loc-edit-id").value = loc.id;
+            document.getElementById("loc-name").value = loc.name;
+            document.getElementById("loc-node").value = loc.node;
+            document.getElementById("loc-storage").value = loc.storage;
+            document.getElementById("loc-vmid-start").value = loc.vmid_start;
+            document.getElementById("loc-bwlimit").value = loc.bwlimit || 0;
+            document.getElementById("loc-live").checked = !!loc.live_restore;
+          };
+        });
+        tbody.querySelectorAll(".btn-del-loc").forEach((btn) => {
+          btn.onclick = async () => {
+            try {
+              await api("/api/locations/" + encodeURIComponent(btn.dataset.id), { method: "DELETE" });
+              loadLocations();
+            } catch (e) {
+              banner(document.getElementById("global-banner"), "err", e.message);
+            }
+          };
+        });
+      } catch (e) {
+        status.textContent = "";
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    }
+
+    document.getElementById("btn-reset-location").onclick = resetLocationForm;
+    document.getElementById("btn-save-location").onclick = async () => {
+      const body = {
+        name: document.getElementById("loc-name").value.trim(),
+        node: document.getElementById("loc-node").value.trim(),
+        storage: document.getElementById("loc-storage").value.trim(),
+        vmid_start: Number(document.getElementById("loc-vmid-start").value || 100),
+        bwlimit: Number(document.getElementById("loc-bwlimit").value || 0),
+        live_restore: document.getElementById("loc-live").checked,
+      };
+      const id = document.getElementById("loc-edit-id").value;
+      try {
+        if (id) await api("/api/locations/" + encodeURIComponent(id), { method: "PUT", body: JSON.stringify(body) });
+        else await api("/api/locations", { method: "POST", body: JSON.stringify(body) });
+        resetLocationForm();
+        loadLocations();
+      } catch (e) {
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    };
+
+    function resetPlanForm() {
+      document.getElementById("plan-edit-id").value = "";
+      document.getElementById("plan-name").value = "";
+      document.getElementById("plan-halt").checked = true;
+      document.getElementById("plan-enabled").checked = true;
+      const sel = document.getElementById("plan-groups");
+      Array.from(sel.options).forEach((o) => { o.selected = false; });
+    }
+
+    function fillPlanSelectors() {
+      const locSel = document.getElementById("plan-location");
+      const groupSel = document.getElementById("plan-groups");
+      const runLoc = document.getElementById("planrun-location");
+      locSel.innerHTML = cachedLocations.map((l) =>
+        '<option value="' + escapeHtml(l.id) + '">' + escapeHtml(l.name) + "</option>"
+      ).join("");
+      groupSel.innerHTML = cachedGroups.map((g) =>
+        '<option value="' + escapeHtml(g.id) + '">' + escapeHtml(g.name) + "</option>"
+      ).join("");
+      runLoc.innerHTML = '<option value="">Use plan default</option>' + cachedLocations.map((l) =>
+        '<option value="' + escapeHtml(l.id) + '">' + escapeHtml(l.name) + "</option>"
+      ).join("");
+    }
+
+    async function loadPlansPage() {
+      cachedGroups = await api("/api/groups");
+      cachedLocations = await api("/api/locations");
+      fillPlanSelectors();
+      const plans = await api("/api/plans");
+      const status = document.getElementById("plans-status");
+      const tbody = document.getElementById("plans-tbody");
+      tbody.innerHTML = "";
+      const locById = Object.fromEntries(cachedLocations.map((l) => [l.id, l]));
+      const groupById = Object.fromEntries(cachedGroups.map((g) => [g.id, g]));
+      for (const p of plans) {
+        const tr = document.createElement("tr");
+        const gnames = (p.group_ids || []).map((id) => (groupById[id] && groupById[id].name) || id).join(" → ");
+        tr.innerHTML =
+          "<td>" + escapeHtml(p.name) + "</td>" +
+          "<td>" + escapeHtml(gnames) + "</td>" +
+          "<td>" + escapeHtml((locById[p.location_id] && locById[p.location_id].name) || p.location_id) + "</td>" +
+          "<td>" + escapeHtml(p.verification || "") + (p.enabled ? "" : " · disabled") + "</td>" +
+          '<td><button type="button" class="primary tiny btn-run-plan" data-id="' + escapeHtml(p.id) + '" data-name="' + escapeHtml(p.name) + '">Run</button> ' +
+          '<button type="button" class="secondary tiny btn-edit-plan" data-id="' + escapeHtml(p.id) + '">Edit</button> ' +
+          '<button type="button" class="danger tiny btn-del-plan" data-id="' + escapeHtml(p.id) + '">Delete</button></td>';
+        tbody.appendChild(tr);
+      }
+      status.textContent = plans.length ? plans.length + " plan(s)" : "No plans yet";
+      tbody.querySelectorAll(".btn-edit-plan").forEach((btn) => {
+        btn.onclick = () => {
+          const p = plans.find((x) => x.id === btn.dataset.id);
+          if (!p) return;
+          document.getElementById("plan-edit-id").value = p.id;
+          document.getElementById("plan-name").value = p.name;
+          document.getElementById("plan-location").value = p.location_id;
+          document.getElementById("plan-halt").checked = !!p.halt_on_error;
+          document.getElementById("plan-enabled").checked = !!p.enabled;
+          Array.from(document.getElementById("plan-groups").options).forEach((o) => {
+            o.selected = (p.group_ids || []).includes(o.value);
+          });
+        };
+      });
+      tbody.querySelectorAll(".btn-del-plan").forEach((btn) => {
+        btn.onclick = async () => {
+          try {
+            await api("/api/plans/" + encodeURIComponent(btn.dataset.id), { method: "DELETE" });
+            loadPlansPage();
+          } catch (e) {
+            banner(document.getElementById("global-banner"), "err", e.message);
+          }
+        };
+      });
+      tbody.querySelectorAll(".btn-run-plan").forEach((btn) => {
+        btn.onclick = () => openPlanRunModal(btn.dataset.id, btn.dataset.name);
+      });
+      loadPlanRuns();
+    }
+
+    document.getElementById("btn-reset-plan").onclick = resetPlanForm;
+    document.getElementById("btn-save-plan").onclick = async () => {
+      const groupSel = document.getElementById("plan-groups");
+      const group_ids = Array.from(groupSel.selectedOptions).map((o) => o.value);
+      const body = {
+        name: document.getElementById("plan-name").value.trim(),
+        location_id: document.getElementById("plan-location").value,
+        group_ids,
+        halt_on_error: document.getElementById("plan-halt").checked,
+        enabled: document.getElementById("plan-enabled").checked,
+      };
+      const id = document.getElementById("plan-edit-id").value;
+      try {
+        if (id) await api("/api/plans/" + encodeURIComponent(id), { method: "PUT", body: JSON.stringify(body) });
+        else await api("/api/plans", { method: "POST", body: JSON.stringify(body) });
+        resetPlanForm();
+        loadPlansPage();
+      } catch (e) {
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    };
+
+    function openPlanRunModal(planId, planName) {
+      document.getElementById("planrun-plan-id").value = planId;
+      document.getElementById("planrun-summary").textContent = "Run “" + planName + "” with optional point-in-time.";
+      document.getElementById("planrun-cutoff").value = "";
+      document.getElementById("planrun-location").value = "";
+      document.getElementById("planrun-modal").classList.add("show");
+    }
+
+    document.getElementById("btn-planrun-cancel").onclick = () =>
+      document.getElementById("planrun-modal").classList.remove("show");
+
+    document.getElementById("btn-planrun-confirm").onclick = async () => {
+      const planId = document.getElementById("planrun-plan-id").value;
+      const body = {
+        at_or_before: document.getElementById("planrun-cutoff").value || null,
+        location_id: document.getElementById("planrun-location").value || null,
+      };
+      try {
+        const run = await api("/api/plans/" + encodeURIComponent(planId) + "/run", {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        document.getElementById("planrun-modal").classList.remove("show");
+        banner(document.getElementById("global-banner"), "ok", "Plan run started (" + (run.job_count || 0) + " job(s) so far).");
+        showView("plans");
+        loadPlanRuns();
+        startPlanRunsPoll();
+      } catch (e) {
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    };
+
+    async function loadPlanRuns() {
+      try {
+        const runs = await api("/api/plan-runs?limit=20");
+        const tbody = document.getElementById("plan-runs-tbody");
+        tbody.innerHTML = "";
+        for (const run of runs) {
+          const tr = document.createElement("tr");
+          tr.innerHTML =
+            "<td>" + escapeHtml(run.plan_name || run.plan_id) + "</td>" +
+            "<td>" + escapeHtml(run.status) + "</td>" +
+            "<td>" + escapeHtml((run.completed_jobs || 0) + "/" + (run.job_count || 0)) + "</td>" +
+            "<td>" + escapeHtml((run.started_at || "").slice(0, 19)) + "</td>" +
+            "<td>" + escapeHtml((run.finished_at || "").slice(0, 19)) + "</td>" +
+            '<td><button type="button" class="secondary tiny btn-run-detail" data-id="' + escapeHtml(run.id) + '">Detail</button></td>';
+          tbody.appendChild(tr);
+        }
+        tbody.querySelectorAll(".btn-run-detail").forEach((btn) => {
+          btn.onclick = async () => {
+            try {
+              const run = await api("/api/plan-runs/" + encodeURIComponent(btn.dataset.id));
+              const lines = (run.jobs || []).map((j) =>
+                "g" + j.group_index + " " + j.vm_name + " → " + j.proxmox_vmid + " " + j.state +
+                (j.error ? " (" + j.error + ")" : "")
+              );
+              document.getElementById("plan-run-detail").textContent =
+                (lines.length ? lines.join(" · ") : "No jobs yet") +
+                (run.error ? " — " + run.error : "");
+            } catch (e) {
+              banner(document.getElementById("global-banner"), "err", e.message);
+            }
+          };
+        });
+      } catch (e) {
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    }
+
+    function startPlanRunsPoll() {
+      stopPlanRunsPoll();
+      loadPlanRuns();
+      planRunsPollTimer = setInterval(loadPlanRuns, 5000);
+    }
+
+    function stopPlanRunsPoll() {
+      if (planRunsPollTimer) clearInterval(planRunsPollTimer);
+      planRunsPollTimer = null;
+    }
+
+    document.getElementById("btn-refresh-plan-runs").onclick = loadPlanRuns;
 
     initAuth().catch((e) => {
       showLogin();

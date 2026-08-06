@@ -16,6 +16,7 @@ Designed to mirror the operator experience of [migration-engine](../migration-en
   - optional live restore
   - optional per-batch bandwidth limit
 - Track per-job progress and logs via Redis + worker
+- **Recovery plans** (enterprise-style): saved inventory groups, recovery locations, ordered plan run with point-in-time
 
 ## Multiple PBS servers, datastores, and namespaces
 
@@ -116,8 +117,9 @@ Note: Proxmox-side throttles (a `bwlimit` in `datacenter.cfg` or on the storage,
 ## Workflow
 
 1. **Settings** — save and verify PBS + Proxmox connections.
-2. **Backups** — refresh list, select one or more VM backups, click **Restore selected**.
-3. **Restores** — watch job state and progress; stop queued jobs if needed.
+2. **Groups / Locations / Plans** — define inventory groups (tags and/or VMIDs), a recovery location, and a plan that orders groups onto that location; **Run** with an optional point-in-time.
+3. **Backups** — refresh list, select one or more VM backups, click **Restore selected** (ad-hoc).
+4. **Restores** — watch job state and progress; stop queued jobs if needed.
 
 ## Archive path
 
@@ -142,7 +144,8 @@ pytest
 ```
 
 The suite covers VMID allocation, the PVE archive volid format, PBS snapshot
-parsing, auth/session enforcement, `/health` (ok/degraded), and `/version`. It
+parsing, auth/session enforcement, `/health` (ok/degraded), `/version`, and
+recovery plan group/location CRUD plus ordered plan-run advancement. It
 runs offline against `tests/fixtures/minimal_config.yaml` and does not require a
 live PBS, Proxmox VE, or Redis.
 

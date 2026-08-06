@@ -17,6 +17,9 @@ import yaml
 
 from pve_client import TaskCancelled, connect_proxmox, submit_restore, wait_for_task
 from states import RestoreState
+import plans as plans_module
+from jobs import enqueue_restores, job_key as redis_job_key
+
 
 _cfg_path_override = (os.environ.get("RESTORE_ENGINE_CONFIG") or "").strip()
 CONFIG_PATH = (
@@ -38,12 +41,8 @@ def load_config() -> dict[str, Any]:
         return yaml.safe_load(f)
 
 
-def job_key(cfg: dict[str, Any], job_id: str) -> str:
-    return f"{cfg['redis']['job_key_prefix']}{job_id}"
-
-
 def job_log_key(cfg: dict[str, Any], job_id: str) -> str:
-    return f"{job_key(cfg, job_id)}{cfg['redis']['job_log_suffix']}"
+    return f"{redis_job_key(cfg, job_id)}{cfg['redis']['job_log_suffix']}"
 
 
 def utc_now_iso() -> str:
@@ -69,11 +68,11 @@ def append_log(
 
 def set_state(r: redis.Redis, cfg: dict[str, Any], job_id: str, state: RestoreState, **extra: str) -> None:
     mapping = {"state": state.value, "updated_at": utc_now_iso(), **extra}
-    r.hset(job_key(cfg, job_id), mapping=mapping)
+    r.hset(redis_job_key(cfg, job_id), mapping=mapping)
 
 
 def cancel_requested(r: redis.Redis, cfg: dict[str, Any], job_id: str) -> bool:
-    return r.hget(job_key(cfg, job_id), "cancel_requested") == "1"
+    return r.hget(redis_job_key(cfg, job_id), "cancel_requested") == "1"
 
 
 def mark_cancelled(r: redis.Redis, cfg: dict[str, Any], job_id: str) -> None:
@@ -82,7 +81,7 @@ def mark_cancelled(r: redis.Redis, cfg: dict[str, Any], job_id: str) -> None:
 
 
 def process_job(r: redis.Redis, cfg: dict[str, Any], job_id: str) -> None:
-    key = job_key(cfg, job_id)
+    key = redis_job_key(cfg, job_id)
     data = r.hgetall(key)
     if not data:
         return
@@ -167,6 +166,12 @@ def worker_loop() -> None:
 
     log.info("Restore worker started (initial max_concurrent_restores=%s)", _current_max_concurrent(cfg))
     while True:
+        # Advance ordered plan runs (next group when current group is terminal).
+        try:
+            plans_module.advance_plan_runs(r, cfg, enqueue_fn=enqueue_restores, job_key_fn=redis_job_key)
+        except Exception:
+            log.exception("Plan run advancement failed")
+
         # Re-read the limit each iteration so it can be tuned live from the dashboard.
         limit = _current_max_concurrent(cfg)
         with active_lock:
