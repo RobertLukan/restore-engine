@@ -1,0 +1,15 @@
+.venv/
+.pytest_cache/
+__pycache__/
+*.pyc
+config.yaml
+config.*.yaml
+!config.docker.example.yaml
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+restore-engine-bundle-amd64.tar
+redis-amd64-rootfs.tar

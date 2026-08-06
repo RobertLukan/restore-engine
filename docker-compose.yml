@@ -1,0 +1,82 @@
+# Offline runtime: no outbound internet required once images are present.
+# Build / pull on a connected host, then docker save | docker load on the lab machine.
+#
+#   docker compose build
+#   docker compose up -d
+#   open http://localhost:8001  (dashboard; login = ui.password in config)
+#
+# Override config (recommended for real secrets):
+#   cp config.docker.example.yaml config.docker.yaml
+#   # edit config.docker.yaml — keep redis.url host as "redis"
+#   docker compose up -d
+#
+# Uncomment the api/worker volumes section to mount ./config.docker.yaml
+#
+# Build on Apple Silicon but deploy on Intel/AMD64 Linux: keep `platform: linux/amd64` below.
+# For native ARM64 builds on Mac (local test only), comment out all `platform` lines.
+
+services:
+  # In-container Redis only (not published to the host by default). Safe alongside a
+  # separate Redis already installed on the host — see DOCKER.md "Redis already on the server".
+  redis:
+    image: redis:7-alpine
+    platform: linux/amd64
+    restart: unless-stopped
+    networks: [restore]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build: .
+    image: restore-engine:latest
+    platform: linux/amd64
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [restore]
+    ports:
+      - "8001:8000"
+    environment:
+      RESTORE_ENGINE_CONFIG: /app/config.docker.yaml
+    command: >
+      uvicorn main:app
+      --host 0.0.0.0
+      --port 8000
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/version', timeout=5)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    # volumes:
+    #   - ./config.docker.yaml:/app/config.docker.yaml:ro
+
+  worker:
+    image: restore-engine:latest
+    platform: linux/amd64
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [restore]
+    environment:
+      RESTORE_ENGINE_CONFIG: /app/config.docker.yaml
+    command: ["python", "worker.py"]
+    healthcheck:
+      disable: true
+    # volumes:
+    #   - ./config.docker.yaml:/app/config.docker.yaml:ro
+
+networks:
+  restore:
+    driver: bridge

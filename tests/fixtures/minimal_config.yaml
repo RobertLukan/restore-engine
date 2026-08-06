@@ -1,0 +1,37 @@
+# Used only by pytest (RESTORE_ENGINE_CONFIG). Not for production.
+ui:
+  password: "test-dashboard-secret"
+  session_secret: "test-session-secret-must-be-long-enough-for-itsdangerous-32"
+
+pbs_servers:
+  - id: main
+    host: "127.0.0.1"
+    port: 8007
+    verify_ssl: false
+    api_token_id: "root@pam!restore"
+    api_token_secret: "unused-in-tests"
+    mounts:
+      - datastore: "main"
+        namespace: ""
+        pve_storage: "pbs-main"
+
+proxmox:
+  host: "127.0.0.1"
+  port: 8006
+  verify_ssl: false
+  default_node: pve
+  api_token_id: root@pam!restore
+  api_token_secret: "unused-in-tests"
+  user: root@pam
+  password: ""
+  storage: local-lvm
+
+redis:
+  url: redis://127.0.0.1:6379/15
+  queue_key: "restore:test:queue"
+  job_key_prefix: "restore:test:job:"
+  job_log_suffix: ":log"
+
+worker:
+  task_poll_interval_sec: 1
+  max_concurrent_restores: 1

@@ -1,0 +1,1119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Restore orchestrator</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a2332;
+      --border: #2d3a4d;
+      --text: #e7edf5;
+      --muted: #8b9cb3;
+      --accent: #3d8bfd;
+      --danger: #f47174;
+      --ok: #3ecf8e;
+    }
+    * { box-sizing: border-box; }
+    .hidden { display: none !important; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    header {
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    h1 { font-size: 1.125rem; font-weight: 600; margin: 0; }
+    main { max-width: 56rem; margin: 0 auto; padding: 1.5rem; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+      margin-bottom: 1.25rem;
+    }
+    .card h2 { margin: 0 0 1rem; font-size: 1rem; font-weight: 600; }
+    label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.25rem; }
+    input, select {
+      width: 100%;
+      padding: 0.5rem 0.65rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      margin-bottom: 0.75rem;
+    }
+    input[type="checkbox"] { width: auto; margin-right: 0.35rem; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+    @media (max-width: 640px) { .row { grid-template-columns: 1fr; } }
+    .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+    button {
+      cursor: pointer;
+      border: none;
+      border-radius: 6px;
+      padding: 0.5rem 1rem;
+      font-weight: 500;
+      font-size: 0.875rem;
+    }
+    button.primary { background: var(--accent); color: #fff; }
+    button.secondary { background: var(--border); color: var(--text); }
+    button.danger { background: #4a2c2c; color: #ffb4b4; }
+    .banner {
+      padding: 0.65rem 1rem;
+      border-radius: 8px;
+      margin-bottom: 1rem;
+      font-size: 0.875rem;
+      display: none;
+    }
+    .banner.show { display: block; }
+    .banner.ok { background: #1a3d2e; border: 1px solid #2d6a4a; color: #a8e6c1; }
+    .banner.err { background: #3d1f24; border: 1px solid #6a2d35; color: #ffc9c9; }
+    .banner.info { background: #1e2f4a; border: 1px solid #2d4a7a; color: #b8d4ff; }
+    #login-panel { max-width: 22rem; margin: 4rem auto; }
+    .hint { font-size: 0.8rem; color: var(--muted); margin-top: -0.35rem; margin-bottom: 0.75rem; }
+    .inline { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
+    nav.actions button.nav.active { outline: 2px solid var(--accent); outline-offset: 2px; }
+    table.vm-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    table.vm-table th, table.vm-table td {
+      text-align: left;
+      padding: 0.5rem 0.6rem;
+      border-bottom: 1px solid var(--border);
+    }
+    table.vm-table th { color: var(--muted); font-weight: 500; }
+    .empty-state { color: var(--muted); padding: 1rem 0; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    tr.vm-row { cursor: pointer; }
+    tr.vm-row:hover { background: rgba(61, 139, 253, 0.08); }
+    tr.vm-row.selected { background: rgba(61, 139, 253, 0.12); }
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.55);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .modal-backdrop.show { display: flex; }
+    .modal {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      max-width: 26rem;
+      width: 100%;
+      padding: 1.25rem;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .modal h3 { margin: 0 0 1rem; font-size: 1rem; }
+    .progress-wrap {
+      height: 6px;
+      background: var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+      min-width: 5rem;
+    }
+    .progress-fill {
+      height: 100%;
+      border-radius: 4px;
+      background: var(--accent);
+      transition: width 0.35s ease;
+    }
+    .progress-fill.done { background: var(--ok); }
+    .progress-fill.fail { background: var(--danger); }
+    .state-pill {
+      font-size: 0.75rem;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      background: var(--border);
+    }
+    .health-strip {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.65rem 1.25rem;
+      padding: 0.5rem 1.25rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      background: rgba(26, 35, 50, 0.92);
+    }
+    .health-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--muted);
+      display: inline-block;
+    }
+    .health-dot.ok { background: var(--ok); }
+    .health-dot.err { background: var(--danger); }
+    .subcard {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.85rem;
+      margin-bottom: 0.85rem;
+      background: rgba(15, 20, 25, 0.35);
+    }
+    .subcard .subcard-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+    .subcard .subcard-head strong { font-size: 0.9rem; }
+    .mount-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr auto;
+      gap: 0.5rem;
+      align-items: end;
+      margin-bottom: 0.5rem;
+    }
+    @media (max-width: 640px) { .mount-row { grid-template-columns: 1fr; } }
+    .mount-row .mini { font-size: 0.7rem; }
+    button.link {
+      background: none;
+      color: var(--accent);
+      padding: 0.25rem 0.4rem;
+      font-size: 0.8rem;
+    }
+    button.tiny { padding: 0.3rem 0.6rem; font-size: 0.78rem; }
+  </style>
+</head>
+<body>
+  <div id="health-strip" class="health-strip hidden">
+    <strong>Services</strong>
+    <span><span class="health-dot" id="health-dot"></span> <span id="health-summary">Checking…</span></span>
+  </div>
+
+  <div id="login-screen">
+    <header><h1>Restore orchestrator</h1></header>
+    <main>
+      <div class="card" id="login-panel">
+        <h2>Sign in</h2>
+        <p class="hint">Use the password from <code>ui.password</code> in <code>config.yaml</code>.</p>
+        <div id="login-banner" class="banner err"></div>
+        <label for="login-password">Password</label>
+        <input type="password" id="login-password" autocomplete="current-password" />
+        <div class="actions">
+          <button type="button" class="primary" id="btn-login">Sign in</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div id="app-screen" class="hidden">
+    <header>
+      <h1>Restore orchestrator</h1>
+      <nav class="actions">
+        <button type="button" class="secondary nav active" id="nav-backups">Backups</button>
+        <button type="button" class="secondary nav" id="nav-jobs">Restores</button>
+        <button type="button" class="secondary nav" id="nav-credentials">Settings</button>
+        <button type="button" class="secondary" id="btn-logout">Sign out</button>
+      </nav>
+    </header>
+    <main>
+      <div id="global-banner" class="banner info"></div>
+
+      <div id="view-backups">
+        <div class="card">
+          <h2>VM backups available to restore</h2>
+          <p class="hint">
+            Backups are listed from your configured Proxmox Backup Server datastore.
+            Select one or more VMs, then <strong>Restore selected</strong>.
+          </p>
+          <div class="actions" style="margin-bottom: 0.75rem;">
+            <button type="button" class="secondary" id="btn-refresh-backups">Refresh list</button>
+            <button type="button" class="secondary" id="btn-load-tags">Load tags</button>
+            <button type="button" class="secondary" id="btn-select-all">Select all</button>
+            <button type="button" class="secondary" id="btn-clear-selection">Clear selection</button>
+            <button type="button" class="primary" id="btn-open-restore-modal" disabled>Restore selected…</button>
+            <button type="button" class="primary" id="btn-open-taggroup-modal">Restore by tag group…</button>
+          </div>
+          <div class="inline" style="gap:0.5rem;">
+            <label style="margin:0">Filter by tag</label>
+            <select id="backup-tag-filter" style="width:auto; min-width:12rem; margin:0"><option value="">All tags</option></select>
+            <button type="button" class="secondary btn tiny" id="btn-select-tag">Select filtered</button>
+          </div>
+          <div id="backup-list-status" class="hint"></div>
+          <div style="overflow-x: auto;">
+            <table class="vm-table" id="backup-table" hidden>
+              <thead>
+                <tr>
+                  <th style="width:2.5rem;"><input type="checkbox" id="backup-select-all" title="Select all" /></th>
+                  <th>Name</th>
+                  <th>Source VMID</th>
+                  <th>Source (PBS)</th>
+                  <th>Tags</th>
+                  <th>Timestamp</th>
+                </tr>
+              </thead>
+              <tbody id="backup-tbody"></tbody>
+            </table>
+          </div>
+          <p class="empty-state hidden" id="backup-empty">No backups returned.</p>
+          <p class="hint" style="margin-top:1rem;">
+            <a href="#" id="link-setup-again">Run connection setup again</a>
+          </p>
+        </div>
+      </div>
+
+      <div id="view-jobs" class="hidden">
+        <div class="card">
+          <h2>Restore progress</h2>
+          <p class="hint">Job states refresh every 5 seconds while this tab is visible.</p>
+          <div class="actions" style="margin-bottom: 0.75rem;">
+            <button type="button" class="secondary" id="btn-refresh-jobs">Refresh now</button>
+          </div>
+          <div id="jobs-list-status" class="hint"></div>
+          <div style="overflow-x: auto;">
+            <table class="vm-table" id="jobs-table" hidden>
+              <thead>
+                <tr>
+                  <th>VM name</th>
+                  <th>Source (PBS)</th>
+                  <th>Source VMID</th>
+                  <th>Target VMID</th>
+                  <th>Node</th>
+                  <th>State</th>
+                  <th>Progress</th>
+                  <th>Updated</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="jobs-tbody"></tbody>
+            </table>
+          </div>
+          <p class="empty-state hidden" id="jobs-empty">No restore jobs yet.</p>
+        </div>
+      </div>
+
+      <div id="view-credentials" class="hidden">
+        <div class="card">
+          <h2>Connection settings</h2>
+          <p class="hint">PBS servers are used to list backups. Proxmox VE is the restore target.</p>
+          <h3 style="font-size:0.95rem; margin:1rem 0 0.5rem;">Proxmox Backup Servers</h3>
+          <p class="hint">
+            Add one entry per server. Each server can have several datastores/namespaces; each maps to the
+            PVE storage ID that references it (the storage must already exist on Proxmox VE).
+          </p>
+          <div id="pbs-servers"></div>
+          <div class="actions" style="margin-bottom:0.5rem;">
+            <button type="button" class="secondary" id="btn-add-pbs-server">+ Add PBS server</button>
+          </div>
+
+          <h3 style="font-size:0.95rem; margin:1rem 0 0.5rem;">Proxmox VE</h3>
+          <div class="row">
+            <div><label>Host</label><input id="pve-host" /></div>
+            <div><label>Port</label><input id="pve-port" type="number" /></div>
+          </div>
+          <label>API token ID</label><input id="pve-token-id" placeholder="root@pam!restore" />
+          <label>API token secret</label><input id="pve-token-secret" type="password" />
+          <label>Default node</label><input id="pve-node" />
+          <label>Default target storage</label><input id="pve-storage" placeholder="local-lvm" />
+          <div class="inline"><input type="checkbox" id="pve-verify-ssl" /><label style="margin:0">Verify TLS</label></div>
+
+          <h3 style="font-size:0.95rem; margin:1rem 0 0.5rem;">Restore performance</h3>
+          <p class="hint">
+            Tune restore throughput. Concurrency applies to the worker (takes effect within a few seconds, no restart needed).
+            Bandwidth and live restore here are defaults that pre-fill the restore dialog.
+          </p>
+          <div class="row">
+            <div>
+              <label>Max concurrent restores</label>
+              <input id="worker-max-concurrent" type="number" min="1" step="1" />
+            </div>
+            <div>
+              <label>Default bandwidth limit (KiB/s, 0 = unlimited)</label>
+              <input id="pve-restore-bwlimit" type="number" min="0" step="1024" />
+            </div>
+          </div>
+          <div class="inline">
+            <input type="checkbox" id="pve-live-restore-default" />
+            <label for="pve-live-restore-default" style="margin:0">Live restore by default</label>
+          </div>
+
+          <div class="actions">
+            <button type="button" class="secondary" id="btn-test-pve">Test Proxmox</button>
+            <button type="button" class="primary" id="btn-save-credentials">Save settings</button>
+            <button type="button" class="primary" id="btn-continue-backups">Continue to backup list</button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div id="restore-modal" class="modal-backdrop">
+    <div class="modal">
+      <h3>Restore to Proxmox VE</h3>
+      <p class="hint" id="restore-modal-summary"></p>
+      <label for="restore-vmid-start">First Proxmox VM ID</label>
+      <input id="restore-vmid-start" type="number" min="100" step="1" />
+      <p class="hint">Each selected backup gets the next free VM ID from this start value.</p>
+      <label for="restore-node">Proxmox node</label>
+      <input id="restore-node" placeholder="Uses default from config if empty" />
+      <label for="restore-storage-select">Target storage (from node)</label>
+      <select id="restore-storage-select"></select>
+      <label for="restore-storage-manual">Or type storage ID manually</label>
+      <input id="restore-storage-manual" placeholder="Used if dropdown is empty" />
+      <label for="restore-bwlimit">Bandwidth limit (KiB/s, 0 = unlimited)</label>
+      <input id="restore-bwlimit" type="number" min="0" step="1024" />
+      <p class="hint">Caps read/write throughput for each restore in this batch. Leave 0 to use Proxmox defaults.</p>
+      <div class="inline">
+        <input type="checkbox" id="restore-live" />
+        <label for="restore-live" style="margin:0">Live restore (boot early, stream data in background)</label>
+      </div>
+      <div class="actions">
+        <button type="button" class="primary" id="btn-restore-confirm">Enqueue restore</button>
+        <button type="button" class="secondary" id="btn-restore-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="taggroup-modal" class="modal-backdrop">
+    <div class="modal">
+      <h3>Restore by tag group</h3>
+      <p class="hint">Restores the newest backup per VM (at or before the chosen time) whose config carries the tag.</p>
+      <label for="taggroup-tag">Tag</label>
+      <input id="taggroup-tag" list="taggroup-tag-list" placeholder="deployed" />
+      <datalist id="taggroup-tag-list"></datalist>
+      <label for="taggroup-cutoff">Point in time (blank = now)</label>
+      <input id="taggroup-cutoff" type="datetime-local" />
+      <label for="taggroup-vmid-start">First Proxmox VM ID</label>
+      <input id="taggroup-vmid-start" type="number" min="100" step="1" />
+      <label for="taggroup-node">Proxmox node</label>
+      <input id="taggroup-node" placeholder="Uses default from config if empty" />
+      <label for="taggroup-storage-select">Target storage (from node)</label>
+      <select id="taggroup-storage-select"></select>
+      <label for="taggroup-storage-manual">Or type storage ID manually</label>
+      <input id="taggroup-storage-manual" placeholder="Used if dropdown is empty" />
+      <label for="taggroup-bwlimit">Bandwidth limit (KiB/s, 0 = unlimited)</label>
+      <input id="taggroup-bwlimit" type="number" min="0" step="1024" />
+      <div class="inline">
+        <input type="checkbox" id="taggroup-live" />
+        <label for="taggroup-live" style="margin:0">Live restore</label>
+      </div>
+      <div class="actions">
+        <button type="button" class="primary" id="btn-taggroup-confirm">Restore group</button>
+        <button type="button" class="secondary" id="btn-taggroup-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let credentialsVerified = false;
+    let jobsPollTimer = null;
+    let backupInventory = [];
+    let tagsById = {};
+
+    function escapeHtml(s) {
+      return String(s ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    function banner(el, kind, text) {
+      if (!el) return;
+      el.className = "banner show " + (kind || "info");
+      el.textContent = text || "";
+    }
+
+    async function api(path, opts = {}) {
+      const res = await fetch(path, {
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
+        ...opts,
+      });
+      const text = await res.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch (_) { data = { detail: text }; }
+      if (!res.ok) {
+        const msg = (data && (data.detail || data.message)) || res.statusText;
+        throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+      }
+      return data;
+    }
+
+    function showLogin() {
+      document.getElementById("login-screen").classList.remove("hidden");
+      document.getElementById("app-screen").classList.add("hidden");
+      document.getElementById("health-strip").classList.add("hidden");
+    }
+
+    function showApp() {
+      document.getElementById("login-screen").classList.add("hidden");
+      document.getElementById("app-screen").classList.remove("hidden");
+      document.getElementById("health-strip").classList.remove("hidden");
+    }
+
+    function showView(name) {
+      ["backups", "jobs", "credentials"].forEach((v) => {
+        document.getElementById("view-" + v).classList.toggle("hidden", v !== name);
+        document.getElementById("nav-" + v).classList.toggle("active", v === name);
+      });
+      if (name === "jobs") startJobsPoll();
+      else stopJobsPoll();
+    }
+
+    async function refreshHealth() {
+      try {
+        const h = await fetch("/health").then((r) => r.json());
+        const dot = document.getElementById("health-dot");
+        const summary = document.getElementById("health-summary");
+        dot.className = "health-dot " + (h.ok ? "ok" : "err");
+        const parts = [];
+        for (const [name, comp] of Object.entries(h.components || {})) {
+          parts.push(name + ": " + (comp.ok ? "ok" : comp.detail));
+        }
+        summary.textContent = parts.join(" · ");
+      } catch (e) {
+        document.getElementById("health-summary").textContent = "health check failed";
+      }
+    }
+
+    async function initAuth() {
+      const status = await api("/api/auth/status");
+      if (!status.authenticated) {
+        showLogin();
+        return;
+      }
+      credentialsVerified = !!status.credentials_verified;
+      showApp();
+      refreshHealth();
+      if (credentialsVerified) {
+        showView("backups");
+        loadBackupList();
+      } else {
+        showView("credentials");
+        loadCredentialsForm();
+      }
+    }
+
+    document.getElementById("btn-login").onclick = async () => {
+      const pw = document.getElementById("login-password").value;
+      const lb = document.getElementById("login-banner");
+      try {
+        await api("/api/auth/login", { method: "POST", body: JSON.stringify({ password: pw }) });
+        banner(lb, "ok", "");
+        lb.classList.remove("show");
+        await initAuth();
+      } catch (e) {
+        banner(lb, "err", e.message);
+      }
+    };
+
+    document.getElementById("btn-logout").onclick = async () => {
+      await api("/api/auth/logout", { method: "POST", body: "{}" });
+      showLogin();
+    };
+
+    document.getElementById("nav-backups").onclick = () => {
+      if (!credentialsVerified) return showView("credentials");
+      showView("backups");
+      loadBackupList();
+    };
+    document.getElementById("nav-jobs").onclick = () => showView("jobs");
+    document.getElementById("nav-credentials").onclick = () => {
+      showView("credentials");
+      loadCredentialsForm();
+    };
+    document.getElementById("link-setup-again").onclick = async (e) => {
+      e.preventDefault();
+      await api("/api/auth/reopen-credentials", { method: "POST", body: "{}" });
+      credentialsVerified = false;
+      showView("credentials");
+      loadCredentialsForm();
+    };
+
+    function mountRowEl(mount) {
+      const el = document.createElement("div");
+      el.className = "mount-row";
+      el.innerHTML =
+        '<div><label class="mini">Datastore</label><input class="m-datastore" placeholder="main" /></div>' +
+        '<div><label class="mini">Namespace (blank = root)</label><input class="m-namespace" placeholder="" /></div>' +
+        '<div><label class="mini">PVE storage ID</label><input class="m-pve-storage" placeholder="pbs-main" /></div>' +
+        '<div><button type="button" class="danger tiny m-remove">Remove</button></div>';
+      el.querySelector(".m-datastore").value = (mount && mount.datastore) || "";
+      el.querySelector(".m-namespace").value = (mount && mount.namespace) || "";
+      el.querySelector(".m-pve-storage").value = (mount && mount.pve_storage) || "";
+      el.querySelector(".m-remove").onclick = () => el.remove();
+      return el;
+    }
+
+    function serverCardEl(server) {
+      server = server || {};
+      const card = document.createElement("div");
+      card.className = "subcard pbs-server";
+      card.innerHTML =
+        '<div class="subcard-head"><strong>PBS server</strong>' +
+        '<button type="button" class="danger tiny s-remove">Remove server</button></div>' +
+        '<div class="row">' +
+        '<div><label>ID (label)</label><input class="s-id" placeholder="main" /></div>' +
+        '<div><label>Host</label><input class="s-host" /></div>' +
+        "</div>" +
+        '<div class="row">' +
+        '<div><label>Port</label><input class="s-port" type="number" /></div>' +
+        '<div><label>API token ID</label><input class="s-token-id" placeholder="root@pam!restore" /></div>' +
+        "</div>" +
+        '<label>API token secret</label><input class="s-token-secret" type="password" />' +
+        '<div class="inline"><input type="checkbox" class="s-verify-ssl" /><label style="margin:0">Verify TLS</label></div>' +
+        '<label class="mini">Datastores / namespaces → PVE storage</label>' +
+        '<div class="s-mounts"></div>' +
+        '<div class="actions" style="margin:0.25rem 0 0.25rem;">' +
+        '<button type="button" class="link s-add-mount">+ Add datastore/namespace</button>' +
+        '<button type="button" class="secondary tiny s-test">Test this server</button>' +
+        "</div>";
+      card.dataset.serverId = server.id || "";
+      card.querySelector(".s-id").value = server.id || "";
+      card.querySelector(".s-host").value = server.host || "";
+      card.querySelector(".s-port").value = server.port || 8007;
+      card.querySelector(".s-token-id").value = server.api_token_id || "";
+      card.querySelector(".s-token-secret").value = "";
+      card.querySelector(".s-token-secret").placeholder = server.api_token_secret_set ? "********" : "";
+      card.querySelector(".s-verify-ssl").checked = !!server.verify_ssl;
+      const mountsEl = card.querySelector(".s-mounts");
+      const mounts = (server.mounts && server.mounts.length) ? server.mounts : [{}];
+      mounts.forEach((m) => mountsEl.appendChild(mountRowEl(m)));
+      card.querySelector(".s-add-mount").onclick = () => mountsEl.appendChild(mountRowEl({}));
+      card.querySelector(".s-remove").onclick = () => card.remove();
+      card.querySelector(".s-test").onclick = async () => {
+        const gb = document.getElementById("global-banner");
+        try {
+          const res = await api("/api/ui/test/pbs", { method: "POST", body: JSON.stringify(readServerCard(card)) });
+          banner(gb, res.ok ? "ok" : "err", res.message);
+        } catch (e) {
+          banner(gb, "err", e.message);
+        }
+      };
+      return card;
+    }
+
+    function readServerCard(card) {
+      const mounts = [...card.querySelectorAll(".mount-row")].map((row) => ({
+        datastore: row.querySelector(".m-datastore").value.trim(),
+        namespace: row.querySelector(".m-namespace").value.trim(),
+        pve_storage: row.querySelector(".m-pve-storage").value.trim(),
+      }));
+      return {
+        id: card.querySelector(".s-id").value.trim(),
+        host: card.querySelector(".s-host").value.trim(),
+        port: Number(card.querySelector(".s-port").value || 8007),
+        verify_ssl: card.querySelector(".s-verify-ssl").checked,
+        api_token_id: card.querySelector(".s-token-id").value.trim(),
+        api_token_secret: card.querySelector(".s-token-secret").value,
+        mounts,
+      };
+    }
+
+    function collectPbsServers() {
+      return [...document.querySelectorAll("#pbs-servers .pbs-server")].map(readServerCard);
+    }
+
+    async function loadCredentialsForm() {
+      const data = await api("/api/ui/credentials");
+      const servers = data.pbs_servers || [];
+      const container = document.getElementById("pbs-servers");
+      container.innerHTML = "";
+      (servers.length ? servers : [{ mounts: [{}] }]).forEach((s) => container.appendChild(serverCardEl(s)));
+      const pve = data.proxmox || {};
+      document.getElementById("pve-host").value = pve.host || "";
+      document.getElementById("pve-port").value = pve.port || 8006;
+      document.getElementById("pve-token-id").value = pve.api_token_id || "";
+      document.getElementById("pve-token-secret").value = "";
+      document.getElementById("pve-token-secret").placeholder = pve.api_token_secret_set ? "********" : "";
+      document.getElementById("pve-node").value = pve.default_node || "";
+      document.getElementById("pve-storage").value = pve.storage || "";
+      document.getElementById("pve-verify-ssl").checked = !!pve.verify_ssl;
+      document.getElementById("pve-restore-bwlimit").value = pve.restore_bwlimit ?? 0;
+      document.getElementById("pve-live-restore-default").checked = !!pve.live_restore_default;
+      const worker = data.worker || {};
+      document.getElementById("worker-max-concurrent").value = worker.max_concurrent_restores ?? 2;
+    }
+
+    function credBody() {
+      return {
+        pbs_servers: collectPbsServers(),
+        proxmox: {
+          host: document.getElementById("pve-host").value.trim(),
+          port: Number(document.getElementById("pve-port").value || 8006),
+          api_token_id: document.getElementById("pve-token-id").value.trim(),
+          api_token_secret: document.getElementById("pve-token-secret").value,
+          default_node: document.getElementById("pve-node").value.trim(),
+          storage: document.getElementById("pve-storage").value.trim(),
+          verify_ssl: document.getElementById("pve-verify-ssl").checked,
+          restore_bwlimit: Number(document.getElementById("pve-restore-bwlimit").value || 0),
+          live_restore_default: document.getElementById("pve-live-restore-default").checked,
+        },
+        worker: {
+          max_concurrent_restores: Number(document.getElementById("worker-max-concurrent").value || 2),
+        },
+      };
+    }
+
+    document.getElementById("btn-add-pbs-server").onclick = () => {
+      document.getElementById("pbs-servers").appendChild(serverCardEl({ mounts: [{}] }));
+    };
+
+    document.getElementById("btn-save-credentials").onclick = async () => {
+      const gb = document.getElementById("global-banner");
+      try {
+        await api("/api/ui/credentials", { method: "PUT", body: JSON.stringify(credBody()) });
+        banner(gb, "ok", "Settings saved.");
+        loadCredentialsForm();
+      } catch (e) {
+        banner(gb, "err", e.message);
+      }
+    };
+
+    document.getElementById("btn-test-pve").onclick = async () => {
+      const gb = document.getElementById("global-banner");
+      try {
+        const res = await api("/api/ui/test/proxmox", { method: "POST", body: JSON.stringify(credBody().proxmox) });
+        banner(gb, res.ok ? "ok" : "err", res.message);
+      } catch (e) {
+        banner(gb, "err", e.message);
+      }
+    };
+
+    document.getElementById("btn-continue-backups").onclick = async () => {
+      const gb = document.getElementById("global-banner");
+      try {
+        await api("/api/ui/credentials", { method: "PUT", body: JSON.stringify(credBody()) });
+        const res = await api("/api/auth/complete-credentials-check", { method: "POST", body: "{}" });
+        if (!res.ok) {
+          banner(gb, "err", (res.pbs_message || "") + " " + (res.proxmox_message || ""));
+          return;
+        }
+        credentialsVerified = true;
+        banner(gb, "ok", "Connections verified. Backup list unlocked.");
+        showView("backups");
+        loadBackupList();
+      } catch (e) {
+        banner(gb, "err", e.message);
+      }
+    };
+
+    function getSelectedBackupIds() {
+      return [...document.querySelectorAll("#backup-tbody tr")].filter((tr) => tr.querySelector("input:checked")).map((tr) => tr.dataset.backupId);
+    }
+
+    function updateRestoreButton() {
+      const n = getSelectedBackupIds().length;
+      document.getElementById("btn-open-restore-modal").disabled = n === 0;
+    }
+
+    async function loadBackupList() {
+      const statusEl = document.getElementById("backup-list-status");
+      const tbody = document.getElementById("backup-tbody");
+      const table = document.getElementById("backup-table");
+      const empty = document.getElementById("backup-empty");
+      statusEl.textContent = "Loading…";
+      tbody.innerHTML = "";
+      try {
+        backupInventory = await api("/api/backups");
+        statusEl.textContent = backupInventory.length + " backup(s) from PBS";
+        if (!backupInventory.length) {
+          table.hidden = true;
+          empty.classList.remove("hidden");
+          updateRestoreButton();
+          return;
+        }
+        empty.classList.add("hidden");
+        table.hidden = false;
+        for (const row of backupInventory) {
+          const tr = document.createElement("tr");
+          tr.className = "vm-row";
+          tr.dataset.backupId = row.backup_id;
+          if (Array.isArray(row.tags)) tagsById[row.backup_id] = row.tags;
+          tr.innerHTML =
+            '<td><input type="checkbox" class="backup-cb" /></td>' +
+            "<td>" + escapeHtml(row.name) + "</td>" +
+            "<td>" + escapeHtml(row.vmid) + "</td>" +
+            "<td>" + escapeHtml(row.source_label || row.datastore || "") + "</td>" +
+            '<td class="tags-cell">' + renderTagCell(row.backup_id) + "</td>" +
+            "<td>" + escapeHtml(row.timestamp) + "</td>";
+          const cb = tr.querySelector("input.backup-cb");
+          cb.addEventListener("change", () => {
+            tr.classList.toggle("selected", cb.checked);
+            updateRestoreButton();
+          });
+          tr.addEventListener("click", (ev) => {
+            if (ev.target.tagName === "INPUT") return;
+            cb.checked = !cb.checked;
+            tr.classList.toggle("selected", cb.checked);
+            updateRestoreButton();
+          });
+          tbody.appendChild(tr);
+        }
+        refreshTagUI();
+        applyTagFilter();
+        updateRestoreButton();
+      } catch (e) {
+        statusEl.textContent = "";
+        banner(document.getElementById("global-banner"), "err", e.message);
+        table.hidden = true;
+        empty.classList.remove("hidden");
+        updateRestoreButton();
+      }
+    }
+
+    function renderTagCell(backupId) {
+      const tags = tagsById[backupId];
+      if (tags === undefined) return '<span class="hint">—</span>';
+      if (!tags.length) return '<span class="hint">(none)</span>';
+      return tags.map((t) => '<span class="state-pill">' + escapeHtml(t) + "</span>").join(" ");
+    }
+
+    function refreshTagUI() {
+      const all = [...new Set(Object.values(tagsById).flat())].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+      const sel = document.getElementById("backup-tag-filter");
+      const prev = sel.value;
+      sel.innerHTML = '<option value="">All tags</option>';
+      const dl = document.getElementById("taggroup-tag-list");
+      dl.innerHTML = "";
+      for (const t of all) {
+        const o = document.createElement("option");
+        o.value = t;
+        o.textContent = t;
+        sel.appendChild(o);
+        const d = document.createElement("option");
+        d.value = t;
+        dl.appendChild(d);
+      }
+      sel.value = all.includes(prev) ? prev : "";
+    }
+
+    function rowMatchesTag(tr, tag) {
+      if (!tag) return true;
+      const tags = tagsById[tr.dataset.backupId] || [];
+      return tags.some((t) => t.toLowerCase() === tag.toLowerCase());
+    }
+
+    function applyTagFilter() {
+      const tag = document.getElementById("backup-tag-filter").value;
+      document.querySelectorAll("#backup-tbody tr").forEach((tr) => {
+        tr.classList.toggle("hidden", !rowMatchesTag(tr, tag));
+      });
+    }
+
+    document.getElementById("backup-tag-filter").onchange = applyTagFilter;
+
+    document.getElementById("btn-load-tags").onclick = async () => {
+      const gb = document.getElementById("global-banner");
+      const btn = document.getElementById("btn-load-tags");
+      const ids = backupInventory.map((b) => b.backup_id);
+      if (!ids.length) return;
+      btn.disabled = true;
+      const original = btn.textContent;
+      btn.textContent = "Loading tags…";
+      try {
+        const res = await api("/api/backups/resolve-tags", { method: "POST", body: JSON.stringify({ backup_ids: ids }) });
+        tagsById = Object.assign(tagsById, res.tags || {});
+        document.querySelectorAll("#backup-tbody tr").forEach((tr) => {
+          const cell = tr.querySelector(".tags-cell");
+          if (cell) cell.innerHTML = renderTagCell(tr.dataset.backupId);
+        });
+        refreshTagUI();
+        applyTagFilter();
+        banner(gb, "ok", "Loaded tags for " + Object.keys(res.tags || {}).length + " backup(s).");
+      } catch (e) {
+        banner(gb, "err", e.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = original;
+      }
+    };
+
+    document.getElementById("btn-select-tag").onclick = () => {
+      const tag = document.getElementById("backup-tag-filter").value;
+      document.querySelectorAll("#backup-tbody tr").forEach((tr) => {
+        const cb = tr.querySelector("input.backup-cb");
+        const match = rowMatchesTag(tr, tag) && !tr.classList.contains("hidden");
+        cb.checked = match;
+        tr.classList.toggle("selected", match);
+      });
+      updateRestoreButton();
+    };
+
+    document.getElementById("btn-refresh-backups").onclick = loadBackupList;
+    document.getElementById("btn-select-all").onclick = () => {
+      document.querySelectorAll("#backup-tbody input.backup-cb").forEach((cb) => {
+        cb.checked = true;
+        cb.closest("tr").classList.add("selected");
+      });
+      updateRestoreButton();
+    };
+    document.getElementById("btn-clear-selection").onclick = () => {
+      document.querySelectorAll("#backup-tbody input.backup-cb").forEach((cb) => {
+        cb.checked = false;
+        cb.closest("tr").classList.remove("selected");
+      });
+      document.getElementById("backup-select-all").checked = false;
+      updateRestoreButton();
+    };
+    document.getElementById("backup-select-all").onchange = (ev) => {
+      const checked = ev.target.checked;
+      document.querySelectorAll("#backup-tbody input.backup-cb").forEach((cb) => {
+        cb.checked = checked;
+        cb.closest("tr").classList.toggle("selected", checked);
+      });
+      updateRestoreButton();
+    };
+
+    async function loadRestoreStorages() {
+      const sel = document.getElementById("restore-storage-select");
+      const node = document.getElementById("restore-node").value.trim();
+      sel.innerHTML = "";
+      if (!node) {
+        const opt = document.createElement("option");
+        opt.textContent = "Set node name first";
+        sel.appendChild(opt);
+        return;
+      }
+      try {
+        const data = await api("/api/ui/proxmox-storages?node=" + encodeURIComponent(node));
+        const ph = document.createElement("option");
+        ph.value = "";
+        ph.textContent = "— Select storage —";
+        sel.appendChild(ph);
+        for (const s of data.storages || []) {
+          const o = document.createElement("option");
+          o.value = s.id;
+          o.textContent = s.id + " (" + s.type + ")";
+          if (!s.enabled || s.active !== 1) o.disabled = true;
+          sel.appendChild(o);
+        }
+      } catch (_) {
+        const err = document.createElement("option");
+        err.textContent = "(could not list storages)";
+        sel.appendChild(err);
+      }
+    }
+
+    function getRestoreStorageValue() {
+      const selVal = document.getElementById("restore-storage-select").value.trim();
+      const manual = document.getElementById("restore-storage-manual").value.trim();
+      return selVal || manual;
+    }
+
+    async function openRestoreModal() {
+      const ids = getSelectedBackupIds();
+      if (!ids.length) return;
+      document.getElementById("restore-modal-summary").textContent =
+        ids.length + " backup(s) selected.";
+      try {
+        const node = document.getElementById("restore-node").value.trim();
+        const defs = await api("/api/restore-defaults" + (node ? "?proxmox_node=" + encodeURIComponent(node) : ""));
+        document.getElementById("restore-node").value = defs.default_node || "";
+        document.getElementById("restore-vmid-start").value = defs.next_free_proxmox_vmid || 100;
+        document.getElementById("restore-storage-manual").value = defs.storage || "";
+        document.getElementById("restore-bwlimit").value = defs.bwlimit ?? 0;
+        document.getElementById("restore-live").checked = !!defs.live_restore;
+      } catch (_) {}
+      await loadRestoreStorages();
+      document.getElementById("restore-modal").classList.add("show");
+    }
+
+    document.getElementById("btn-open-restore-modal").onclick = openRestoreModal;
+    document.getElementById("btn-restore-cancel").onclick = () => document.getElementById("restore-modal").classList.remove("show");
+    document.getElementById("restore-node").onchange = loadRestoreStorages;
+
+    document.getElementById("btn-restore-confirm").onclick = async () => {
+      const gb = document.getElementById("global-banner");
+      const storage = getRestoreStorageValue();
+      if (!storage) {
+        banner(gb, "err", "Choose a target storage.");
+        return;
+      }
+      const body = {
+        backup_ids: getSelectedBackupIds(),
+        proxmox_node: document.getElementById("restore-node").value.trim() || null,
+        proxmox_storage: storage,
+        proxmox_vmid_start: Number(document.getElementById("restore-vmid-start").value || 100),
+        live_restore: document.getElementById("restore-live").checked,
+        bwlimit: Number(document.getElementById("restore-bwlimit").value || 0),
+      };
+      try {
+        const res = await api("/api/jobs/restore-selected", { method: "POST", body: JSON.stringify(body) });
+        document.getElementById("restore-modal").classList.remove("show");
+        banner(gb, "ok", "Enqueued " + res.enqueued + " restore job(s).");
+        showView("jobs");
+        loadJobs();
+      } catch (e) {
+        banner(gb, "err", e.message);
+      }
+    };
+
+    async function loadTagGroupStorages() {
+      const sel = document.getElementById("taggroup-storage-select");
+      const node = document.getElementById("taggroup-node").value.trim();
+      sel.innerHTML = "";
+      if (!node) {
+        const opt = document.createElement("option");
+        opt.textContent = "Set node name first";
+        sel.appendChild(opt);
+        return;
+      }
+      try {
+        const data = await api("/api/ui/proxmox-storages?node=" + encodeURIComponent(node));
+        const ph = document.createElement("option");
+        ph.value = "";
+        ph.textContent = "— Select storage —";
+        sel.appendChild(ph);
+        for (const s of data.storages || []) {
+          const o = document.createElement("option");
+          o.value = s.id;
+          o.textContent = s.id + " (" + s.type + ")";
+          if (!s.enabled || s.active !== 1) o.disabled = true;
+          sel.appendChild(o);
+        }
+      } catch (_) {
+        const err = document.createElement("option");
+        err.textContent = "(could not list storages)";
+        sel.appendChild(err);
+      }
+    }
+
+    async function openTagGroupModal() {
+      document.getElementById("taggroup-tag").value = document.getElementById("backup-tag-filter").value || "";
+      try {
+        const node = document.getElementById("taggroup-node").value.trim();
+        const defs = await api("/api/restore-defaults" + (node ? "?proxmox_node=" + encodeURIComponent(node) : ""));
+        document.getElementById("taggroup-node").value = defs.default_node || "";
+        document.getElementById("taggroup-vmid-start").value = defs.next_free_proxmox_vmid || 100;
+        document.getElementById("taggroup-storage-manual").value = defs.storage || "";
+        document.getElementById("taggroup-bwlimit").value = defs.bwlimit ?? 0;
+        document.getElementById("taggroup-live").checked = !!defs.live_restore;
+      } catch (_) {}
+      await loadTagGroupStorages();
+      document.getElementById("taggroup-modal").classList.add("show");
+    }
+
+    document.getElementById("btn-open-taggroup-modal").onclick = openTagGroupModal;
+    document.getElementById("btn-taggroup-cancel").onclick = () => document.getElementById("taggroup-modal").classList.remove("show");
+    document.getElementById("taggroup-node").onchange = loadTagGroupStorages;
+
+    document.getElementById("btn-taggroup-confirm").onclick = async () => {
+      const gb = document.getElementById("global-banner");
+      const tag = document.getElementById("taggroup-tag").value.trim();
+      if (!tag) {
+        banner(gb, "err", "Enter a tag.");
+        return;
+      }
+      const storage =
+        document.getElementById("taggroup-storage-select").value.trim() ||
+        document.getElementById("taggroup-storage-manual").value.trim();
+      if (!storage) {
+        banner(gb, "err", "Choose a target storage.");
+        return;
+      }
+      const body = {
+        tag,
+        at_or_before: document.getElementById("taggroup-cutoff").value || null,
+        proxmox_node: document.getElementById("taggroup-node").value.trim() || null,
+        proxmox_storage: storage,
+        proxmox_vmid_start: Number(document.getElementById("taggroup-vmid-start").value || 100),
+        live_restore: document.getElementById("taggroup-live").checked,
+        bwlimit: Number(document.getElementById("taggroup-bwlimit").value || 0),
+      };
+      const btn = document.getElementById("btn-taggroup-confirm");
+      btn.disabled = true;
+      try {
+        const res = await api("/api/jobs/restore-tag-group", { method: "POST", body: JSON.stringify(body) });
+        document.getElementById("taggroup-modal").classList.remove("show");
+        if (!res.enqueued) {
+          banner(gb, "info", "No VMs matched tag '" + tag + "' at that time.");
+          return;
+        }
+        banner(gb, "ok", "Enqueued " + res.enqueued + " restore(s) for VMs: " + (res.matched_vmids || []).join(", "));
+        showView("jobs");
+        loadJobs();
+      } catch (e) {
+        banner(gb, "err", e.message);
+      } finally {
+        btn.disabled = false;
+      }
+    };
+
+    async function loadJobs() {
+      const statusEl = document.getElementById("jobs-list-status");
+      const tbody = document.getElementById("jobs-tbody");
+      const table = document.getElementById("jobs-table");
+      const empty = document.getElementById("jobs-empty");
+      try {
+        const jobs = await api("/api/jobs");
+        statusEl.textContent = jobs.length ? jobs.length + " job(s)" : "";
+        if (!jobs.length) {
+          table.hidden = true;
+          empty.classList.remove("hidden");
+          return;
+        }
+        empty.classList.add("hidden");
+        table.hidden = false;
+        tbody.innerHTML = "";
+        for (const job of jobs) {
+          const tr = document.createElement("tr");
+          const pct = Math.max(0, Math.min(100, Number(job.progress || 0)));
+          const fillClass = job.state === "COMPLETED" ? "done" : job.state === "FAILED" ? "fail" : "";
+          tr.innerHTML =
+            "<td>" + escapeHtml(job.vm_name) + "</td>" +
+            "<td>" + escapeHtml(job.source_label || "") + "</td>" +
+            "<td>" + escapeHtml(job.source_vmid) + "</td>" +
+            "<td>" + escapeHtml(job.proxmox_vmid) + "</td>" +
+            "<td>" + escapeHtml(job.proxmox_node) + "</td>" +
+            '<td><span class="state-pill">' + escapeHtml(job.state) + "</span></td>" +
+            '<td><div class="progress-wrap"><div class="progress-fill ' + fillClass + '" style="width:' + pct + '%"></div></div></td>' +
+            "<td>" + escapeHtml((job.updated_at || "").slice(0, 19)) + "</td>" +
+            '<td><button type="button" class="secondary btn-stop" data-id="' + escapeHtml(job.job_id) + '">Stop</button></td>';
+          tbody.appendChild(tr);
+        }
+        tbody.querySelectorAll(".btn-stop").forEach((btn) => {
+          btn.onclick = async () => {
+            try {
+              await api("/api/jobs/" + encodeURIComponent(btn.dataset.id) + "/stop", { method: "POST", body: "{}" });
+              loadJobs();
+            } catch (e) {
+              banner(document.getElementById("global-banner"), "err", e.message);
+            }
+          };
+        });
+      } catch (e) {
+        statusEl.textContent = "";
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    }
+
+    function startJobsPoll() {
+      stopJobsPoll();
+      loadJobs();
+      jobsPollTimer = setInterval(loadJobs, 5000);
+    }
+
+    function stopJobsPoll() {
+      if (jobsPollTimer) clearInterval(jobsPollTimer);
+      jobsPollTimer = null;
+    }
+
+    document.getElementById("btn-refresh-jobs").onclick = loadJobs;
+
+    initAuth().catch((e) => {
+      showLogin();
+      banner(document.getElementById("login-banner"), "err", e.message);
+    });
+  </script>
+</body>
+</html>

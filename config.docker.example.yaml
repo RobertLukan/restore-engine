@@ -1,0 +1,39 @@
+ui:
+  password: "change-me-dashboard"
+  session_secret: "change-me-use-a-long-random-string-at-least-32-chars"
+
+pbs_servers:
+  - id: main
+    host: "10.0.0.10"
+    port: 8007
+    verify_ssl: false
+    api_token_id: "root@pam!restore"
+    api_token_secret: "CHANGE_ME"
+    mounts:
+      - datastore: "main"
+        namespace: ""
+        pve_storage: "pbs-main"
+
+proxmox:
+  host: "10.0.0.20"
+  port: 8006
+  verify_ssl: false
+  default_node: pve
+  api_token_id: root@pam!restore
+  api_token_secret: "CHANGE_ME"
+  user: root@pam
+  password: ""
+  storage: local-lvm
+  restore_bwlimit: 0
+  live_restore_default: false
+
+redis:
+  url: redis://redis:6379/0
+  queue_key: restore:queue
+  job_key_prefix: "restore:job:"
+  job_log_suffix: :log
+  tag_cache_prefix: "restore:tagcache:"
+
+worker:
+  task_poll_interval_sec: 3
+  max_concurrent_restores: 2
