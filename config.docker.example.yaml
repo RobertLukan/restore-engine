@@ -7,8 +7,11 @@ pbs_servers:
     host: "10.0.0.10"
     port: 8007
     verify_ssl: false
-    api_token_id: "root@pam!restore"
-    api_token_secret: "CHANGE_ME"
+    # Prefer token when set; otherwise username/password ticket auth.
+    api_token_id: ""
+    api_token_secret: ""
+    user: "root@pam"
+    password: "CHANGE_ME"
     mounts:
       - datastore: "main"
         namespace: ""
@@ -19,10 +22,10 @@ proxmox:
   port: 8006
   verify_ssl: false
   default_node: pve
-  api_token_id: root@pam!restore
-  api_token_secret: "CHANGE_ME"
+  api_token_id: ""
+  api_token_secret: ""
   user: root@pam
-  password: ""
+  password: "CHANGE_ME"
   storage: local-lvm
   restore_bwlimit: 0
   live_restore_default: false
@@ -37,3 +40,14 @@ redis:
 worker:
   task_poll_interval_sec: 3
   max_concurrent_restores: 2
+  plan_check_interval_sec: 86400
+  report_retain: 20
+  # When true, POST /api/plans/{id}/run rejects plans that are not VERIFIED
+  # unless allow_unverified=true is sent.
+  require_verified_to_run: false
+  # Default QGA wait when UI enables "Wait for guest agent" (seconds).
+  qga_wait_sec_default: 120
+
+# Optional plans section (same require_verified_to_run key is also read here).
+# plans:
+#   require_verified_to_run: false

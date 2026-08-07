@@ -53,8 +53,58 @@
       background: var(--bg);
       color: var(--text);
       margin-bottom: 0.75rem;
+      font-size: 0.9rem;
     }
-    input[type="checkbox"] { width: auto; margin-right: 0.35rem; }
+    select[multiple] {
+      min-height: 5.5rem;
+      padding: 0.35rem;
+    }
+    .storage-by-node-panel {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem;
+      margin-bottom: 0.75rem;
+      background: #0d1218;
+    }
+    .storage-by-node-panel .node-storage-row {
+      margin-bottom: 0.65rem;
+    }
+    .storage-by-node-panel .node-storage-row:last-child {
+      margin-bottom: 0;
+    }
+    .jobs-control-strip {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+      margin-bottom: 0.75rem;
+      background: #0d1218;
+    }
+    .progress-cell {
+      min-width: 7rem;
+    }
+    .progress-pct {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-top: 0.15rem;
+    }
+    input[type="checkbox"],
+    input[type="radio"] { width: auto; margin: 0 0.4rem 0 0; flex-shrink: 0; }
+    .radio-group {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem 1.25rem;
+      margin-bottom: 0.5rem;
+    }
+    .radio-group > label {
+      display: inline-flex;
+      align-items: center;
+      margin: 0;
+      color: var(--text);
+      font-size: 0.875rem;
+      cursor: pointer;
+      white-space: nowrap;
+    }
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
     @media (max-width: 640px) { .row { grid-template-columns: 1fr; } }
     .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
@@ -80,6 +130,8 @@
     .banner.ok { background: #1a3d2e; border: 1px solid #2d6a4a; color: #a8e6c1; }
     .banner.err { background: #3d1f24; border: 1px solid #6a2d35; color: #ffc9c9; }
     .banner.info { background: #1e2f4a; border: 1px solid #2d4a7a; color: #b8d4ff; }
+    .banner.warn { background: #3d321a; border: 1px solid #6a552d; color: #ffe6a8; }
+    label.check { display: flex; align-items: center; gap: 0.5rem; margin: 0.5rem 0; font-size: 0.9rem; }
     #login-panel { max-width: 22rem; margin: 4rem auto; }
     .hint { font-size: 0.8rem; color: var(--muted); margin-top: -0.35rem; margin-bottom: 0.75rem; }
     .inline { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
@@ -91,6 +143,14 @@
       border-bottom: 1px solid var(--border);
     }
     table.vm-table th { color: var(--muted); font-weight: 500; }
+    table.vm-table select.snapshot-select {
+      width: auto;
+      min-width: 14rem;
+      max-width: 22rem;
+      margin: 0;
+      padding: 0.35rem 0.5rem;
+      font-size: 0.8rem;
+    }
     .empty-state { color: var(--muted); padding: 1rem 0; }
     button:disabled { opacity: 0.45; cursor: not-allowed; }
     tr.vm-row { cursor: pointer; }
@@ -118,6 +178,33 @@
       overflow-y: auto;
     }
     .modal h3 { margin: 0 0 1rem; font-size: 1rem; }
+    .modal.modal-wide { max-width: 42rem; }
+    .job-detail-grid {
+      display: grid;
+      grid-template-columns: 9rem 1fr;
+      gap: 0.35rem 0.75rem;
+      font-size: 0.85rem;
+      margin-bottom: 1rem;
+    }
+    .job-detail-grid dt { color: var(--muted); margin: 0; }
+    .job-detail-grid dd { margin: 0; word-break: break-all; }
+    .job-log-box {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.75rem;
+      line-height: 1.45;
+      background: #0d1218;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem;
+      max-height: 18rem;
+      overflow: auto;
+      white-space: pre-wrap;
+      margin: 0;
+    }
+    .job-log-line-err { color: var(--danger); }
+    .job-log-meta { color: var(--muted); }
+    .actions-cell { white-space: nowrap; }
+    .actions-cell button { margin-right: 0.25rem; }
     .progress-wrap {
       height: 6px;
       background: var(--border);
@@ -235,11 +322,14 @@
           <h2>VM backups available to restore</h2>
           <p class="hint">
             Backups are listed from your configured Proxmox Backup Server datastore.
-            Select one or more VMs, then <strong>Restore selected</strong>.
+            One row per VM (latest snapshot selected by default); use the Timestamp dropdown to pick an older backup.
+            Select one or more VMs, then <strong>Restore selected</strong> — Select all never queues multiple snapshots of the same VM.
+            Tags are fetched automatically from Proxmox after the list loads (PBS does not include them).
+            Use <strong>Reload tags</strong> to refresh.
           </p>
           <div class="actions" style="margin-bottom: 0.75rem;">
             <button type="button" class="secondary" id="btn-refresh-backups">Refresh list</button>
-            <button type="button" class="secondary" id="btn-load-tags">Load tags</button>
+            <button type="button" class="secondary" id="btn-load-tags">Reload tags</button>
             <button type="button" class="secondary" id="btn-select-all">Select all</button>
             <button type="button" class="secondary" id="btn-clear-selection">Clear selection</button>
             <button type="button" class="primary" id="btn-open-restore-modal" disabled>Restore selected…</button>
@@ -260,7 +350,8 @@
                   <th>Source VMID</th>
                   <th>Source (PBS)</th>
                   <th>Tags</th>
-                  <th>Timestamp</th>
+                  <th title="PBS snapshot size = sum of archive sizes (gross)">Size (gross)</th>
+                  <th>Timestamp / snapshot</th>
                 </tr>
               </thead>
               <tbody id="backup-tbody"></tbody>
@@ -276,11 +367,32 @@
       <div id="view-jobs" class="hidden">
         <div class="card">
           <h2>Restore progress</h2>
-          <p class="hint">Job states refresh every 5 seconds while this tab is visible.</p>
-          <div class="actions" style="margin-bottom: 0.75rem;">
-            <button type="button" class="secondary" id="btn-refresh-jobs">Refresh now</button>
+          <p class="hint">
+            Concurrency changes apply within ~1s without restarting the worker. Pause stops new claims;
+            in-flight jobs keep running until they finish or fail. Stop pending cancels queued jobs only.
+            Live restore progress is the PVE restore task (data stream), not guest boot readiness.
+            Live jobs report <code>transferred X of Y (P%)</code> (QEMU block-job); normal jobs use PBS
+            <code>progress/zeroes</code>. Est. wire ≈ virtual × fidx sparsity × compression (live) or
+            (read − zeroes) × compression (normal).
+          </p>
+          <div id="jobs-control-strip" class="jobs-control-strip">
+            <div class="row" style="align-items:end;">
+              <div>
+                <label for="jobs-max-concurrent">Max concurrent restores</label>
+                <input id="jobs-max-concurrent" type="number" min="1" step="1" value="2" />
+              </div>
+              <div class="actions" style="margin:0;">
+                <button type="button" class="secondary" id="btn-apply-concurrency">Apply</button>
+                <button type="button" class="secondary" id="btn-queue-pause">Pause</button>
+                <button type="button" class="secondary" id="btn-queue-resume">Resume</button>
+                <button type="button" class="danger" id="btn-queue-stop">Stop pending</button>
+                <button type="button" class="secondary" id="btn-refresh-jobs">Refresh now</button>
+              </div>
+            </div>
+            <div id="jobs-stats-line" class="hint" style="margin-top:0.5rem;"></div>
+            <div id="jobs-pause-banner" class="banner hidden" style="margin-top:0.5rem;"></div>
           </div>
-          <div id="jobs-list-status" class="hint"></div>
+          <div id="jobs-list-status" class="hint" style="margin-top:0.75rem;"></div>
           <div style="overflow-x: auto;">
             <table class="vm-table" id="jobs-table" hidden>
               <thead>
@@ -292,6 +404,9 @@
                   <th>Node</th>
                   <th>State</th>
                   <th>Progress</th>
+                  <th title="PVE progress rate including sparse/zero regions">Speed (gross)</th>
+                  <th title="Estimated NIC throughput: (read − zeroes) × sampled PBS chunk compression">Est. wire</th>
+                  <th>ETA / Duration</th>
                   <th>Updated</th>
                   <th>Actions</th>
                 </tr>
@@ -329,22 +444,43 @@
       <div id="view-locations" class="hidden">
         <div class="card">
           <h2>Recovery locations</h2>
-          <p class="hint">Named restore targets (node, storage, VMID start, defaults).</p>
+          <p class="hint">Named restore targets (nodes, storage, VMID start, defaults). Select multiple nodes to load-balance restores.</p>
           <div class="row">
             <div><label>Name</label><input id="loc-name" placeholder="Primary DR" /></div>
-            <div><label>Node</label><input id="loc-node" placeholder="pve" /></div>
+            <div>
+              <label for="loc-nodes">Nodes (Ctrl/Cmd multi-select)</label>
+              <select id="loc-nodes" multiple size="4"></select>
+            </div>
           </div>
           <div class="row">
-            <div><label>Target storage</label><input id="loc-storage" placeholder="local-lvm" /></div>
+            <div><label>Extra nodes (comma-separated, optional)</label><input id="loc-nodes-extra" placeholder="pve3, pve4" /></div>
             <div><label>VMID start</label><input id="loc-vmid-start" type="number" min="100" value="100" /></div>
+          </div>
+          <label>Storage per node</label>
+          <div id="loc-storage-by-node" class="storage-by-node-panel">
+            <p class="hint">Select nodes above to choose storage for each (e.g. mirrored ZFS on fast nodes).</p>
           </div>
           <div class="row">
             <div><label>Bandwidth limit (KiB/s)</label><input id="loc-bwlimit" type="number" min="0" value="0" /></div>
-            <div class="inline" style="align-items:flex-end; padding-bottom:0.75rem;">
-              <input type="checkbox" id="loc-live" />
-              <label for="loc-live" style="margin:0">Live restore</label>
+            <div>
+              <label>Restore mode</label>
+              <select id="loc-restore-mode">
+                <option value="normal">Normal (new VMID, unique MAC/UUID)</option>
+                <option value="dr">DR (keep VMID, MAC, UUID)</option>
+              </select>
             </div>
           </div>
+          <p class="hint" id="loc-mode-dr-hint" hidden style="display:none;">
+            DR locations keep VMID/MAC/UUID from each backup and fail if that VMID already exists on the cluster.
+          </p>
+          <div class="inline" style="align-items:flex-end; padding-bottom:0.75rem;">
+            <input type="checkbox" id="loc-live" />
+            <label for="loc-live" style="margin:0">Live restore</label>
+          </div>
+          <label class="check"><input type="checkbox" id="loc-power-on" /> Power on after restore</label>
+          <label class="check"><input type="checkbox" id="loc-qga" /> Wait for QEMU guest agent (uses timeout below)</label>
+          <label for="loc-qga-sec">QGA timeout (seconds, 0 = off)</label>
+          <input id="loc-qga-sec" type="number" min="0" max="3600" step="10" value="0" />
           <input type="hidden" id="loc-edit-id" value="" />
           <div class="actions">
             <button type="button" class="primary" id="btn-save-location">Save location</button>
@@ -352,13 +488,18 @@
           </div>
           <div id="locations-status" class="hint" style="margin-top:0.75rem;"></div>
           <table class="vm-table" id="locations-table" style="margin-top:1rem;">
-            <thead><tr><th>Name</th><th>Node</th><th>Storage</th><th>VMID start</th><th></th></tr></thead>
+            <thead><tr><th>Name</th><th>Nodes</th><th>Storage</th><th>Mode</th><th>VMID start</th><th></th></tr></thead>
             <tbody id="locations-tbody"></tbody>
           </table>
         </div>
       </div>
 
       <div id="view-plans" class="hidden">
+        <div class="card" id="compliance-strip-card">
+          <h2>Compliance</h2>
+          <p class="hint">Last readiness check and wall-clock RTO from the most recent finished plan run.</p>
+          <div id="compliance-strip" class="hint">Loading…</div>
+        </div>
         <div class="card">
           <h2>Recovery plans</h2>
           <p class="hint">Ordered inventory groups restored to a location. Groups run sequentially; VMs within a group use worker concurrency.</p>
@@ -397,6 +538,17 @@
           </table>
           <div id="plan-run-detail" class="hint" style="margin-top:0.75rem;"></div>
         </div>
+        <div class="card">
+          <h2>Reports</h2>
+          <p class="hint">Downloadable readiness and run reports (last N retained). Markdown or HTML.</p>
+          <div class="actions" style="margin-bottom:0.75rem;">
+            <button type="button" class="secondary" id="btn-refresh-reports">Refresh reports</button>
+          </div>
+          <table class="vm-table" id="reports-table">
+            <thead><tr><th>When</th><th>Kind</th><th>Plan</th><th>Title</th><th></th></tr></thead>
+            <tbody id="reports-tbody"></tbody>
+          </table>
+        </div>
       </div>
 
       <div id="view-credentials" class="hidden">
@@ -418,8 +570,13 @@
             <div><label>Host</label><input id="pve-host" /></div>
             <div><label>Port</label><input id="pve-port" type="number" /></div>
           </div>
-          <label>API token ID</label><input id="pve-token-id" placeholder="root@pam!restore" />
+          <label>API token ID (optional if using password)</label><input id="pve-token-id" placeholder="root@pam!restore" />
           <label>API token secret</label><input id="pve-token-secret" type="password" />
+          <div class="row">
+            <div><label>User (optional if using token)</label><input id="pve-user" placeholder="root@pam" /></div>
+            <div><label>Password</label><input id="pve-password" type="password" /></div>
+          </div>
+          <p class="hint">Auth: API token preferred when both are set; otherwise username/password.</p>
           <label>Default node</label><input id="pve-node" />
           <label>Default target storage</label><input id="pve-storage" placeholder="local-lvm" />
           <div class="inline"><input type="checkbox" id="pve-verify-ssl" /><label style="margin:0">Verify TLS</label></div>
@@ -458,15 +615,38 @@
     <div class="modal">
       <h3>Restore to Proxmox VE</h3>
       <p class="hint" id="restore-modal-summary"></p>
-      <label for="restore-vmid-start">First Proxmox VM ID</label>
-      <input id="restore-vmid-start" type="number" min="100" step="1" />
-      <p class="hint">Each selected backup gets the next free VM ID from this start value.</p>
-      <label for="restore-node">Proxmox node</label>
-      <input id="restore-node" placeholder="Uses default from config if empty" />
-      <label for="restore-storage-select">Target storage (from node)</label>
-      <select id="restore-storage-select"></select>
-      <label for="restore-storage-manual">Or type storage ID manually</label>
-      <input id="restore-storage-manual" placeholder="Used if dropdown is empty" />
+      <label>Restore mode</label>
+      <div class="radio-group">
+        <label for="restore-mode-normal">
+          <input type="radio" name="restore-mode" id="restore-mode-normal" value="normal" checked />
+          Normal
+        </label>
+        <label for="restore-mode-dr">
+          <input type="radio" name="restore-mode" id="restore-mode-dr" value="dr" />
+          DR
+        </label>
+      </div>
+      <p class="hint" id="restore-mode-hint">
+        Normal assigns new free VMIDs and regenerates MAC / SMBIOS UUID (safe for lab clones).
+      </p>
+      <p class="banner info" id="restore-mode-dr-warn" hidden style="display:none;">
+        DR restore keeps <strong>VMID, MAC, and UUID</strong> from the backup.
+        It will <strong>fail if that VMID already exists</strong> on the Proxmox cluster (no overwrite).
+        Live restore can still be enabled with DR.
+      </p>
+      <div id="restore-vmid-start-wrap">
+        <label for="restore-vmid-start">First Proxmox VM ID</label>
+        <input id="restore-vmid-start" type="number" min="100" step="1" />
+        <p class="hint">Each selected backup gets the next free VM ID from this start value (cluster-wide uniqueness).</p>
+      </div>
+      <label for="restore-nodes">Proxmox nodes (Ctrl/Cmd multi-select)</label>
+      <select id="restore-nodes" multiple size="4"></select>
+      <p class="hint">Select multiple nodes to spread restores (least-loaded). Recommended for live restore.</p>
+      <label>Target storage per node</label>
+      <div id="restore-storage-by-node" class="storage-by-node-panel">
+        <p class="hint">Select nodes to load their storages.</p>
+      </div>
+      <p class="hint">Pick local ZFS/LVM on each node independently — shared storages (Ceph/NFS) appear on every node.</p>
       <label for="restore-bwlimit">Bandwidth limit (KiB/s, 0 = unlimited)</label>
       <input id="restore-bwlimit" type="number" min="0" step="1024" />
       <p class="hint">Caps read/write throughput for each restore in this batch. Leave 0 to use Proxmox defaults.</p>
@@ -474,6 +654,17 @@
         <input type="checkbox" id="restore-live" />
         <label for="restore-live" style="margin:0">Live restore (boot early, stream data in background)</label>
       </div>
+      <label class="check"><input type="checkbox" id="restore-power-on" /> Power on after restore</label>
+      <label class="check"><input type="checkbox" id="restore-qga" /> Wait for QEMU guest agent</label>
+      <div id="restore-qga-sec-wrap" hidden style="display:none;">
+        <label for="restore-qga-sec">QGA timeout (seconds)</label>
+        <input id="restore-qga-sec" type="number" min="10" max="3600" step="10" value="120" />
+      </div>
+      <p class="hint">
+        Power-on / QGA are for isolated targets (or remapped NICs). On shared prod L2 leave them off.
+        Backups with PCI passthrough (<code>hostpci*</code>) need a <strong>root</strong> Proxmox user/token
+        (non-root API users get “only root can set hostpci…”).
+      </p>
       <div class="actions">
         <button type="button" class="primary" id="btn-restore-confirm">Enqueue restore</button>
         <button type="button" class="secondary" id="btn-restore-cancel">Cancel</button>
@@ -490,20 +681,50 @@
       <datalist id="taggroup-tag-list"></datalist>
       <label for="taggroup-cutoff">Point in time (blank = now)</label>
       <input id="taggroup-cutoff" type="datetime-local" />
-      <label for="taggroup-vmid-start">First Proxmox VM ID</label>
-      <input id="taggroup-vmid-start" type="number" min="100" step="1" />
-      <label for="taggroup-node">Proxmox node</label>
-      <input id="taggroup-node" placeholder="Uses default from config if empty" />
-      <label for="taggroup-storage-select">Target storage (from node)</label>
-      <select id="taggroup-storage-select"></select>
-      <label for="taggroup-storage-manual">Or type storage ID manually</label>
-      <input id="taggroup-storage-manual" placeholder="Used if dropdown is empty" />
+      <label>Restore mode</label>
+      <div class="radio-group">
+        <label for="taggroup-mode-normal">
+          <input type="radio" name="taggroup-mode" id="taggroup-mode-normal" value="normal" checked />
+          Normal
+        </label>
+        <label for="taggroup-mode-dr">
+          <input type="radio" name="taggroup-mode" id="taggroup-mode-dr" value="dr" />
+          DR
+        </label>
+      </div>
+      <p class="hint" id="taggroup-mode-hint">
+        Normal assigns new free VMIDs and regenerates MAC / SMBIOS UUID.
+      </p>
+      <p class="banner info" id="taggroup-mode-dr-warn" hidden style="display:none;">
+        DR restore keeps <strong>VMID, MAC, and UUID</strong> from the backup and
+        <strong>fails if that VMID already exists</strong> on the cluster. Live restore can still be enabled.
+      </p>
+      <div id="taggroup-vmid-start-wrap">
+        <label for="taggroup-vmid-start">First Proxmox VM ID</label>
+        <input id="taggroup-vmid-start" type="number" min="100" step="1" />
+      </div>
+      <label for="taggroup-nodes">Proxmox nodes (Ctrl/Cmd multi-select)</label>
+      <select id="taggroup-nodes" multiple size="4"></select>
+      <p class="hint">Multiple nodes load-balance the group (least-loaded). Useful for live restore waves.</p>
+      <label>Target storage per node</label>
+      <div id="taggroup-storage-by-node" class="storage-by-node-panel">
+        <p class="hint">Select nodes to load their storages.</p>
+      </div>
       <label for="taggroup-bwlimit">Bandwidth limit (KiB/s, 0 = unlimited)</label>
       <input id="taggroup-bwlimit" type="number" min="0" step="1024" />
       <div class="inline">
         <input type="checkbox" id="taggroup-live" />
         <label for="taggroup-live" style="margin:0">Live restore</label>
       </div>
+      <label class="check"><input type="checkbox" id="taggroup-power-on" /> Power on after restore</label>
+      <label class="check"><input type="checkbox" id="taggroup-qga" /> Wait for QEMU guest agent</label>
+      <div id="taggroup-qga-sec-wrap" hidden style="display:none;">
+        <label for="taggroup-qga-sec">QGA timeout (seconds)</label>
+        <input id="taggroup-qga-sec" type="number" min="10" max="3600" step="10" value="120" />
+      </div>
+      <p class="hint">
+        Backups with PCI passthrough (<code>hostpci*</code>) need a <strong>root</strong> Proxmox user/token.
+      </p>
       <div class="actions">
         <button type="button" class="primary" id="btn-taggroup-confirm">Restore group</button>
         <button type="button" class="secondary" id="btn-taggroup-cancel">Cancel</button>
@@ -515,14 +736,63 @@
     <div class="modal">
       <h3>Run recovery plan</h3>
       <p class="hint" id="planrun-summary"></p>
+      <p class="banner info" id="planrun-unverified-warn" hidden style="display:none;">
+        Plan is not verified; run may fail. Run <strong>Check</strong> first.
+      </p>
+      <p class="banner warn" id="planrun-dr-warn" hidden style="display:none;">
+        Selected location is <strong>DR</strong> mode (keeps source VMID/MAC/UUID). Confirm below to continue.
+      </p>
       <input type="hidden" id="planrun-plan-id" value="" />
+      <input type="hidden" id="planrun-verification" value="" />
       <label for="planrun-cutoff">Point in time (blank = now)</label>
       <input id="planrun-cutoff" type="datetime-local" />
       <label for="planrun-location">Location override (optional)</label>
       <select id="planrun-location"><option value="">Use plan default</option></select>
+      <label class="check"><input type="checkbox" id="planrun-drill" /> Drill mode (powered-off restore; safe on shared cluster)</label>
+      <label class="check" id="planrun-teardown-wrap"><input type="checkbox" id="planrun-auto-teardown" /> Auto-teardown VMs when drill finishes</label>
+      <label class="check"><input type="checkbox" id="planrun-power-on" /> Power on after restore (isolated location)</label>
+      <label class="check"><input type="checkbox" id="planrun-qga" /> Wait for QEMU guest agent</label>
+      <div id="planrun-qga-sec-wrap" hidden style="display:none;">
+        <label for="planrun-qga-sec">QGA timeout (seconds)</label>
+        <input id="planrun-qga-sec" type="number" min="10" max="3600" step="10" value="120" />
+      </div>
+      <label class="check" id="planrun-allow-unverified-wrap" hidden style="display:none;">
+        <input type="checkbox" id="planrun-allow-unverified" /> Allow unverified plan (gate is on)
+      </label>
+      <label class="check" id="planrun-confirm-dr-wrap" hidden style="display:none;">
+        <input type="checkbox" id="planrun-confirm-dr" /> I confirm DR restore (source VMIDs)
+      </label>
       <div class="actions">
         <button type="button" class="primary" id="btn-planrun-confirm">Run plan</button>
         <button type="button" class="secondary" id="btn-planrun-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="plancheck-modal" class="modal-backdrop">
+    <div class="modal modal-wide">
+      <h3 id="plancheck-title">Plan readiness</h3>
+      <p class="hint" id="plancheck-summary"></p>
+      <ul id="plancheck-items" style="margin:0.5rem 0 1rem; padding-left:1.25rem; font-size:0.875rem;"></ul>
+      <input type="hidden" id="plancheck-report-id" value="" />
+      <div class="actions">
+        <button type="button" class="secondary" id="btn-plancheck-dl-md">Download Markdown</button>
+        <button type="button" class="secondary" id="btn-plancheck-dl-html">Download HTML</button>
+        <button type="button" class="secondary" id="btn-plancheck-close">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="job-detail-modal" class="modal-backdrop">
+    <div class="modal modal-wide">
+      <h3 id="job-detail-title">Restore job</h3>
+      <p class="hint" id="job-detail-subtitle"></p>
+      <dl class="job-detail-grid" id="job-detail-grid"></dl>
+      <label>Job log</label>
+      <pre class="job-log-box" id="job-detail-log">Loading…</pre>
+      <div class="actions">
+        <button type="button" class="secondary" id="btn-job-detail-refresh">Refresh log</button>
+        <button type="button" class="secondary" id="btn-job-detail-close">Close</button>
       </div>
     </div>
   </div>
@@ -532,6 +802,7 @@
     let jobsPollTimer = null;
     let backupInventory = [];
     let tagsById = {};
+    let tagErrors = {};
 
     function escapeHtml(s) {
       return String(s ?? "")
@@ -545,6 +816,171 @@
       if (!el) return;
       el.className = "banner show " + (kind || "info");
       el.textContent = text || "";
+    }
+
+    let cachedClusterNodes = [];
+
+    function getSelectedNodes(selectId) {
+      const sel = document.getElementById(selectId);
+      if (!sel) return [];
+      return Array.from(sel.selectedOptions).map((o) => o.value).filter(Boolean);
+    }
+
+    async function ensureClusterNodes() {
+      if (cachedClusterNodes.length) return cachedClusterNodes;
+      try {
+        const data = await api("/api/ui/proxmox-nodes");
+        cachedClusterNodes = data.nodes || [];
+      } catch (_) {
+        cachedClusterNodes = [];
+      }
+      return cachedClusterNodes;
+    }
+
+    async function fillNodeSelect(selectId, preferred) {
+      const sel = document.getElementById(selectId);
+      if (!sel) return;
+      const nodes = await ensureClusterNodes();
+      const prefer = Array.isArray(preferred)
+        ? preferred.map((n) => String(n).trim()).filter(Boolean)
+        : (preferred ? [String(preferred).trim()] : []);
+      const names = nodes.map((n) => n.node || n).filter(Boolean);
+      for (const p of prefer) {
+        if (p && !names.includes(p)) names.push(p);
+      }
+      sel.innerHTML = "";
+      if (!names.length) {
+        const o = document.createElement("option");
+        o.value = prefer[0] || "";
+        o.textContent = prefer[0] || "(no nodes returned — check Proxmox)";
+        if (o.value) o.selected = true;
+        sel.appendChild(o);
+        return;
+      }
+      const pick = new Set(prefer.length ? prefer : [names[0]]);
+      for (const name of names) {
+        const o = document.createElement("option");
+        o.value = name;
+        const meta = nodes.find((n) => (n.node || n) === name);
+        const status = meta && meta.status ? " (" + meta.status + ")" : "";
+        o.textContent = name + status;
+        o.selected = pick.has(name);
+        sel.appendChild(o);
+      }
+    }
+
+    function formatBytes(n) {
+      const v = Number(n) || 0;
+      if (v <= 0) return "";
+      const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+      let x = v;
+      let i = 0;
+      while (x >= 1024 && i < units.length - 1) {
+        x /= 1024;
+        i += 1;
+      }
+      return x.toFixed(i === 0 ? 0 : 1) + " " + units[i];
+    }
+
+    function formatStorageOption(s) {
+      const parts = [s.id];
+      if (s.type) parts.push(s.type);
+      const free = formatBytes(s.avail_bytes);
+      if (free) parts.push(free + " free");
+      return parts.join(" · ");
+    }
+
+    async function renderStorageByNode(containerId, nodes, preferredByNode, defaultStorage) {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+      const previous = collectStorageByNode(containerId);
+      const prefer = Object.assign({}, preferredByNode || {});
+      container.innerHTML = "";
+      if (!nodes.length) {
+        container.innerHTML = '<p class="hint">Select at least one node.</p>';
+        return;
+      }
+      container.innerHTML = '<p class="hint">Loading storages…</p>';
+      let byNode = {};
+      let errors = {};
+      try {
+        const data = await api(
+          "/api/ui/proxmox-storages-multi?nodes=" + encodeURIComponent(nodes.join(","))
+        );
+        byNode = data.by_node || {};
+        errors = data.errors || {};
+      } catch (e) {
+        container.innerHTML = '<p class="hint">Could not load storages: ' + escapeHtml(e.message) + "</p>";
+        return;
+      }
+      container.innerHTML = "";
+      for (const node of nodes) {
+        const row = document.createElement("div");
+        row.className = "node-storage-row";
+        const label = document.createElement("label");
+        label.textContent = "Storage on " + node;
+        const sel = document.createElement("select");
+        sel.className = "storage-by-node";
+        sel.dataset.node = node;
+        const storages = (byNode[node] || []).filter(
+          (s) => s.usable_for_vm_disks && s.enabled && s.active === 1
+        );
+        if (!storages.length) {
+          const o = document.createElement("option");
+          o.value = "";
+          o.textContent = errors[node]
+            ? "(error: " + errors[node] + ")"
+            : "(no VM disk storage on this node)";
+          sel.appendChild(o);
+        } else {
+          const ph = document.createElement("option");
+          ph.value = "";
+          ph.textContent = "— Select storage —";
+          sel.appendChild(ph);
+          const want =
+            previous[node] ||
+            prefer[node] ||
+            defaultStorage ||
+            "";
+          for (const s of storages) {
+            const o = document.createElement("option");
+            o.value = s.id;
+            o.textContent = formatStorageOption(s);
+            if (want && s.id === want) o.selected = true;
+            sel.appendChild(o);
+          }
+          if (want && !storages.some((s) => s.id === want)) {
+            // Preferred id not listed (disabled/offline) — do not invent free-text.
+          } else if (!sel.value && storages.length === 1) {
+            sel.value = storages[0].id;
+          }
+        }
+        row.appendChild(label);
+        row.appendChild(sel);
+        container.appendChild(row);
+      }
+    }
+
+    function collectStorageByNode(containerId) {
+      const out = {};
+      document.querySelectorAll("#" + containerId + " select.storage-by-node").forEach((sel) => {
+        const node = sel.dataset.node;
+        const val = (sel.value || "").trim();
+        if (node && val) out[node] = val;
+      });
+      return out;
+    }
+
+    function storageByNodeComplete(nodes, map) {
+      return nodes.every((n) => map[n]);
+    }
+
+    function formatStorageByNodeSummary(map, fallback) {
+      const entries = Object.entries(map || {});
+      if (!entries.length) return fallback || "—";
+      const values = [...new Set(entries.map(([, s]) => s))];
+      if (values.length === 1 && entries.length > 1) return values[0] + " (all nodes)";
+      return entries.map(([n, s]) => n + ":" + s).join(", ");
     }
 
     async function api(path, opts = {}) {
@@ -689,9 +1125,14 @@
         "</div>" +
         '<div class="row">' +
         '<div><label>Port</label><input class="s-port" type="number" /></div>' +
-        '<div><label>API token ID</label><input class="s-token-id" placeholder="root@pam!restore" /></div>' +
+        '<div><label>API token ID (optional if using password)</label><input class="s-token-id" placeholder="root@pam!restore" /></div>' +
         "</div>" +
         '<label>API token secret</label><input class="s-token-secret" type="password" />' +
+        '<div class="row">' +
+        '<div><label>User (optional if using token)</label><input class="s-user" placeholder="root@pam" /></div>' +
+        '<div><label>Password</label><input class="s-password" type="password" /></div>' +
+        "</div>" +
+        '<p class="hint">Auth: API token preferred when both are set; otherwise username/password ticket login.</p>' +
         '<div class="inline"><input type="checkbox" class="s-verify-ssl" /><label style="margin:0">Verify TLS</label></div>' +
         '<label class="mini">Datastores / namespaces → PVE storage</label>' +
         '<div class="s-mounts"></div>' +
@@ -706,6 +1147,9 @@
       card.querySelector(".s-token-id").value = server.api_token_id || "";
       card.querySelector(".s-token-secret").value = "";
       card.querySelector(".s-token-secret").placeholder = server.api_token_secret_set ? "********" : "";
+      card.querySelector(".s-user").value = server.user || "";
+      card.querySelector(".s-password").value = "";
+      card.querySelector(".s-password").placeholder = server.password_set ? "********" : "";
       card.querySelector(".s-verify-ssl").checked = !!server.verify_ssl;
       const mountsEl = card.querySelector(".s-mounts");
       const mounts = (server.mounts && server.mounts.length) ? server.mounts : [{}];
@@ -737,6 +1181,8 @@
         verify_ssl: card.querySelector(".s-verify-ssl").checked,
         api_token_id: card.querySelector(".s-token-id").value.trim(),
         api_token_secret: card.querySelector(".s-token-secret").value,
+        user: card.querySelector(".s-user").value.trim(),
+        password: card.querySelector(".s-password").value,
         mounts,
       };
     }
@@ -757,6 +1203,9 @@
       document.getElementById("pve-token-id").value = pve.api_token_id || "";
       document.getElementById("pve-token-secret").value = "";
       document.getElementById("pve-token-secret").placeholder = pve.api_token_secret_set ? "********" : "";
+      document.getElementById("pve-user").value = pve.user || "";
+      document.getElementById("pve-password").value = "";
+      document.getElementById("pve-password").placeholder = pve.password_set ? "********" : "";
       document.getElementById("pve-node").value = pve.default_node || "";
       document.getElementById("pve-storage").value = pve.storage || "";
       document.getElementById("pve-verify-ssl").checked = !!pve.verify_ssl;
@@ -774,6 +1223,8 @@
           port: Number(document.getElementById("pve-port").value || 8006),
           api_token_id: document.getElementById("pve-token-id").value.trim(),
           api_token_secret: document.getElementById("pve-token-secret").value,
+          user: document.getElementById("pve-user").value.trim(),
+          password: document.getElementById("pve-password").value,
           default_node: document.getElementById("pve-node").value.trim(),
           storage: document.getElementById("pve-storage").value.trim(),
           verify_ssl: document.getElementById("pve-verify-ssl").checked,
@@ -829,8 +1280,59 @@
       }
     };
 
+    function groupBackupsByVmid(rows) {
+      /** Mirror of backup_inventory.group_backups_by_vmid — one group per VMID, newest first. */
+      const byVmid = new Map();
+      for (const row of rows || []) {
+        const vmid = Number(row.vmid);
+        if (!Number.isFinite(vmid)) continue;
+        if (!byVmid.has(vmid)) byVmid.set(vmid, []);
+        byVmid.get(vmid).push(row);
+      }
+      const groups = [];
+      const vmids = [...byVmid.keys()].sort((a, b) => a - b);
+      for (const vmid of vmids) {
+        const snaps = byVmid.get(vmid).slice().sort((a, b) =>
+          String(b.timestamp || "").localeCompare(String(a.timestamp || ""))
+        );
+        const latest = snaps[0];
+        groups.push({
+          vmid,
+          name: latest.name || ("vm-" + vmid),
+          source_label: latest.source_label || latest.datastore || "",
+          snapshots: snaps,
+          latest,
+        });
+      }
+      return groups;
+    }
+
+    function backupRowById(backupId) {
+      return backupInventory.find((b) => b.backup_id === backupId) || null;
+    }
+
+    function applySnapshotToRow(tr, backupId) {
+      const row = backupRowById(backupId);
+      if (!row) return;
+      tr.dataset.backupId = backupId;
+      const sizeCell = tr.querySelector(".size-cell");
+      if (sizeCell) {
+        sizeCell.textContent = row.size_bytes ? formatBytes(row.size_bytes) : "—";
+      }
+      const tagsCell = tr.querySelector(".tags-cell");
+      if (tagsCell) tagsCell.innerHTML = renderTagCell(backupId);
+      const nameCell = tr.querySelector(".name-cell");
+      if (nameCell && row.name) nameCell.textContent = row.name;
+    }
+
     function getSelectedBackupIds() {
-      return [...document.querySelectorAll("#backup-tbody tr")].filter((tr) => tr.querySelector("input:checked")).map((tr) => tr.dataset.backupId);
+      return [...document.querySelectorAll("#backup-tbody tr")]
+        .filter((tr) => tr.querySelector("input.backup-cb:checked"))
+        .map((tr) => {
+          const sel = tr.querySelector("select.snapshot-select");
+          return (sel && sel.value) || tr.dataset.backupId;
+        })
+        .filter(Boolean);
     }
 
     function updateRestoreButton() {
@@ -847,8 +1349,10 @@
       tbody.innerHTML = "";
       try {
         backupInventory = await api("/api/backups");
-        statusEl.textContent = backupInventory.length + " backup(s) from PBS";
-        if (!backupInventory.length) {
+        const groups = groupBackupsByVmid(backupInventory);
+        statusEl.textContent =
+          groups.length + " VM(s) · " + backupInventory.length + " snapshot(s) from PBS";
+        if (!groups.length) {
           table.hidden = true;
           empty.classList.remove("hidden");
           updateRestoreButton();
@@ -856,25 +1360,53 @@
         }
         empty.classList.add("hidden");
         table.hidden = false;
-        for (const row of backupInventory) {
+        for (const group of groups) {
+          for (const snap of group.snapshots) {
+            if (Array.isArray(snap.tags)) tagsById[snap.backup_id] = snap.tags;
+          }
+          const latest = group.latest;
           const tr = document.createElement("tr");
           tr.className = "vm-row";
-          tr.dataset.backupId = row.backup_id;
-          if (Array.isArray(row.tags)) tagsById[row.backup_id] = row.tags;
+          tr.dataset.backupId = latest.backup_id;
+          tr.dataset.vmid = String(group.vmid);
+
+          const options = group.snapshots.map((s) => {
+            const label =
+              s.timestamp +
+              (group.snapshots.length > 1 && s.backup_id === latest.backup_id ? " (latest)" : "");
+            return (
+              '<option value="' + escapeHtml(s.backup_id) + '"' +
+              (s.backup_id === latest.backup_id ? " selected" : "") +
+              ">" + escapeHtml(label) + "</option>"
+            );
+          }).join("");
+
           tr.innerHTML =
             '<td><input type="checkbox" class="backup-cb" /></td>' +
-            "<td>" + escapeHtml(row.name) + "</td>" +
-            "<td>" + escapeHtml(row.vmid) + "</td>" +
-            "<td>" + escapeHtml(row.source_label || row.datastore || "") + "</td>" +
-            '<td class="tags-cell">' + renderTagCell(row.backup_id) + "</td>" +
-            "<td>" + escapeHtml(row.timestamp) + "</td>";
+            '<td class="name-cell">' + escapeHtml(group.name) + "</td>" +
+            "<td>" + escapeHtml(group.vmid) + "</td>" +
+            "<td>" + escapeHtml(group.source_label) + "</td>" +
+            '<td class="tags-cell">' + renderTagCell(latest.backup_id) + "</td>" +
+            '<td class="size-cell" title="PBS snapshot archive sum (gross)">' +
+              escapeHtml(latest.size_bytes ? formatBytes(latest.size_bytes) : "—") + "</td>" +
+            '<td><select class="snapshot-select" title="Choose snapshot (default latest)">' +
+              options + "</select></td>";
+
           const cb = tr.querySelector("input.backup-cb");
+          const snapSel = tr.querySelector("select.snapshot-select");
           cb.addEventListener("change", () => {
             tr.classList.toggle("selected", cb.checked);
             updateRestoreButton();
           });
+          snapSel.addEventListener("change", () => {
+            applySnapshotToRow(tr, snapSel.value);
+            applyTagFilter();
+            updateRestoreButton();
+          });
+          snapSel.addEventListener("click", (ev) => ev.stopPropagation());
           tr.addEventListener("click", (ev) => {
-            if (ev.target.tagName === "INPUT") return;
+            const t = ev.target;
+            if (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "OPTION") return;
             cb.checked = !cb.checked;
             tr.classList.toggle("selected", cb.checked);
             updateRestoreButton();
@@ -884,6 +1416,9 @@
         refreshTagUI();
         applyTagFilter();
         updateRestoreButton();
+        // Tags live in guest config (via PVE extractconfig), not the PBS snapshot list.
+        // Load them automatically after the cheap PBS inventory is on screen.
+        loadTags({ quiet: true });
       } catch (e) {
         statusEl.textContent = "";
         banner(document.getElementById("global-banner"), "err", e.message);
@@ -894,6 +1429,9 @@
     }
 
     function renderTagCell(backupId) {
+      if (tagErrors[backupId]) {
+        return '<span class="hint" title="' + escapeHtml(tagErrors[backupId]) + '">error</span>';
+      }
       const tags = tagsById[backupId];
       if (tags === undefined) return '<span class="hint">—</span>';
       if (!tags.length) return '<span class="hint">(none)</span>';
@@ -921,8 +1459,14 @@
 
     function rowMatchesTag(tr, tag) {
       if (!tag) return true;
-      const tags = tagsById[tr.dataset.backupId] || [];
-      return tags.some((t) => t.toLowerCase() === tag.toLowerCase());
+      const ids = [...tr.querySelectorAll("select.snapshot-select option")].map((o) => o.value);
+      if (!ids.length) {
+        const tags = tagsById[tr.dataset.backupId] || [];
+        return tags.some((t) => t.toLowerCase() === tag.toLowerCase());
+      }
+      return ids.some((id) =>
+        (tagsById[id] || []).some((t) => t.toLowerCase() === tag.toLowerCase())
+      );
     }
 
     function applyTagFilter() {
@@ -934,31 +1478,64 @@
 
     document.getElementById("backup-tag-filter").onchange = applyTagFilter;
 
-    document.getElementById("btn-load-tags").onclick = async () => {
+    let tagsLoadInFlight = null;
+
+    async function loadTags(opts = {}) {
+      const quiet = !!opts.quiet;
+      const force = !!opts.force;
       const gb = document.getElementById("global-banner");
       const btn = document.getElementById("btn-load-tags");
+      const statusEl = document.getElementById("backup-list-status");
       const ids = backupInventory.map((b) => b.backup_id);
       if (!ids.length) return;
+      if (tagsLoadInFlight) return tagsLoadInFlight;
+
       btn.disabled = true;
       const original = btn.textContent;
       btn.textContent = "Loading tags…";
-      try {
-        const res = await api("/api/backups/resolve-tags", { method: "POST", body: JSON.stringify({ backup_ids: ids }) });
-        tagsById = Object.assign(tagsById, res.tags || {});
-        document.querySelectorAll("#backup-tbody tr").forEach((tr) => {
-          const cell = tr.querySelector(".tags-cell");
-          if (cell) cell.innerHTML = renderTagCell(tr.dataset.backupId);
-        });
-        refreshTagUI();
-        applyTagFilter();
-        banner(gb, "ok", "Loaded tags for " + Object.keys(res.tags || {}).length + " backup(s).");
-      } catch (e) {
-        banner(gb, "err", e.message);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = original;
+      if (statusEl && quiet) {
+        statusEl.textContent = (statusEl.textContent || "") + " · loading tags…";
       }
-    };
+
+      tagsLoadInFlight = (async () => {
+        try {
+          const res = await api("/api/backups/resolve-tags", {
+            method: "POST",
+            body: JSON.stringify({ backup_ids: ids, force }),
+          });
+          tagsById = Object.assign(tagsById, res.tags || {});
+          tagErrors = Object.assign({}, res.errors || {});
+          document.querySelectorAll("#backup-tbody tr").forEach((tr) => {
+            const cell = tr.querySelector(".tags-cell");
+            if (cell) cell.innerHTML = renderTagCell(tr.dataset.backupId);
+          });
+          refreshTagUI();
+          applyTagFilter();
+          const errCount = Object.keys(res.errors || {}).length;
+          const okCount = Object.keys(res.tags || {}).length;
+          if (errCount) {
+            const sample = Object.values(res.errors)[0];
+            banner(gb, "err", "Tags loaded for " + okCount + " backup(s); " + errCount + " failed. Example: " + sample);
+          } else if (!quiet) {
+            banner(gb, "ok", "Loaded tags for " + okCount + " backup(s).");
+          }
+          if (statusEl && quiet) {
+            const nVm = document.querySelectorAll("#backup-tbody tr").length;
+            statusEl.textContent =
+              nVm + " VM(s) · " + backupInventory.length + " snapshot(s) from PBS · tags ready";
+          }
+        } catch (e) {
+          banner(gb, "err", e.message);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = original;
+          tagsLoadInFlight = null;
+        }
+      })();
+      return tagsLoadInFlight;
+    }
+
+    document.getElementById("btn-load-tags").onclick = () => loadTags({ force: true });
 
     document.getElementById("btn-select-tag").onclick = () => {
       const tag = document.getElementById("backup-tag-filter").value;
@@ -967,6 +1544,18 @@
         const match = rowMatchesTag(tr, tag) && !tr.classList.contains("hidden");
         cb.checked = match;
         tr.classList.toggle("selected", match);
+        if (match && tag) {
+          const sel = tr.querySelector("select.snapshot-select");
+          if (sel) {
+            const hit = [...sel.options].find((o) =>
+              (tagsById[o.value] || []).some((t) => t.toLowerCase() === tag.toLowerCase())
+            );
+            if (hit) {
+              sel.value = hit.value;
+              applySnapshotToRow(tr, hit.value);
+            }
+          }
+        }
       });
       updateRestoreButton();
     };
@@ -996,83 +1585,156 @@
       updateRestoreButton();
     };
 
+    let restoreDefaultStorage = "";
+    let taggroupDefaultStorage = "";
+
     async function loadRestoreStorages() {
-      const sel = document.getElementById("restore-storage-select");
-      const node = document.getElementById("restore-node").value.trim();
-      sel.innerHTML = "";
-      if (!node) {
-        const opt = document.createElement("option");
-        opt.textContent = "Set node name first";
-        sel.appendChild(opt);
-        return;
-      }
-      try {
-        const data = await api("/api/ui/proxmox-storages?node=" + encodeURIComponent(node));
-        const ph = document.createElement("option");
-        ph.value = "";
-        ph.textContent = "— Select storage —";
-        sel.appendChild(ph);
-        for (const s of data.storages || []) {
-          const o = document.createElement("option");
-          o.value = s.id;
-          o.textContent = s.id + " (" + s.type + ")";
-          if (!s.enabled || s.active !== 1) o.disabled = true;
-          sel.appendChild(o);
-        }
-      } catch (_) {
-        const err = document.createElement("option");
-        err.textContent = "(could not list storages)";
-        sel.appendChild(err);
-      }
+      const nodes = getSelectedNodes("restore-nodes");
+      await renderStorageByNode("restore-storage-by-node", nodes, {}, restoreDefaultStorage);
     }
 
-    function getRestoreStorageValue() {
-      const selVal = document.getElementById("restore-storage-select").value.trim();
-      const manual = document.getElementById("restore-storage-manual").value.trim();
-      return selVal || manual;
+    function getRestoreMode(prefix) {
+      const el = document.querySelector('input[name="' + prefix + '"]:checked');
+      return (el && el.value) || "normal";
     }
+
+    function syncRestoreModeUI(kind) {
+      // kind: "restore" | "taggroup"
+      const mode = getRestoreMode(kind === "taggroup" ? "taggroup-mode" : "restore-mode");
+      const isDr = mode === "dr";
+      const wrap = document.getElementById(kind === "taggroup" ? "taggroup-vmid-start-wrap" : "restore-vmid-start-wrap");
+      const warn = document.getElementById(kind === "taggroup" ? "taggroup-mode-dr-warn" : "restore-mode-dr-warn");
+      const hint = document.getElementById(kind === "taggroup" ? "taggroup-mode-hint" : "restore-mode-hint");
+      if (wrap) wrap.style.display = isDr ? "none" : "";
+      if (warn) {
+        warn.hidden = !isDr;
+        warn.style.display = isDr ? "" : "none";
+      }
+      if (hint) hint.style.display = isDr ? "none" : "";
+    }
+
+    document.querySelectorAll('input[name="restore-mode"]').forEach((el) => {
+      el.addEventListener("change", () => syncRestoreModeUI("restore"));
+    });
+    document.querySelectorAll('input[name="taggroup-mode"]').forEach((el) => {
+      el.addEventListener("change", () => syncRestoreModeUI("taggroup"));
+    });
+    document.getElementById("loc-restore-mode").addEventListener("change", () => {
+      const isDr = document.getElementById("loc-restore-mode").value === "dr";
+      const hint = document.getElementById("loc-mode-dr-hint");
+      hint.hidden = !isDr;
+      hint.style.display = isDr ? "" : "none";
+      document.getElementById("loc-vmid-start").disabled = isDr;
+    });
+
+    let defaultQgaWaitSec = 120;
+
+    function syncQgaUi(prefix) {
+      const qga = document.getElementById(prefix + "-qga");
+      const power = document.getElementById(prefix + "-power-on");
+      const wrap = document.getElementById(prefix + "-qga-sec-wrap");
+      if (!qga || !wrap) return;
+      if (qga.checked && power && !power.checked) power.checked = true;
+      const show = qga.checked;
+      wrap.hidden = !show;
+      wrap.style.display = show ? "block" : "none";
+    }
+
+    function wirePowerOnQga(prefix) {
+      const power = document.getElementById(prefix + "-power-on");
+      const qga = document.getElementById(prefix + "-qga");
+      if (power) {
+        power.addEventListener("change", () => {
+          if (!power.checked && qga) qga.checked = false;
+          syncQgaUi(prefix);
+        });
+      }
+      if (qga) qga.addEventListener("change", () => syncQgaUi(prefix));
+    }
+
+    function powerOnQgaBody(prefix) {
+      const power = !!document.getElementById(prefix + "-power-on").checked;
+      const qga = !!document.getElementById(prefix + "-qga").checked;
+      let sec = 0;
+      if (qga) {
+        sec = Number(document.getElementById(prefix + "-qga-sec").value || defaultQgaWaitSec);
+        if (!Number.isFinite(sec) || sec < 10) sec = defaultQgaWaitSec;
+      }
+      return { power_on: power || qga, qga_wait_sec: sec };
+    }
+
+    function resetPowerOnQga(prefix, defs) {
+      document.getElementById(prefix + "-power-on").checked = !!(defs && defs.power_on);
+      document.getElementById(prefix + "-qga").checked = false;
+      const secEl = document.getElementById(prefix + "-qga-sec");
+      if (secEl) secEl.value = (defs && defs.qga_wait_sec) || defaultQgaWaitSec;
+      syncQgaUi(prefix);
+    }
+
+    wirePowerOnQga("restore");
+    wirePowerOnQga("taggroup");
+    wirePowerOnQga("planrun");
 
     async function openRestoreModal() {
       const ids = getSelectedBackupIds();
       if (!ids.length) return;
       document.getElementById("restore-modal-summary").textContent =
         ids.length + " backup(s) selected.";
+      document.getElementById("restore-mode-normal").checked = true;
+      syncRestoreModeUI("restore");
       try {
-        const node = document.getElementById("restore-node").value.trim();
-        const defs = await api("/api/restore-defaults" + (node ? "?proxmox_node=" + encodeURIComponent(node) : ""));
-        document.getElementById("restore-node").value = defs.default_node || "";
+        const defs = await api("/api/restore-defaults");
+        restoreDefaultStorage = defs.storage || "";
+        if (defs.qga_wait_sec) defaultQgaWaitSec = Number(defs.qga_wait_sec) || 120;
+        await fillNodeSelect("restore-nodes", defs.default_node || "");
         document.getElementById("restore-vmid-start").value = defs.next_free_proxmox_vmid || 100;
-        document.getElementById("restore-storage-manual").value = defs.storage || "";
         document.getElementById("restore-bwlimit").value = defs.bwlimit ?? 0;
         document.getElementById("restore-live").checked = !!defs.live_restore;
-      } catch (_) {}
+        resetPowerOnQga("restore", defs);
+      } catch (_) {
+        restoreDefaultStorage = "";
+        await fillNodeSelect("restore-nodes", "");
+        resetPowerOnQga("restore", null);
+      }
       await loadRestoreStorages();
       document.getElementById("restore-modal").classList.add("show");
     }
 
     document.getElementById("btn-open-restore-modal").onclick = openRestoreModal;
     document.getElementById("btn-restore-cancel").onclick = () => document.getElementById("restore-modal").classList.remove("show");
-    document.getElementById("restore-node").onchange = loadRestoreStorages;
+    document.getElementById("restore-nodes").onchange = loadRestoreStorages;
 
     document.getElementById("btn-restore-confirm").onclick = async () => {
       const gb = document.getElementById("global-banner");
-      const storage = getRestoreStorageValue();
-      if (!storage) {
-        banner(gb, "err", "Choose a target storage.");
+      const nodes = getSelectedNodes("restore-nodes");
+      const storageByNode = collectStorageByNode("restore-storage-by-node");
+      if (!nodes.length) {
+        banner(gb, "err", "Select at least one Proxmox node.");
+        return;
+      }
+      if (!storageByNodeComplete(nodes, storageByNode)) {
+        banner(gb, "err", "Choose storage for every selected node.");
         return;
       }
       const body = {
         backup_ids: getSelectedBackupIds(),
-        proxmox_node: document.getElementById("restore-node").value.trim() || null,
-        proxmox_storage: storage,
+        proxmox_nodes: nodes,
+        proxmox_node: nodes[0],
+        proxmox_storage_by_node: storageByNode,
+        proxmox_storage: storageByNode[nodes[0]],
         proxmox_vmid_start: Number(document.getElementById("restore-vmid-start").value || 100),
         live_restore: document.getElementById("restore-live").checked,
         bwlimit: Number(document.getElementById("restore-bwlimit").value || 0),
+        restore_mode: getRestoreMode("restore-mode"),
+        ...powerOnQgaBody("restore"),
       };
       try {
         const res = await api("/api/jobs/restore-selected", { method: "POST", body: JSON.stringify(body) });
         document.getElementById("restore-modal").classList.remove("show");
-        banner(gb, "ok", "Enqueued " + res.enqueued + " restore job(s).");
+        const spread = (res.proxmox_nodes_assigned || []).length
+          ? " across " + [...new Set(res.proxmox_nodes_assigned)].join(", ")
+          : "";
+        banner(gb, "ok", "Enqueued " + res.enqueued + " restore job(s)" + spread + ".");
         showView("jobs");
         loadJobs();
       } catch (e) {
@@ -1081,53 +1743,35 @@
     };
 
     async function loadTagGroupStorages() {
-      const sel = document.getElementById("taggroup-storage-select");
-      const node = document.getElementById("taggroup-node").value.trim();
-      sel.innerHTML = "";
-      if (!node) {
-        const opt = document.createElement("option");
-        opt.textContent = "Set node name first";
-        sel.appendChild(opt);
-        return;
-      }
-      try {
-        const data = await api("/api/ui/proxmox-storages?node=" + encodeURIComponent(node));
-        const ph = document.createElement("option");
-        ph.value = "";
-        ph.textContent = "— Select storage —";
-        sel.appendChild(ph);
-        for (const s of data.storages || []) {
-          const o = document.createElement("option");
-          o.value = s.id;
-          o.textContent = s.id + " (" + s.type + ")";
-          if (!s.enabled || s.active !== 1) o.disabled = true;
-          sel.appendChild(o);
-        }
-      } catch (_) {
-        const err = document.createElement("option");
-        err.textContent = "(could not list storages)";
-        sel.appendChild(err);
-      }
+      const nodes = getSelectedNodes("taggroup-nodes");
+      await renderStorageByNode("taggroup-storage-by-node", nodes, {}, taggroupDefaultStorage);
     }
 
     async function openTagGroupModal() {
       document.getElementById("taggroup-tag").value = document.getElementById("backup-tag-filter").value || "";
+      document.getElementById("taggroup-mode-normal").checked = true;
+      syncRestoreModeUI("taggroup");
       try {
-        const node = document.getElementById("taggroup-node").value.trim();
-        const defs = await api("/api/restore-defaults" + (node ? "?proxmox_node=" + encodeURIComponent(node) : ""));
-        document.getElementById("taggroup-node").value = defs.default_node || "";
+        const defs = await api("/api/restore-defaults");
+        taggroupDefaultStorage = defs.storage || "";
+        if (defs.qga_wait_sec) defaultQgaWaitSec = Number(defs.qga_wait_sec) || 120;
+        await fillNodeSelect("taggroup-nodes", defs.default_node || "");
         document.getElementById("taggroup-vmid-start").value = defs.next_free_proxmox_vmid || 100;
-        document.getElementById("taggroup-storage-manual").value = defs.storage || "";
         document.getElementById("taggroup-bwlimit").value = defs.bwlimit ?? 0;
         document.getElementById("taggroup-live").checked = !!defs.live_restore;
-      } catch (_) {}
+        resetPowerOnQga("taggroup", defs);
+      } catch (_) {
+        taggroupDefaultStorage = "";
+        await fillNodeSelect("taggroup-nodes", "");
+        resetPowerOnQga("taggroup", null);
+      }
       await loadTagGroupStorages();
       document.getElementById("taggroup-modal").classList.add("show");
     }
 
     document.getElementById("btn-open-taggroup-modal").onclick = openTagGroupModal;
     document.getElementById("btn-taggroup-cancel").onclick = () => document.getElementById("taggroup-modal").classList.remove("show");
-    document.getElementById("taggroup-node").onchange = loadTagGroupStorages;
+    document.getElementById("taggroup-nodes").onchange = loadTagGroupStorages;
 
     document.getElementById("btn-taggroup-confirm").onclick = async () => {
       const gb = document.getElementById("global-banner");
@@ -1136,21 +1780,28 @@
         banner(gb, "err", "Enter a tag.");
         return;
       }
-      const storage =
-        document.getElementById("taggroup-storage-select").value.trim() ||
-        document.getElementById("taggroup-storage-manual").value.trim();
-      if (!storage) {
-        banner(gb, "err", "Choose a target storage.");
+      const nodes = getSelectedNodes("taggroup-nodes");
+      const storageByNode = collectStorageByNode("taggroup-storage-by-node");
+      if (!nodes.length) {
+        banner(gb, "err", "Select at least one Proxmox node.");
+        return;
+      }
+      if (!storageByNodeComplete(nodes, storageByNode)) {
+        banner(gb, "err", "Choose storage for every selected node.");
         return;
       }
       const body = {
         tag,
         at_or_before: document.getElementById("taggroup-cutoff").value || null,
-        proxmox_node: document.getElementById("taggroup-node").value.trim() || null,
-        proxmox_storage: storage,
+        proxmox_nodes: nodes,
+        proxmox_node: nodes[0],
+        proxmox_storage_by_node: storageByNode,
+        proxmox_storage: storageByNode[nodes[0]],
         proxmox_vmid_start: Number(document.getElementById("taggroup-vmid-start").value || 100),
         live_restore: document.getElementById("taggroup-live").checked,
         bwlimit: Number(document.getElementById("taggroup-bwlimit").value || 0),
+        restore_mode: getRestoreMode("taggroup-mode"),
+        ...powerOnQgaBody("taggroup"),
       };
       const btn = document.getElementById("btn-taggroup-confirm");
       btn.disabled = true;
@@ -1171,6 +1822,203 @@
       }
     };
 
+    function formatRateBps(bps) {
+      const v = Number(bps) || 0;
+      if (v <= 0) return "—";
+      return formatBytes(v) + "/s";
+    }
+
+    /** Bytes/s → MiB/s plus approximate Mbit/s for link comparison. */
+    function formatWireRate(bps) {
+      const v = Number(bps) || 0;
+      if (v <= 0) return "—";
+      const mbit = (v * 8) / 1e6;
+      return formatBytes(v) + "/s (~" + mbit.toFixed(mbit >= 10 ? 0 : 1) + " Mbit/s)";
+    }
+
+    function formatEtaSec(sec) {
+      if (sec === null || sec === undefined || sec === "") return "—";
+      const n = Number(sec);
+      if (!Number.isFinite(n) || n < 0) return "—";
+      if (n < 60) return Math.round(n) + "s";
+      if (n < 3600) return Math.floor(n / 60) + "m " + Math.round(n % 60) + "s";
+      const h = Math.floor(n / 3600);
+      const m = Math.floor((n % 3600) / 60);
+      return h + "h " + m + "m";
+    }
+
+    let lastJobsStats = { paused: false, active: 0, pending: 0, max_concurrent: 2 };
+
+    async function refreshJobsStats(jobs) {
+      const line = document.getElementById("jobs-stats-line");
+      const pauseBanner = document.getElementById("jobs-pause-banner");
+      let stats = lastJobsStats;
+      try {
+        stats = await api("/api/jobs/stats");
+        lastJobsStats = stats;
+      } catch (_) {}
+      document.getElementById("jobs-max-concurrent").value = stats.max_concurrent ?? 2;
+      const aggSpeed = formatRateBps(stats.aggregate_speed_bps || 0);
+      const eta = formatEtaSec(stats.worst_eta_sec);
+      line.textContent =
+        "Active " + (stats.active || 0) +
+        " · Queued " + (stats.pending || 0) +
+        " · Limit " + (stats.max_concurrent || 0) +
+        (stats.paused ? " · PAUSED" : "") +
+        (stats.aggregate_speed_bps ? " · Σ speed " + aggSpeed : "") +
+        (stats.worst_eta_sec ? " · Worst ETA " + eta : "");
+      document.getElementById("btn-queue-pause").disabled = !!stats.paused;
+      document.getElementById("btn-queue-resume").disabled = !stats.paused;
+      if (stats.paused) {
+        pauseBanner.className = "banner show info";
+        pauseBanner.textContent =
+          "Queue paused — " + (stats.active || 0) + " active finishing, " +
+          (stats.pending || 0) + " pending waiting. Resume to claim more work.";
+      } else {
+        pauseBanner.className = "banner hidden";
+        pauseBanner.textContent = "";
+      }
+      return stats;
+    }
+
+    let openJobDetailId = null;
+    let jobsById = {};
+
+    function jobDurationLabel(job) {
+      const start = job.restore_started_at || job.created_at;
+      const end = job.updated_at;
+      if (!start || !end) return "—";
+      try {
+        const a = Date.parse(start);
+        const b = Date.parse(end);
+        if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) return "—";
+        return formatEtaSec((b - a) / 1000);
+      } catch (_) {
+        return "—";
+      }
+    }
+
+    function jobCanStop(state) {
+      return state === "PENDING" || state === "RESTORING";
+    }
+
+    function detailRows(job) {
+      const rows = [
+        ["State", job.state],
+        ["VM name", job.vm_name],
+        ["Backup ID", job.backup_id],
+        ["Source (PBS)", job.source_label || "—"],
+        ["Source VMID", job.source_vmid],
+        ["Target VMID", job.proxmox_vmid],
+        ["Node", job.proxmox_node],
+        ["Storage", job.proxmox_storage],
+        ["Archive", job.archive || "—"],
+        ["Backup size (gross)", job.backup_size_bytes
+          ? formatBytes(job.backup_size_bytes) + " (PBS archive sum)"
+          : "—"],
+        ["Live restore", job.live_restore ? "yes" : "no"],
+        ["Power on", job.power_on ? "yes" : "no"],
+        ["QGA", job.qga_ok === "1" ? ("ok · " + (job.qga_waited_sec || "") + "s") : (job.qga_wait_sec ? (job.qga_ok === "0" ? "failed" : "pending · " + job.qga_wait_sec + "s") : "—")],
+        ["Restore mode", job.restore_mode === "dr" ? "DR (keep VMID/MAC/UUID)" : "Normal"],
+        ["Bandwidth limit", job.bwlimit ? job.bwlimit + " KiB/s" : "unlimited"],
+        ["Progress", (job.progress ?? 0) + "%"],
+        ["Bytes (gross / virtual)", job.bytes_total
+          ? formatBytes(job.bytes_done || 0) + " / " + formatBytes(job.bytes_total)
+          : (job.bytes_done ? formatBytes(job.bytes_done) : "—")],
+        ["Speed (gross)", formatRateBps(job.speed_bps) + " — includes sparse/zeros"],
+        ["Non-zero bytes", job.nonzero_bytes_done ? formatBytes(job.nonzero_bytes_done) : (job.network_bytes_done && !job.wire_compression_ratio ? formatBytes(job.network_bytes_done) : "—")],
+        ["Non-zero speed", job.nonzero_speed_bps ? formatBytes(Number(job.nonzero_speed_bps)) + "/s" : "—"],
+        ["Wire compression", job.wire_compression_ratio ? Number(job.wire_compression_ratio).toFixed(2) + "× (sampled)" : "—"],
+        ["Disk sparsity", job.disk_sparsity_ratio ? ((Number(job.disk_sparsity_ratio) * 100).toFixed(1) + "% non-zero chunks") : "—"],
+        ["Est. wire speed", formatWireRate(job.network_speed_bps)],
+        ["ETA", formatEtaSec(job.eta_sec)],
+        ["Duration", jobDurationLabel(job)],
+        ["Created", (job.created_at || "").slice(0, 19) || "—"],
+        ["Restore started", (job.restore_started_at || "").slice(0, 19) || "—"],
+        ["Updated", (job.updated_at || "").slice(0, 19) || "—"],
+        ["PVE UPID", job.pve_upid || "—"],
+        ["Last PVE status", job.pve_status_text || "—"],
+        ["Plan run", job.plan_run_id || "—"],
+        ["Plan group", job.plan_group_index !== "" && job.plan_group_index != null ? job.plan_group_index : "—"],
+        ["Job ID", job.job_id],
+      ];
+      if (job.error) rows.splice(1, 0, ["Error", job.error]);
+      return rows;
+    }
+
+    async function renderJobLog(jobId) {
+      const box = document.getElementById("job-detail-log");
+      try {
+        const lines = await api("/api/jobs/" + encodeURIComponent(jobId) + "/log?limit=500");
+        if (!lines.length) {
+          box.textContent = "(no log entries)";
+          return;
+        }
+        box.innerHTML = "";
+        for (const entry of lines) {
+          const div = document.createElement("div");
+          if (entry.raw) {
+            div.textContent = entry.raw;
+          } else {
+            const level = (entry.level || "").toUpperCase();
+            const meta = [(entry.ts || "").slice(0, 19), level, entry.stage || ""].filter(Boolean).join(" ");
+            const span = document.createElement("span");
+            span.className = "job-log-meta";
+            span.textContent = meta + "  ";
+            div.appendChild(span);
+            div.appendChild(document.createTextNode(entry.message || ""));
+            if (level === "ERROR") div.classList.add("job-log-line-err");
+          }
+          box.appendChild(div);
+        }
+        box.scrollTop = box.scrollHeight;
+      } catch (e) {
+        box.textContent = "Failed to load log: " + e.message;
+      }
+    }
+
+    async function openJobDetail(jobId) {
+      openJobDetailId = jobId;
+      const modal = document.getElementById("job-detail-modal");
+      const grid = document.getElementById("job-detail-grid");
+      document.getElementById("job-detail-log").textContent = "Loading…";
+      modal.classList.add("show");
+      let job = jobsById[jobId];
+      try {
+        job = await api("/api/jobs/" + encodeURIComponent(jobId));
+        jobsById[jobId] = job;
+      } catch (e) {
+        if (!job) {
+          document.getElementById("job-detail-title").textContent = "Restore job";
+          document.getElementById("job-detail-subtitle").textContent = e.message;
+          grid.innerHTML = "";
+          return;
+        }
+      }
+      document.getElementById("job-detail-title").textContent =
+        (job.vm_name || "VM") + " → " + (job.proxmox_vmid || "?");
+      document.getElementById("job-detail-subtitle").textContent =
+        (job.state || "") + (job.live_restore ? " · live restore" : "");
+      grid.innerHTML = "";
+      for (const [k, v] of detailRows(job)) {
+        const dt = document.createElement("dt");
+        dt.textContent = k;
+        const dd = document.createElement("dd");
+        dd.textContent = v == null || v === "" ? "—" : String(v);
+        grid.appendChild(dt);
+        grid.appendChild(dd);
+      }
+      await renderJobLog(jobId);
+    }
+
+    document.getElementById("btn-job-detail-close").onclick = () => {
+      openJobDetailId = null;
+      document.getElementById("job-detail-modal").classList.remove("show");
+    };
+    document.getElementById("btn-job-detail-refresh").onclick = async () => {
+      if (openJobDetailId) await openJobDetail(openJobDetailId);
+    };
+
     async function loadJobs() {
       const statusEl = document.getElementById("jobs-list-status");
       const tbody = document.getElementById("jobs-tbody");
@@ -1178,7 +2026,14 @@
       const empty = document.getElementById("jobs-empty");
       try {
         const jobs = await api("/api/jobs");
+        jobsById = Object.fromEntries(jobs.map((j) => [j.job_id, j]));
+        const stats = await refreshJobsStats(jobs);
         statusEl.textContent = jobs.length ? jobs.length + " job(s)" : "";
+        const busy = (stats.active || 0) > 0 || !!stats.paused;
+        if (jobsPollTimer) {
+          clearInterval(jobsPollTimer);
+          jobsPollTimer = setInterval(loadJobs, busy ? 2000 : 5000);
+        }
         if (!jobs.length) {
           table.hidden = true;
           empty.classList.remove("hidden");
@@ -1187,10 +2042,16 @@
         empty.classList.add("hidden");
         table.hidden = false;
         tbody.innerHTML = "";
-        for (const job of jobs) {
+        // Newest first for operators reviewing finished restores.
+        const ordered = [...jobs].sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+        for (const job of ordered) {
           const tr = document.createElement("tr");
           const pct = Math.max(0, Math.min(100, Number(job.progress || 0)));
           const fillClass = job.state === "COMPLETED" ? "done" : job.state === "FAILED" ? "fail" : "";
+          const title = escapeHtml(job.pve_status_text || "");
+          const stopBtn = jobCanStop(job.state)
+            ? '<button type="button" class="secondary btn-stop" data-id="' + escapeHtml(job.job_id) + '">Stop</button>'
+            : "";
           tr.innerHTML =
             "<td>" + escapeHtml(job.vm_name) + "</td>" +
             "<td>" + escapeHtml(job.source_label || "") + "</td>" +
@@ -1198,11 +2059,23 @@
             "<td>" + escapeHtml(job.proxmox_vmid) + "</td>" +
             "<td>" + escapeHtml(job.proxmox_node) + "</td>" +
             '<td><span class="state-pill">' + escapeHtml(job.state) + "</span></td>" +
-            '<td><div class="progress-wrap"><div class="progress-fill ' + fillClass + '" style="width:' + pct + '%"></div></div></td>' +
+            '<td class="progress-cell" title="' + title + '"><div class="progress-wrap"><div class="progress-fill ' + fillClass + '" style="width:' + pct + '%"></div></div><div class="progress-pct">' + pct + "%</div></td>" +
+            "<td>" + escapeHtml(formatRateBps(job.speed_bps)) + "</td>" +
+            "<td title=\"Est. wire ≈ (read − zeroes) × sampled PBS compression\">" +
+              escapeHtml(formatWireRate(job.network_speed_bps)) + "</td>" +
+            "<td>" + escapeHtml(job.state === "COMPLETED" || job.state === "FAILED" || job.state === "CANCELLED"
+              ? jobDurationLabel(job)
+              : formatEtaSec(job.eta_sec)) + "</td>" +
             "<td>" + escapeHtml((job.updated_at || "").slice(0, 19)) + "</td>" +
-            '<td><button type="button" class="secondary btn-stop" data-id="' + escapeHtml(job.job_id) + '">Stop</button></td>';
+            '<td class="actions-cell">' +
+              '<button type="button" class="secondary btn-job-detail" data-id="' + escapeHtml(job.job_id) + '">Details</button>' +
+              stopBtn +
+            "</td>";
           tbody.appendChild(tr);
         }
+        tbody.querySelectorAll(".btn-job-detail").forEach((btn) => {
+          btn.onclick = () => openJobDetail(btn.dataset.id);
+        });
         tbody.querySelectorAll(".btn-stop").forEach((btn) => {
           btn.onclick = async () => {
             try {
@@ -1213,6 +2086,13 @@
             }
           };
         });
+        // Keep an open detail modal fresh while polling.
+        if (openJobDetailId && document.getElementById("job-detail-modal").classList.contains("show")) {
+          const still = jobsById[openJobDetailId];
+          if (still && jobCanStop(still.state)) {
+            openJobDetail(openJobDetailId);
+          }
+        }
       } catch (e) {
         statusEl.textContent = "";
         banner(document.getElementById("global-banner"), "err", e.message);
@@ -1231,10 +2111,57 @@
     }
 
     document.getElementById("btn-refresh-jobs").onclick = loadJobs;
+    document.getElementById("btn-apply-concurrency").onclick = async () => {
+      const n = Number(document.getElementById("jobs-max-concurrent").value || 2);
+      try {
+        await api("/api/ui/worker", {
+          method: "PATCH",
+          body: JSON.stringify({ max_concurrent_restores: Math.max(1, n) }),
+        });
+        banner(document.getElementById("global-banner"), "ok", "Concurrency set to " + Math.max(1, n) + " (live within ~1s).");
+        // Keep Settings field in sync if present.
+        const settingsInput = document.getElementById("worker-max-concurrent");
+        if (settingsInput) settingsInput.value = String(Math.max(1, n));
+        loadJobs();
+      } catch (e) {
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    };
+    document.getElementById("btn-queue-pause").onclick = async () => {
+      try {
+        await api("/api/jobs/queue/pause", { method: "POST", body: "{}" });
+        banner(document.getElementById("global-banner"), "ok", "Queue paused. In-flight restores continue.");
+        loadJobs();
+      } catch (e) {
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    };
+    document.getElementById("btn-queue-resume").onclick = async () => {
+      try {
+        await api("/api/jobs/queue/resume", { method: "POST", body: "{}" });
+        banner(document.getElementById("global-banner"), "ok", "Queue resumed.");
+        loadJobs();
+      } catch (e) {
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    };
+    document.getElementById("btn-queue-stop").onclick = async () => {
+      if (!confirm("Cancel all queued (PENDING) jobs? Running restores keep going until they finish or fail.")) return;
+      try {
+        const res = await api("/api/jobs/queue/stop", { method: "POST", body: "{}" });
+        const n = (res.drained && res.drained.cancelled) || 0;
+        banner(document.getElementById("global-banner"), "ok", "Stopped pending: cancelled " + n + " job(s). Queue remains paused.");
+        loadJobs();
+      } catch (e) {
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    };
 
     let planRunsPollTimer = null;
     let cachedGroups = [];
     let cachedLocations = [];
+    let requireVerifiedToRun = false;
+    let planRunDefaultLocationId = "";
 
     function parseCsv(value) {
       return String(value || "")
@@ -1315,16 +2242,63 @@
     function resetLocationForm() {
       document.getElementById("loc-edit-id").value = "";
       document.getElementById("loc-name").value = "";
-      document.getElementById("loc-node").value = "";
-      document.getElementById("loc-storage").value = "";
+      document.getElementById("loc-nodes-extra").value = "";
       document.getElementById("loc-vmid-start").value = "100";
+      document.getElementById("loc-vmid-start").disabled = false;
       document.getElementById("loc-bwlimit").value = "0";
+      document.getElementById("loc-restore-mode").value = "normal";
       document.getElementById("loc-live").checked = false;
+      document.getElementById("loc-power-on").checked = false;
+      document.getElementById("loc-qga").checked = false;
+      document.getElementById("loc-qga-sec").value = "0";
+      const hint = document.getElementById("loc-mode-dr-hint");
+      hint.hidden = true;
+      hint.style.display = "none";
+      fillNodeSelect("loc-nodes", "").then(() => loadLocationStorages());
+    }
+
+    function locationNodesDisplay(loc) {
+      const nodes = (loc.nodes && loc.nodes.length) ? loc.nodes : [loc.node];
+      return nodes.filter(Boolean).join(", ");
+    }
+
+    function locationStorageDisplay(loc) {
+      return formatStorageByNodeSummary(loc.storage_by_node || {}, loc.storage);
+    }
+
+    function collectLocationNodes() {
+      const selected = getSelectedNodes("loc-nodes");
+      const extra = document.getElementById("loc-nodes-extra").value
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const out = [];
+      for (const n of selected.concat(extra)) {
+        if (n && !out.includes(n)) out.push(n);
+      }
+      return out;
+    }
+
+    async function loadLocationStorages(preferredByNode) {
+      const nodes = collectLocationNodes();
+      let defaultStorage = "";
+      try {
+        const defs = await api("/api/restore-defaults");
+        defaultStorage = defs.storage || "";
+      } catch (_) {}
+      await renderStorageByNode(
+        "loc-storage-by-node",
+        nodes,
+        preferredByNode || {},
+        defaultStorage
+      );
     }
 
     async function loadLocations() {
       const status = document.getElementById("locations-status");
       try {
+        await fillNodeSelect("loc-nodes", "");
+        await loadLocationStorages();
         cachedLocations = await api("/api/locations");
         const tbody = document.getElementById("locations-tbody");
         tbody.innerHTML = "";
@@ -1332,25 +2306,37 @@
           const tr = document.createElement("tr");
           tr.innerHTML =
             "<td>" + escapeHtml(loc.name) + "</td>" +
-            "<td>" + escapeHtml(loc.node) + "</td>" +
-            "<td>" + escapeHtml(loc.storage) + "</td>" +
-            "<td>" + escapeHtml(loc.vmid_start) + "</td>" +
+            "<td>" + escapeHtml(locationNodesDisplay(loc)) + "</td>" +
+            "<td>" + escapeHtml(locationStorageDisplay(loc)) + "</td>" +
+            "<td>" + escapeHtml((loc.restore_mode || "normal").toUpperCase()) + "</td>" +
+            "<td>" + escapeHtml(loc.restore_mode === "dr" ? "source VMIDs" : loc.vmid_start) + "</td>" +
             '<td><button type="button" class="secondary tiny btn-edit-loc" data-id="' + escapeHtml(loc.id) + '">Edit</button> ' +
             '<button type="button" class="danger tiny btn-del-loc" data-id="' + escapeHtml(loc.id) + '">Delete</button></td>';
           tbody.appendChild(tr);
         }
         status.textContent = cachedLocations.length ? cachedLocations.length + " location(s)" : "No locations yet";
         tbody.querySelectorAll(".btn-edit-loc").forEach((btn) => {
-          btn.onclick = () => {
+          btn.onclick = async () => {
             const loc = cachedLocations.find((x) => x.id === btn.dataset.id);
             if (!loc) return;
             document.getElementById("loc-edit-id").value = loc.id;
             document.getElementById("loc-name").value = loc.name;
-            document.getElementById("loc-node").value = loc.node;
-            document.getElementById("loc-storage").value = loc.storage;
+            const nodes = (loc.nodes && loc.nodes.length) ? loc.nodes : [loc.node];
+            await fillNodeSelect("loc-nodes", nodes);
+            document.getElementById("loc-nodes-extra").value = "";
             document.getElementById("loc-vmid-start").value = loc.vmid_start;
             document.getElementById("loc-bwlimit").value = loc.bwlimit || 0;
+            document.getElementById("loc-restore-mode").value = loc.restore_mode === "dr" ? "dr" : "normal";
             document.getElementById("loc-live").checked = !!loc.live_restore;
+            document.getElementById("loc-power-on").checked = !!loc.power_on;
+            document.getElementById("loc-qga").checked = Number(loc.qga_wait_sec || 0) > 0;
+            document.getElementById("loc-qga-sec").value = loc.qga_wait_sec || 0;
+            const isDr = loc.restore_mode === "dr";
+            document.getElementById("loc-vmid-start").disabled = isDr;
+            const hint = document.getElementById("loc-mode-dr-hint");
+            hint.hidden = !isDr;
+            hint.style.display = isDr ? "" : "none";
+            await loadLocationStorages(loc.storage_by_node || { [loc.node]: loc.storage });
           };
         });
         tbody.querySelectorAll(".btn-del-loc").forEach((btn) => {
@@ -1370,14 +2356,34 @@
     }
 
     document.getElementById("btn-reset-location").onclick = resetLocationForm;
+    document.getElementById("loc-nodes").onchange = () => loadLocationStorages();
+    document.getElementById("loc-nodes-extra").onchange = () => loadLocationStorages();
+    document.getElementById("loc-nodes-extra").onblur = () => loadLocationStorages();
     document.getElementById("btn-save-location").onclick = async () => {
+      const nodes = collectLocationNodes();
+      const storageByNode = collectStorageByNode("loc-storage-by-node");
+      if (!nodes.length) {
+        banner(document.getElementById("global-banner"), "err", "Select at least one node.");
+        return;
+      }
+      if (!storageByNodeComplete(nodes, storageByNode)) {
+        banner(document.getElementById("global-banner"), "err", "Choose storage for every node.");
+        return;
+      }
       const body = {
         name: document.getElementById("loc-name").value.trim(),
-        node: document.getElementById("loc-node").value.trim(),
-        storage: document.getElementById("loc-storage").value.trim(),
+        node: nodes[0],
+        nodes,
+        storage: storageByNode[nodes[0]],
+        storage_by_node: storageByNode,
         vmid_start: Number(document.getElementById("loc-vmid-start").value || 100),
         bwlimit: Number(document.getElementById("loc-bwlimit").value || 0),
         live_restore: document.getElementById("loc-live").checked,
+        restore_mode: document.getElementById("loc-restore-mode").value || "normal",
+        power_on: document.getElementById("loc-power-on").checked,
+        qga_wait_sec: document.getElementById("loc-qga").checked
+          ? Number(document.getElementById("loc-qga-sec").value || 120)
+          : Number(document.getElementById("loc-qga-sec").value || 0),
       };
       const id = document.getElementById("loc-edit-id").value;
       try {
@@ -1410,11 +2416,18 @@
         '<option value="' + escapeHtml(g.id) + '">' + escapeHtml(g.name) + "</option>"
       ).join("");
       runLoc.innerHTML = '<option value="">Use plan default</option>' + cachedLocations.map((l) =>
-        '<option value="' + escapeHtml(l.id) + '">' + escapeHtml(l.name) + "</option>"
+        '<option value="' + escapeHtml(l.id) + '" data-mode="' + escapeHtml(l.restore_mode || "normal") + '">' +
+        escapeHtml(l.name) + (l.restore_mode === "dr" ? " [DR]" : "") + "</option>"
       ).join("");
     }
 
     async function loadPlansPage() {
+      try {
+        const defs = await api("/api/restore-defaults");
+        requireVerifiedToRun = !!defs.require_verified_to_run;
+      } catch (_e) {
+        requireVerifiedToRun = false;
+      }
       cachedGroups = await api("/api/groups");
       cachedLocations = await api("/api/locations");
       fillPlanSelectors();
@@ -1427,12 +2440,28 @@
       for (const p of plans) {
         const tr = document.createElement("tr");
         const gnames = (p.group_ids || []).map((id) => (groupById[id] && groupById[id].name) || id).join(" → ");
+        const check = p.last_check || {};
+        const checkHint = p.last_check_at
+          ? (check.summary || p.last_check_at)
+          : "Not checked yet";
+        const stateHtml =
+          escapeHtml(p.verification || "") +
+          (p.enabled ? "" : " · disabled") +
+          '<div class="progress-pct" title="' + escapeHtml(checkHint) + '">' +
+          escapeHtml(p.last_check_at ? ("Checked " + String(p.last_check_at).replace("T", " ").slice(0, 19)) : "Never checked") +
+          "</div>";
         tr.innerHTML =
           "<td>" + escapeHtml(p.name) + "</td>" +
           "<td>" + escapeHtml(gnames) + "</td>" +
           "<td>" + escapeHtml((locById[p.location_id] && locById[p.location_id].name) || p.location_id) + "</td>" +
-          "<td>" + escapeHtml(p.verification || "") + (p.enabled ? "" : " · disabled") + "</td>" +
-          '<td><button type="button" class="primary tiny btn-run-plan" data-id="' + escapeHtml(p.id) + '" data-name="' + escapeHtml(p.name) + '">Run</button> ' +
+          "<td>" + stateHtml + "</td>" +
+          '<td class="actions-cell">' +
+          '<button type="button" class="secondary tiny btn-check-plan" data-id="' + escapeHtml(p.id) + '" data-name="' + escapeHtml(p.name) + '">Check</button> ' +
+          '<button type="button" class="primary tiny btn-run-plan" data-id="' + escapeHtml(p.id) +
+          '" data-name="' + escapeHtml(p.name) +
+          '" data-verification="' + escapeHtml(p.verification || "") +
+          '" data-location="' + escapeHtml(p.location_id || "") +
+          '">Run</button> ' +
           '<button type="button" class="secondary tiny btn-edit-plan" data-id="' + escapeHtml(p.id) + '">Edit</button> ' +
           '<button type="button" class="danger tiny btn-del-plan" data-id="' + escapeHtml(p.id) + '">Delete</button></td>';
         tbody.appendChild(tr);
@@ -1462,11 +2491,131 @@
           }
         };
       });
+      tbody.querySelectorAll(".btn-check-plan").forEach((btn) => {
+        btn.onclick = async () => {
+          btn.disabled = true;
+          try {
+            const res = await api("/api/plans/" + encodeURIComponent(btn.dataset.id) + "/check", {
+              method: "POST",
+              body: JSON.stringify({}),
+            });
+            showPlanCheckModal(btn.dataset.name || "Plan", res.check || {}, (res.plan && res.plan.last_check_report_id) || "");
+            loadPlansPage();
+          } catch (e) {
+            banner(document.getElementById("global-banner"), "err", e.message);
+          } finally {
+            btn.disabled = false;
+          }
+        };
+      });
       tbody.querySelectorAll(".btn-run-plan").forEach((btn) => {
-        btn.onclick = () => openPlanRunModal(btn.dataset.id, btn.dataset.name);
+        btn.onclick = () => openPlanRunModal(
+          btn.dataset.id,
+          btn.dataset.name,
+          btn.dataset.verification,
+          btn.dataset.location
+        );
       });
       loadPlanRuns();
+      loadComplianceStrip();
+      loadReports();
     }
+
+    function downloadReport(reportId, format) {
+      if (!reportId) return;
+      window.open("/api/reports/" + encodeURIComponent(reportId) + "/download?format=" + encodeURIComponent(format), "_blank");
+    }
+
+    async function loadComplianceStrip() {
+      const el = document.getElementById("compliance-strip");
+      if (!el) return;
+      try {
+        const data = await api("/api/compliance/dashboard");
+        const rows = data.plans || [];
+        if (!rows.length) {
+          el.textContent = "No plans yet.";
+          return;
+        }
+        el.innerHTML = "<table class=\"vm-table\"><thead><tr>" +
+          "<th>Plan</th><th>Verification</th><th>Last check</th><th>Last run</th><th>RTO</th>" +
+          "</tr></thead><tbody>" +
+          rows.map((p) => {
+            const checkLabel = p.last_check_at
+              ? ((p.last_check_ok ? "OK" : "FAIL") + " · " + String(p.last_check_at).replace("T", " ").slice(0, 19))
+              : "Never";
+            const runLabel = p.last_run_status
+              ? (p.last_run_status + (p.last_run_finished_at ? " · " + String(p.last_run_finished_at).replace("T", " ").slice(0, 19) : ""))
+              : "—";
+            return "<tr>" +
+              "<td>" + escapeHtml(p.plan_name || p.plan_id) + (p.enabled ? "" : " · disabled") + "</td>" +
+              "<td>" + escapeHtml(p.verification || "") + "</td>" +
+              "<td title=\"" + escapeHtml(p.last_check_summary || "") + "\">" + escapeHtml(checkLabel) + "</td>" +
+              "<td>" + escapeHtml(runLabel) + "</td>" +
+              "<td>" + escapeHtml(p.last_run_rto || "—") + "</td>" +
+              "</tr>";
+          }).join("") +
+          "</tbody></table>";
+      } catch (e) {
+        el.textContent = "Compliance strip unavailable: " + e.message;
+      }
+    }
+
+    async function loadReports() {
+      const tbody = document.getElementById("reports-tbody");
+      if (!tbody) return;
+      try {
+        const rows = await api("/api/reports?limit=30");
+        tbody.innerHTML = "";
+        for (const rep of rows) {
+          const tr = document.createElement("tr");
+          tr.innerHTML =
+            "<td>" + escapeHtml(String(rep.created_at || "").replace("T", " ").slice(0, 19)) + "</td>" +
+            "<td>" + escapeHtml(rep.kind || "") + "</td>" +
+            "<td>" + escapeHtml(rep.plan_name || rep.plan_id || "") + "</td>" +
+            "<td>" + escapeHtml(rep.title || "") + "</td>" +
+            '<td class="actions-cell">' +
+            '<button type="button" class="secondary tiny btn-dl-md" data-id="' + escapeHtml(rep.id) + '">.md</button> ' +
+            '<button type="button" class="secondary tiny btn-dl-html" data-id="' + escapeHtml(rep.id) + '">.html</button></td>';
+          tbody.appendChild(tr);
+        }
+        tbody.querySelectorAll(".btn-dl-md").forEach((btn) => {
+          btn.onclick = () => downloadReport(btn.dataset.id, "md");
+        });
+        tbody.querySelectorAll(".btn-dl-html").forEach((btn) => {
+          btn.onclick = () => downloadReport(btn.dataset.id, "html");
+        });
+      } catch (e) {
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    }
+
+    function showPlanCheckModal(planName, check, reportId) {
+      document.getElementById("plancheck-title").textContent = "Readiness: " + planName;
+      const summary = document.getElementById("plancheck-summary");
+      summary.textContent = check.summary || (check.ok ? "OK" : "Failed");
+      const ul = document.getElementById("plancheck-items");
+      ul.innerHTML = "";
+      for (const item of (check.items || [])) {
+        const li = document.createElement("li");
+        const level = item.level || "ok";
+        li.style.color = level === "error" ? "var(--danger)" : (level === "warn" ? "#e6c07b" : "var(--muted)");
+        li.textContent = "[" + level + "] " + (item.message || item.code || "") +
+          (item.detail ? " — " + item.detail : "");
+        ul.appendChild(li);
+      }
+      document.getElementById("plancheck-report-id").value = reportId || "";
+      document.getElementById("plancheck-modal").classList.add("show");
+    }
+
+    document.getElementById("btn-plancheck-dl-md").onclick = () =>
+      downloadReport(document.getElementById("plancheck-report-id").value, "md");
+    document.getElementById("btn-plancheck-dl-html").onclick = () =>
+      downloadReport(document.getElementById("plancheck-report-id").value, "html");
+
+    document.getElementById("btn-plancheck-close").onclick = () =>
+      document.getElementById("plancheck-modal").classList.remove("show");
+
+    document.getElementById("btn-refresh-reports").onclick = loadReports;
 
     document.getElementById("btn-reset-plan").onclick = resetPlanForm;
     document.getElementById("btn-save-plan").onclick = async () => {
@@ -1490,22 +2639,109 @@
       }
     };
 
-    function openPlanRunModal(planId, planName) {
+    function resolvePlanRunLocationMode() {
+      const sel = document.getElementById("planrun-location");
+      const override = sel.value;
+      let locId = override || planRunDefaultLocationId;
+      const loc = cachedLocations.find((l) => l.id === locId);
+      return (loc && loc.restore_mode) || "normal";
+    }
+
+    function syncPlanRunDrUi() {
+      const isDr = resolvePlanRunLocationMode() === "dr";
+      const wrap = document.getElementById("planrun-confirm-dr-wrap");
+      const warn = document.getElementById("planrun-dr-warn");
+      if (isDr) {
+        wrap.hidden = false;
+        wrap.style.display = "block";
+        warn.hidden = false;
+        warn.style.display = "block";
+      } else {
+        wrap.hidden = true;
+        wrap.style.display = "none";
+        warn.hidden = true;
+        warn.style.display = "none";
+        document.getElementById("planrun-confirm-dr").checked = false;
+      }
+    }
+
+    function openPlanRunModal(planId, planName, verification, locationId) {
       document.getElementById("planrun-plan-id").value = planId;
+      document.getElementById("planrun-verification").value = verification || "";
+      planRunDefaultLocationId = locationId || "";
       document.getElementById("planrun-summary").textContent = "Run “" + planName + "” with optional point-in-time.";
       document.getElementById("planrun-cutoff").value = "";
       document.getElementById("planrun-location").value = "";
+      document.getElementById("planrun-drill").checked = false;
+      document.getElementById("planrun-auto-teardown").checked = false;
+      document.getElementById("planrun-allow-unverified").checked = false;
+      document.getElementById("planrun-confirm-dr").checked = false;
+      resetPowerOnQga("planrun", { power_on: false, qga_wait_sec: defaultQgaWaitSec });
+      const warn = document.getElementById("planrun-unverified-warn");
+      if (verification === "VERIFIED") {
+        warn.hidden = true;
+        warn.style.display = "none";
+      } else {
+        warn.hidden = false;
+        warn.style.display = "block";
+      }
+      const gateWrap = document.getElementById("planrun-allow-unverified-wrap");
+      if (requireVerifiedToRun && verification !== "VERIFIED") {
+        gateWrap.hidden = false;
+        gateWrap.style.display = "block";
+      } else {
+        gateWrap.hidden = true;
+        gateWrap.style.display = "none";
+      }
+      syncPlanRunDrUi();
       document.getElementById("planrun-modal").classList.add("show");
     }
+
+    document.getElementById("planrun-location").onchange = syncPlanRunDrUi;
+    document.getElementById("planrun-drill").onchange = () => {
+      if (document.getElementById("planrun-drill").checked) {
+        document.getElementById("planrun-auto-teardown").checked = true;
+        // Drill defaults powered-off; clear power-on unless user re-checks.
+        if (!document.getElementById("planrun-power-on").checked) {
+          document.getElementById("planrun-qga").checked = false;
+          syncQgaUi("planrun");
+        }
+      }
+    };
 
     document.getElementById("btn-planrun-cancel").onclick = () =>
       document.getElementById("planrun-modal").classList.remove("show");
 
     document.getElementById("btn-planrun-confirm").onclick = async () => {
       const planId = document.getElementById("planrun-plan-id").value;
+      const isDr = resolvePlanRunLocationMode() === "dr";
+      const drill = document.getElementById("planrun-drill").checked;
+      if (isDr && !document.getElementById("planrun-confirm-dr").checked) {
+        banner(document.getElementById("global-banner"), "err", "Confirm DR restore before running.");
+        return;
+      }
+      if (
+        requireVerifiedToRun &&
+        document.getElementById("planrun-verification").value !== "VERIFIED" &&
+        !document.getElementById("planrun-allow-unverified").checked
+      ) {
+        banner(document.getElementById("global-banner"), "err", "Plan is not VERIFIED; check Allow unverified or run Check first.");
+        return;
+      }
+      if (isDr && !confirm("DR plan run will restore with source VMIDs/MACs/UUIDs. Continue?")) {
+        return;
+      }
+      const pq = powerOnQgaBody("planrun");
       const body = {
         at_or_before: document.getElementById("planrun-cutoff").value || null,
         location_id: document.getElementById("planrun-location").value || null,
+        drill,
+        auto_teardown: drill && document.getElementById("planrun-auto-teardown").checked,
+        powered_off: drill && !pq.power_on ? true : null,
+        power_on: pq.power_on,
+        qga_wait_sec: pq.qga_wait_sec,
+        allow_unverified: document.getElementById("planrun-allow-unverified").checked,
+        confirm_dr: isDr,
       };
       try {
         const run = await api("/api/plans/" + encodeURIComponent(planId) + "/run", {
@@ -1513,7 +2749,11 @@
           body: JSON.stringify(body),
         });
         document.getElementById("planrun-modal").classList.remove("show");
-        banner(document.getElementById("global-banner"), "ok", "Plan run started (" + (run.job_count || 0) + " job(s) so far).");
+        banner(
+          document.getElementById("global-banner"),
+          "ok",
+          (drill ? "Drill" : "Plan") + " run started (" + (run.job_count || 0) + " job(s) so far)."
+        );
         showView("plans");
         loadPlanRuns();
         startPlanRunsPoll();
@@ -1529,13 +2769,26 @@
         tbody.innerHTML = "";
         for (const run of runs) {
           const tr = document.createElement("tr");
+          const rto = run.rto || (run.finished_at ? "" : "—");
+          const kind = run.drill ? " · drill" : "";
+          const td = run.teardown_status ? (" · tear " + run.teardown_status) : "";
+          const dl = run.report_id
+            ? (' <button type="button" class="secondary tiny btn-run-report" data-id="' + escapeHtml(run.report_id) + '">Report</button>')
+            : "";
+          const cancelBtn = run.status === "RUNNING"
+            ? (' <button type="button" class="danger tiny btn-run-cancel" data-id="' + escapeHtml(run.id) + '">Cancel</button>')
+            : "";
+          const tearBtn = (run.status !== "RUNNING" && run.teardown_status !== "completed")
+            ? (' <button type="button" class="secondary tiny btn-run-teardown" data-id="' + escapeHtml(run.id) + '">Teardown</button>')
+            : "";
           tr.innerHTML =
             "<td>" + escapeHtml(run.plan_name || run.plan_id) + "</td>" +
-            "<td>" + escapeHtml(run.status) + "</td>" +
+            "<td>" + escapeHtml(run.status) + kind + td + (rto && run.finished_at ? (" · RTO " + escapeHtml(String(rto))) : "") + "</td>" +
             "<td>" + escapeHtml((run.completed_jobs || 0) + "/" + (run.job_count || 0)) + "</td>" +
             "<td>" + escapeHtml((run.started_at || "").slice(0, 19)) + "</td>" +
             "<td>" + escapeHtml((run.finished_at || "").slice(0, 19)) + "</td>" +
-            '<td><button type="button" class="secondary tiny btn-run-detail" data-id="' + escapeHtml(run.id) + '">Detail</button></td>';
+            '<td class="actions-cell"><button type="button" class="secondary tiny btn-run-detail" data-id="' + escapeHtml(run.id) + '">Detail</button>' +
+            cancelBtn + tearBtn + dl + "</td>";
           tbody.appendChild(tr);
         }
         tbody.querySelectorAll(".btn-run-detail").forEach((btn) => {
@@ -1546,9 +2799,50 @@
                 "g" + j.group_index + " " + j.vm_name + " → " + j.proxmox_vmid + " " + j.state +
                 (j.error ? " (" + j.error + ")" : "")
               );
+              const targets = (run.assigned_targets || []).map((t) => t.vmid + "@" + (t.node || "?")).join(", ");
               document.getElementById("plan-run-detail").textContent =
                 (lines.length ? lines.join(" · ") : "No jobs yet") +
+                (targets ? " · VMs " + targets : "") +
+                (run.rto ? " · RTO " + run.rto : "") +
+                (run.teardown_status ? " · teardown " + run.teardown_status : "") +
                 (run.error ? " — " + run.error : "");
+            } catch (e) {
+              banner(document.getElementById("global-banner"), "err", e.message);
+            }
+          };
+        });
+        tbody.querySelectorAll(".btn-run-report").forEach((btn) => {
+          btn.onclick = () => downloadReport(btn.dataset.id, "md");
+        });
+        tbody.querySelectorAll(".btn-run-cancel").forEach((btn) => {
+          btn.onclick = async () => {
+            if (!confirm("Cancel this plan run? Pending jobs stop; in-flight restores are asked to stop.")) return;
+            try {
+              await api("/api/plan-runs/" + encodeURIComponent(btn.dataset.id) + "/cancel", {
+                method: "POST",
+                body: "{}",
+              });
+              banner(document.getElementById("global-banner"), "ok", "Plan run cancelled.");
+              loadPlanRuns();
+            } catch (e) {
+              banner(document.getElementById("global-banner"), "err", e.message);
+            }
+          };
+        });
+        tbody.querySelectorAll(".btn-run-teardown").forEach((btn) => {
+          btn.onclick = async () => {
+            if (!confirm("Destroy all QEMU VMs created by this plan run?")) return;
+            try {
+              const run = await api("/api/plan-runs/" + encodeURIComponent(btn.dataset.id) + "/teardown", {
+                method: "POST",
+                body: JSON.stringify({}),
+              });
+              banner(
+                document.getElementById("global-banner"),
+                run.teardown_status === "completed" ? "ok" : "err",
+                "Teardown " + (run.teardown_status || "done")
+              );
+              loadPlanRuns();
             } catch (e) {
               banner(document.getElementById("global-banner"), "err", e.message);
             }

@@ -80,6 +80,26 @@ def test_legacy_single_pbs_is_converted() -> None:
     assert src.api_token_secret == "legacy"
 
 
+def test_password_auth_fields_on_source() -> None:
+    cfg = {
+        "pbs_servers": [
+            {
+                "id": "main",
+                "host": "10.0.0.10",
+                "user": "flaskapp@pbs",
+                "password": "secret",
+                "mounts": [{"datastore": "main", "pve_storage": "pbs-main"}],
+            }
+        ]
+    }
+    sources = load_sources(cfg)
+    assert len(sources) == 1
+    assert sources[0].user == "flaskapp@pbs"
+    assert sources[0].password == "secret"
+    assert sources[0].api_token_id == ""
+    assert sources[0].api_token_secret == ""
+
+
 def test_new_schema_takes_precedence_over_legacy() -> None:
     cfg = {
         "pbs": {"host": "old", "datastore": "old", "api_token_secret": "x"},

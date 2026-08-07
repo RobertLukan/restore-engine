@@ -44,6 +44,8 @@ def test_submit_restore_includes_bwlimit_when_positive() -> None:
     assert px.captured["archive"] == "pbs-main:backup/vm/100/2026-05-01T01:00:00Z"
     assert px.captured["storage"] == "local-lvm"
     assert px.captured["live-restore"] == 1
+    assert px.captured["unique"] == 1
+    assert px.captured["force"] == 1
     assert px.captured["bwlimit"] == 51200
 
 
@@ -61,3 +63,23 @@ def test_submit_restore_omits_bwlimit_when_zero_or_none() -> None:
         )
         assert "bwlimit" not in px.captured
         assert px.captured["live-restore"] == 0
+        assert px.captured["unique"] == 1
+        assert px.captured["force"] == 1
+
+
+def test_submit_restore_dr_keeps_identity_and_no_force() -> None:
+    px = _FakeProxmox()
+    submit_restore(
+        px,
+        node="pve",
+        target_vmid=109,
+        archive="pbs-main:backup/vm/109/2026-05-01T01:00:00Z",
+        target_storage="local-lvm",
+        live_restore=True,
+        unique=False,
+        force=False,
+    )
+    assert px.captured["vmid"] == 109
+    assert px.captured["unique"] == 0
+    assert px.captured["force"] == 0
+    assert px.captured["live-restore"] == 1

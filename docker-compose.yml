@@ -23,6 +23,9 @@ services:
     platform: linux/amd64
     restart: unless-stopped
     networks: [restore]
+    volumes:
+      - redis-data:/data
+    command: ["redis-server", "--appendonly", "yes"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -58,8 +61,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
-    # volumes:
-    #   - ./config.docker.yaml:/app/config.docker.yaml:ro
+    volumes:
+      - ./config.docker.yaml:/app/config.docker.yaml
 
   worker:
     image: restore-engine:latest
@@ -74,9 +77,12 @@ services:
     command: ["python", "worker.py"]
     healthcheck:
       disable: true
-    # volumes:
-    #   - ./config.docker.yaml:/app/config.docker.yaml:ro
+    volumes:
+      - ./config.docker.yaml:/app/config.docker.yaml
 
 networks:
   restore:
     driver: bridge
+
+volumes:
+  redis-data:

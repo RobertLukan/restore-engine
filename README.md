@@ -10,13 +10,13 @@ Designed to mirror the operator experience of [migration-engine](../migration-en
 - List VM backups across every server, datastore, and namespace (each row shows its source)
 - Select multiple backups at once (checkboxes + row click)
 - Bulk restore with:
-  - target node
+  - one or more target nodes (**load-balanced**, least-loaded — important for live restore)
   - target storage
-  - sequential VMID allocation
+  - sequential **cluster-wide** VMID allocation
   - optional live restore
   - optional per-batch bandwidth limit
 - Track per-job progress and logs via Redis + worker
-- **Recovery plans** (enterprise-style): saved inventory groups, recovery locations, ordered plan run with point-in-time
+- **Recovery plans** (enterprise-style): saved inventory groups, recovery locations (multi-node), ordered plan run with point-in-time
 
 ## Multiple PBS servers, datastores, and namespaces
 
@@ -47,6 +47,10 @@ needs its own PVE storage entry, and that storage ID is what goes in `pve_storag
 The backup list aggregates all sources and the restore uses the correct
 `pve_storage` per selected backup automatically. A legacy single `pbs:` block plus
 `proxmox.pbs_storage` is still read and shown as one server.
+
+PBS and Proxmox VE auth: set **either** an API token (`api_token_id` +
+`api_token_secret`) **or** `user` + `password`. When both are present, the token
+is used.
 
 ## Restore by tags (groups)
 
@@ -105,12 +109,16 @@ Dashboard: http://localhost:8001 (migration-engine typically uses 8000 on the sa
 
 ## Performance tuning
 
-The **Settings** tab has a *Restore performance* section:
+The **Settings** tab has a *Restore performance* section; the **Restores** tab mirrors concurrency live:
 
-- **Max concurrent restores** (`worker.max_concurrent_restores`) — how many restores run in parallel. The worker re-reads this every second, so changes take effect without a restart. Increase only if PBS/PVE network and target storage have headroom; parallel restores to the *same* storage often contend on IOPS.
-- **Default bandwidth limit** (`proxmox.restore_bwlimit`, KiB/s, `0` = unlimited) and **Live restore by default** (`proxmox.live_restore_default`) — these pre-fill the restore dialog.
+- **Max concurrent restores** — change anytime (including mid-batch). The worker re-reads this every second; in-flight jobs are not killed when you lower the limit.
+- **Pause / Resume** — pause stops claiming new jobs and plan group enqueue; running restores finish or fail on their own. Resume continues the queue.
+- **Stop pending** — pause + cancel all PENDING jobs; in-flight keeps going (use per-job Stop to abort a running restore).
+- Per-job **progress % / speed / ETA** from PVE task logs (best-effort). **Speed (gross)** follows PVE progress and includes sparse/zero regions. **Est. network** scales the PBS snapshot size (sum of archive sizes) by restore progress — an approximation of wire throughput, not a measured NIC counter.
+- Backup list and job details show **Size (gross)** from PBS.
+- **Default bandwidth limit** and **Live restore by default** in Settings pre-fill restore dialogs.
 
-Per restore batch, the **Restore selected** dialog also lets you set a **bandwidth limit** (passed to Proxmox as `bwlimit`) and toggle **live restore** (VM boots early and streams data in the background — best for fast time-to-usable; leave off for fastest total restore).
+Per restore batch, the **Restore selected** dialog also lets you set a **bandwidth limit** (passed to Proxmox as `bwlimit`), toggle **live restore**, and **multi-select Proxmox nodes** with a **storage dropdown per node**. Jobs load-balance across nodes; VMIDs are cluster-wide unique.
 
 Note: Proxmox-side throttles (a `bwlimit` in `datacenter.cfg` or on the storage, and PBS Traffic Control rules) apply on top of these and are the most common cause of slow restores.
 
@@ -132,6 +140,27 @@ Example: `pbs-main:backup/vm/100/2026-05-01T01:00:00Z`
 Each PBS snapshot is identified by `vm/{vmid}/{timestamp}` (the backup time is
 included so a specific snapshot is restored, and multiple snapshots of the same
 VM are selectable independently).
+
+## PCI passthrough and API user privileges
+
+Guest tags and most restores work with a normal Proxmox API user (for example
+`flaskapp@pve`). Backups that include **PCI passthrough** (`hostpci*`) are
+different: Proxmox only allows **root** to set `hostpci` config for non-mapped
+devices. Restoring such a backup with a non-root token/user fails with:
+
+```text
+only root can set 'hostpci0' config for non-mapped devices
+```
+
+Options:
+
+- Restore with `root@pam` (password or API token) when the backup has passthrough, or
+- Remove / avoid `hostpci*` on the source VM before backup (or use mapped PCI
+  devices that non-root may manage), or
+- Use a drill/clone without passthrough for recovery tests.
+
+The worker surfaces that Proxmox message on the failed job; it is not a PBS or
+tag-matching problem.
 
 ## Development & tests
 

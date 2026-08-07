@@ -28,60 +28,124 @@ def _base_url(source: Source) -> str:
     return f"https://{source.host}:{int(source.port)}/api2/json"
 
 
-def _headers(source: Source) -> dict[str, str]:
+def _has_token(source: Source) -> bool:
+    return bool((source.api_token_id or "").strip() and (source.api_token_secret or "").strip())
+
+
+def _has_password(source: Source) -> bool:
+    return bool((source.user or "").strip() and (source.password or "").strip())
+
+
+def _token_headers(source: Source) -> dict[str, str]:
     token_id = (source.api_token_id or "").strip()
     token_secret = (source.api_token_secret or "").strip()
-    if not token_id or not token_secret:
-        raise ValueError(f"PBS source {source.source_id!r} is missing api_token_id/api_token_secret")
     return {"Authorization": f"PBSAPIToken={token_id}={token_secret}"}
 
 
-def test_pbs_source(source: Source) -> tuple[bool, str]:
+def _fetch_ticket(client: httpx.Client, source: Source) -> tuple[dict[str, str], dict[str, str]]:
+    """Login with username/password; return (headers, cookies) for subsequent calls."""
+    user = (source.user or "").strip()
+    password = (source.password or "").strip()
+    response = client.post(
+        f"{_base_url(source)}/access/ticket",
+        data={"username": user, "password": password},
+    )
+    if response.status_code != 200:
+        raise RuntimeError(
+            f"PBS login failed for {source.label}: HTTP {response.status_code} {response.text}"
+        )
+    data = (response.json() or {}).get("data") or {}
+    ticket = str(data.get("ticket") or "").strip()
+    csrf = str(data.get("CSRFPreventionToken") or "").strip()
+    if not ticket:
+        raise RuntimeError(f"PBS login for {source.label} returned no ticket")
+    headers: dict[str, str] = {}
+    if csrf:
+        headers["CSRFPreventionToken"] = csrf
+    cookies = {"PBSAuthCookie": ticket}
+    return headers, cookies
+
+
+def _authenticated_get(
+    client: httpx.Client,
+    source: Source,
+    path: str,
+    *,
+    params: dict[str, str] | None = None,
+) -> httpx.Response:
+    """GET a PBS API path using token (preferred) or username/password ticket auth."""
+    url = f"{_base_url(source)}{path}"
+    if _has_token(source):
+        return client.get(url, headers=_token_headers(source), params=params)
+    if _has_password(source):
+        headers, cookies = _fetch_ticket(client, source)
+        return client.get(url, headers=headers, cookies=cookies, params=params)
+    raise ValueError(
+        f"PBS source {source.source_id!r} needs api_token_id/api_token_secret or user/password"
+    )
+
+
+def probe_pbs_source(source: Source) -> tuple[bool, str]:
     try:
         with httpx.Client(timeout=12.0, verify=bool(source.verify_ssl)) as client:
-            response = client.get(f"{_base_url(source)}/version", headers=_headers(source))
+            response = _authenticated_get(client, source, "/version")
             if response.status_code == 200:
-                return True, "PBS connection successful."
+                mode = "token" if _has_token(source) else "password"
+                return True, f"PBS connection successful ({mode} auth)."
             return False, f"PBS connection failed: HTTP {response.status_code} {response.text}"
     except Exception as exc:
         return False, f"PBS connection failed: {exc}"
 
 
-def test_all_sources(cfg: dict[str, Any]) -> tuple[bool, list[dict[str, Any]]]:
-    """Test connectivity to every configured PBS server (deduped by host+token)."""
+def probe_all_sources(cfg: dict[str, Any]) -> tuple[bool, list[dict[str, Any]]]:
+    """Test connectivity to every configured PBS server (deduped by host+auth)."""
     sources = load_sources(cfg)
     if not sources:
         return False, [{"ok": False, "detail": "no PBS sources configured"}]
     seen: dict[str, tuple[bool, str]] = {}
     results: list[dict[str, Any]] = []
     for src in sources:
-        server_key = f"{src.server_id}@{src.host}:{src.port}"
+        auth_key = (
+            f"tok:{src.api_token_id}"
+            if _has_token(src)
+            else f"pwd:{src.user}"
+        )
+        server_key = f"{src.server_id}@{src.host}:{src.port}|{auth_key}"
         if server_key not in seen:
-            seen[server_key] = test_pbs_source(src)
+            seen[server_key] = probe_pbs_source(src)
         ok, msg = seen[server_key]
         results.append({"source_id": src.source_id, "label": src.label, "ok": ok, "detail": msg})
     overall = all(r["ok"] for r in results)
     return overall, results
 
 
-def test_pbs_connection(cfg: dict[str, Any]) -> tuple[bool, str]:
+def probe_pbs_connection(cfg: dict[str, Any]) -> tuple[bool, str]:
     """Aggregate connectivity check used by /health and the saved-credentials verify."""
-    overall, results = test_all_sources(cfg)
+    overall, results = probe_all_sources(cfg)
     if overall:
         return True, f"{len(results)} PBS source(s) reachable."
     failed = [f"{r['label']}: {r['detail']}" for r in results if not r["ok"]]
     return False, "; ".join(failed) or "no PBS sources reachable"
 
 
+# Back-compat aliases (avoid pytest collecting names that start with test_).
+test_pbs_connection = probe_pbs_connection
+
+
+
 def _list_source_backups(source: Source) -> list[dict[str, Any]]:
     if not source.datastore:
         raise ValueError(f"PBS source {source.source_id!r} has no datastore")
-    url = f"{_base_url(source)}/admin/datastore/{source.datastore}/snapshots"
     params: dict[str, str] = {}
     if source.namespace:
         params["ns"] = source.namespace
     with httpx.Client(timeout=30.0, verify=bool(source.verify_ssl)) as client:
-        response = client.get(url, headers=_headers(source), params=params or None)
+        response = _authenticated_get(
+            client,
+            source,
+            f"/admin/datastore/{source.datastore}/snapshots",
+            params=params or None,
+        )
         if response.status_code != 200:
             raise RuntimeError(
                 f"PBS list snapshots failed for {source.label}: HTTP {response.status_code} {response.text}"
@@ -107,6 +171,13 @@ def _list_source_backups(source: Source) -> list[dict[str, Any]]:
         if not iso_time:
             continue
         voltail = f"vm/{vmid}/{iso_time}"
+        size_bytes = 0
+        raw_size = row.get("size")
+        if raw_size is not None:
+            try:
+                size_bytes = max(0, int(raw_size))
+            except (TypeError, ValueError):
+                size_bytes = 0
         out.append(
             {
                 # Globally unique across servers/datastores/namespaces.
@@ -120,6 +191,8 @@ def _list_source_backups(source: Source) -> list[dict[str, Any]]:
                 "source_id": source.source_id,
                 "source_label": source.label,
                 "pve_storage": source.pve_storage,
+                # PBS snapshot ``size`` = sum of archive sizes from the manifest (gross).
+                "size_bytes": size_bytes,
             }
         )
     return out

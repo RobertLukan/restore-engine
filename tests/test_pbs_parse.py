@@ -59,7 +59,7 @@ def _install_fake(monkeypatch: pytest.MonkeyPatch, calls: list[dict[str, Any]], 
 def test_list_vm_backups_tags_source_and_namespaces(monkeypatch: pytest.MonkeyPatch) -> None:
     payload = {
         "data": [
-            {"backup-type": "vm", "backup-id": "100", "backup-time": 0, "comment": "web01"},
+            {"backup-type": "vm", "backup-id": "100", "backup-time": 0, "comment": "web01", "size": 123456789},
             {"backup-type": "ct", "backup-id": "200", "backup-time": 0},
         ]
     }
@@ -76,6 +76,7 @@ def test_list_vm_backups_tags_source_and_namespaces(monkeypatch: pytest.MonkeyPa
     assert root["voltail"] == "vm/100/1970-01-01T00:00:00Z"
     assert root["backup_id"] == "main/main/root|vm/100/1970-01-01T00:00:00Z"
     assert root["namespace"] == ""
+    assert root["size_bytes"] == 123456789
     teama = by_storage["pbs-main-teamA"]
     assert teama["namespace"] == "team-a"
     assert teama["backup_id"].startswith("main/main/team-a|")

@@ -11,8 +11,8 @@ import yaml
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from pbs_client import list_vm_backups, test_pbs_connection
-from pve_client import connect_proxmox, list_node_storages, test_proxmox_connection
+from pbs_client import list_vm_backups, probe_pbs_connection as test_pbs_connection
+from pve_client import connect_proxmox, list_cluster_nodes, list_node_storages, test_proxmox_connection
 
 CONFIG_PATH: Path | None = None
 MASK = "********"
@@ -50,6 +50,7 @@ def _mount_view(m: dict[str, Any]) -> dict[str, Any]:
 
 def mask_pbs_server(s: dict[str, Any]) -> dict[str, Any]:
     tok = bool((s.get("api_token_secret") or "").strip())
+    pwd = bool((s.get("password") or "").strip())
     return {
         "id": str(s.get("id", "")),
         "host": s.get("host", ""),
@@ -58,6 +59,9 @@ def mask_pbs_server(s: dict[str, Any]) -> dict[str, Any]:
         "api_token_id": s.get("api_token_id", ""),
         "api_token_secret_set": tok,
         "api_token_secret": MASK if tok else "",
+        "user": s.get("user", ""),
+        "password_set": pwd,
+        "password": MASK if pwd else "",
         "mounts": [_mount_view(m) for m in (s.get("mounts") or []) if isinstance(m, dict)],
     }
 
@@ -79,6 +83,8 @@ def pbs_servers_view(cfg: dict[str, Any]) -> list[dict[str, Any]]:
                     "verify_ssl": legacy.get("verify_ssl", True),
                     "api_token_id": legacy.get("api_token_id", ""),
                     "api_token_secret": legacy.get("api_token_secret", ""),
+                    "user": legacy.get("user", ""),
+                    "password": legacy.get("password", ""),
                     "mounts": [
                         {"datastore": legacy.get("datastore", ""), "namespace": "", "pve_storage": pve_storage}
                     ],
@@ -132,6 +138,8 @@ class PBSServerModel(BaseModel):
     verify_ssl: bool = True
     api_token_id: str = ""
     api_token_secret: str = ""
+    user: str = ""
+    password: str = ""
     mounts: list[PBSMountModel] = Field(default_factory=list)
 
 
@@ -175,13 +183,21 @@ router = APIRouter(tags=["ui"])
 
 
 def _merge_partial(target: dict[str, Any], partial: BaseModel | None, secret_fields: set[str]) -> None:
+    """Merge a partial update into ``target``.
+
+    For secret fields, blank or masked values mean \"keep the existing secret\"
+    (same behaviour as PBS server persistence). Sending an explicit new value
+    replaces it.
+    """
     if not partial:
         return
     for key, value in partial.model_dump(exclude_unset=True).items():
         if value is None:
             continue
-        if key in secret_fields and value == MASK:
-            continue
+        if key in secret_fields:
+            text = value.strip() if isinstance(value, str) else value
+            if text in ("", MASK):
+                continue
         target[key] = value
 
 
@@ -245,6 +261,10 @@ def _persist_servers(existing: list[dict[str, Any]], incoming: list[PBSServerMod
         if secret in ("", MASK):
             secret = str((by_id.get(server.id) or {}).get("api_token_secret", ""))
 
+        password = (server.password or "").strip()
+        if password in ("", MASK):
+            password = str((by_id.get(server.id) or {}).get("password", ""))
+
         out.append(
             {
                 "id": server_id,
@@ -253,6 +273,8 @@ def _persist_servers(existing: list[dict[str, Any]], incoming: list[PBSServerMod
                 "verify_ssl": bool(server.verify_ssl),
                 "api_token_id": server.api_token_id.strip(),
                 "api_token_secret": secret,
+                "user": server.user.strip(),
+                "password": password,
                 "mounts": [
                     {
                         "datastore": m.datastore.strip(),
@@ -289,14 +311,32 @@ def put_credentials(body: CredentialsPut) -> dict[str, str]:
     return {"ok": "true"}
 
 
+@router.patch("/api/ui/worker", dependencies=[Depends(require_ui_session)])
+def patch_worker(body: WorkerPartial) -> dict[str, Any]:
+    """Update worker concurrency (and optional poll interval) without full credentials form."""
+    cfg = load_yaml()
+    wk = cfg.setdefault("worker", {})
+    _merge_partial(wk, body, set())
+    if "max_concurrent_restores" in wk:
+        wk["max_concurrent_restores"] = max(1, int(wk["max_concurrent_restores"]))
+    if "task_poll_interval_sec" in wk:
+        wk["task_poll_interval_sec"] = max(1, int(wk["task_poll_interval_sec"]))
+    save_yaml(cfg)
+    return {"ok": True, "worker": view_worker(wk)}
+
+
 @router.post("/api/ui/test/pbs", dependencies=[Depends(require_ui_session)])
 def test_pbs(body: PBSServerModel) -> dict[str, Any]:
     """Test a single PBS server. A masked/blank secret falls back to the saved one."""
     saved = load_yaml().get("pbs_servers")
     saved_by_id = {str(s.get("id", "")): s for s in saved if isinstance(s, dict)} if isinstance(saved, list) else {}
+    prior = saved_by_id.get(body.id) or {}
     secret = (body.api_token_secret or "").strip()
     if secret in ("", MASK):
-        secret = str((saved_by_id.get(body.id) or {}).get("api_token_secret", ""))
+        secret = str(prior.get("api_token_secret", ""))
+    password = (body.password or "").strip()
+    if password in ("", MASK):
+        password = str(prior.get("password", ""))
     probe_cfg = {
         "pbs_servers": [
             {
@@ -306,6 +346,8 @@ def test_pbs(body: PBSServerModel) -> dict[str, Any]:
                 "verify_ssl": bool(body.verify_ssl),
                 "api_token_id": body.api_token_id.strip(),
                 "api_token_secret": secret,
+                "user": body.user.strip(),
+                "password": password,
                 "mounts": [
                     {"datastore": m.datastore.strip(), "namespace": (m.namespace or "").strip().strip("/"),
                      "pve_storage": m.pve_storage.strip()}
@@ -358,6 +400,32 @@ def proxmox_storages(node: str) -> dict[str, Any]:
     cfg = load_yaml()
     proxmox = connect_proxmox(cfg)
     return {"node": node, "storages": list_node_storages(proxmox, node)}
+
+
+@router.get("/api/ui/proxmox-storages-multi", dependencies=[Depends(require_ui_session)])
+def proxmox_storages_multi(nodes: str) -> dict[str, Any]:
+    """Return VM-capable storages for each comma-separated node name."""
+    cfg = load_yaml()
+    proxmox = connect_proxmox(cfg)
+    by_node: dict[str, list[dict[str, Any]]] = {}
+    errors: dict[str, str] = {}
+    for raw in nodes.split(","):
+        name = raw.strip()
+        if not name or name in by_node:
+            continue
+        try:
+            by_node[name] = list_node_storages(proxmox, name)
+        except Exception as exc:
+            by_node[name] = []
+            errors[name] = str(exc)
+    return {"by_node": by_node, "errors": errors}
+
+
+@router.get("/api/ui/proxmox-nodes", dependencies=[Depends(require_ui_session)])
+def proxmox_nodes() -> dict[str, Any]:
+    cfg = load_yaml()
+    proxmox = connect_proxmox(cfg)
+    return {"nodes": list_cluster_nodes(proxmox)}
 
 
 def health_pbs_component(cfg: dict[str, Any]) -> dict[str, Any]:

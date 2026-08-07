@@ -111,6 +111,38 @@ def test_put_pbs_servers_preserves_masked_secret_and_drops_legacy(
     assert "pbs_storage" not in saved.get("proxmox", {})
 
 
+def test_put_proxmox_blank_password_preserves_existing(
+    client: TestClient, ui_module: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _login(client)
+    tmp_cfg = tmp_path / "config.yaml"
+    shutil.copy(ui_module.CONFIG_PATH, tmp_cfg)
+    cfg = yaml.safe_load(tmp_cfg.read_text())
+    cfg["proxmox"]["user"] = "flaskapp@pve"
+    cfg["proxmox"]["password"] = "keep-me"
+    cfg["proxmox"]["api_token_id"] = ""
+    cfg["proxmox"]["api_token_secret"] = ""
+    tmp_cfg.write_text(yaml.safe_dump(cfg))
+    monkeypatch.setattr(ui_module, "CONFIG_PATH", tmp_cfg)
+
+    r = client.put(
+        "/api/ui/credentials",
+        json={
+            "proxmox": {
+                "host": "203.0.113.10",
+                "user": "flaskapp@pve",
+                "password": "",  # blank UI field must not wipe
+                "api_token_id": "",
+                "api_token_secret": "",
+            }
+        },
+    )
+    assert r.status_code == 200
+    saved = yaml.safe_load(tmp_cfg.read_text())
+    assert saved["proxmox"]["password"] == "keep-me"
+    assert saved["proxmox"]["host"] == "203.0.113.10"
+
+
 def test_put_worker_clamps_to_minimum_one(
     client: TestClient, ui_module: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

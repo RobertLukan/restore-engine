@@ -17,6 +17,7 @@ class FakeRedis:
         self.sets: dict[str, set[str]] = {}
         self.hashes: dict[str, dict[str, str]] = {}
         self.lists: dict[str, list[str]] = {}
+        self.zsets: dict[str, dict[str, float]] = {}
 
     def get(self, key: str) -> str | None:
         return self.kv.get(key)
@@ -26,7 +27,47 @@ class FakeRedis:
         return True
 
     def delete(self, key: str) -> int:
-        return 1 if self.kv.pop(key, None) is not None else 0
+        removed = 0
+        if key in self.kv:
+            del self.kv[key]
+            removed += 1
+        if key in self.hashes:
+            del self.hashes[key]
+            removed += 1
+        if key in self.lists:
+            del self.lists[key]
+            removed += 1
+        if key in self.zsets:
+            del self.zsets[key]
+            removed += 1
+        return removed
+
+    def llen(self, key: str) -> int:
+        return len(self.lists.get(key, []))
+
+    def lpop(self, key: str) -> str | None:
+        lst = self.lists.get(key)
+        if not lst:
+            return None
+        return lst.pop(0)
+
+    def lrem(self, key: str, count: int, value: str) -> int:
+        lst = self.lists.get(key, [])
+        removed = 0
+        if count == 0:
+            new = [x for x in lst if x != value]
+            removed = len(lst) - len(new)
+            self.lists[key] = new
+            return removed
+        # Simplified: remove all matches when count != 0 for tests.
+        new = []
+        for x in lst:
+            if x == value and removed < abs(count):
+                removed += 1
+                continue
+            new.append(x)
+        self.lists[key] = new
+        return removed
 
     def sadd(self, key: str, *members: str) -> int:
         s = self.sets.setdefault(key, set())
@@ -46,6 +87,51 @@ class FakeRedis:
     def smembers(self, key: str) -> set[str]:
         return set(self.sets.get(key, set()))
 
+    def zadd(self, key: str, mapping: dict[str, float]) -> int:
+        z = self.zsets.setdefault(key, {})
+        added = 0
+        for member, score in mapping.items():
+            if member not in z:
+                added += 1
+            z[str(member)] = float(score)
+        return added
+
+    def zcard(self, key: str) -> int:
+        return len(self.zsets.get(key, {}))
+
+    def zrange(self, key: str, start: int, end: int) -> list[str]:
+        items = sorted(self.zsets.get(key, {}).items(), key=lambda kv: kv[1])
+        n = len(items)
+        if end < 0:
+            end = n + end
+        end = min(end, n - 1)
+        if start < 0:
+            start = n + start
+        if n == 0 or start > end or start >= n:
+            return []
+        return [m for m, _ in items[start : end + 1]]
+
+    def zrevrange(self, key: str, start: int, end: int) -> list[str]:
+        items = sorted(self.zsets.get(key, {}).items(), key=lambda kv: kv[1], reverse=True)
+        n = len(items)
+        if end < 0:
+            end = n + end
+        end = min(end, n - 1)
+        if start < 0:
+            start = n + start
+        if n == 0 or start > end or start >= n:
+            return []
+        return [m for m, _ in items[start : end + 1]]
+
+    def zrem(self, key: str, *members: str) -> int:
+        z = self.zsets.setdefault(key, {})
+        removed = 0
+        for m in members:
+            if m in z:
+                del z[m]
+                removed += 1
+        return removed
+
     def hset(self, key: str, mapping: dict[str, str] | None = None, **kwargs: str) -> int:
         h = self.hashes.setdefault(key, {})
         data = dict(mapping or {})
@@ -60,6 +146,16 @@ class FakeRedis:
         lst = self.lists.setdefault(key, [])
         lst.extend(values)
         return len(lst)
+
+    def scan_iter(self, match: str = "*", count: int = 10):
+        # Minimal glob: prefix* only (enough for job key scans).
+        prefix = match[:-1] if match.endswith("*") else match
+        for key in list(self.hashes.keys()) + list(self.kv.keys()) + list(self.lists.keys()) + list(self.sets.keys()):
+            if match.endswith("*"):
+                if key.startswith(prefix):
+                    yield key
+            elif key == match:
+                yield key
 
     def pipeline(self, transaction: bool = True) -> FakePipeline:
         return FakePipeline(self)
@@ -86,6 +182,24 @@ class FakePipeline:
         self.ops.append(("delete", key))
         return self
 
+    def zadd(self, key: str, mapping: dict[str, float]) -> FakePipeline:
+        self.ops.append(("zadd", key, mapping))
+        return self
+
+    def zrem(self, key: str, *members: str) -> FakePipeline:
+        self.ops.append(("zrem", key, members))
+        return self
+
+    def hset(self, key: str, mapping: dict[str, str] | None = None, **kwargs: str) -> FakePipeline:
+        data = dict(mapping or {})
+        data.update(kwargs)
+        self.ops.append(("hset", key, data))
+        return self
+
+    def lrem(self, key: str, count: int, value: str) -> FakePipeline:
+        self.ops.append(("lrem", key, count, value))
+        return self
+
     def execute(self) -> list[Any]:
         results: list[Any] = []
         for op in self.ops:
@@ -98,6 +212,14 @@ class FakePipeline:
                 results.append(self.r.srem(op[1], *op[2]))
             elif kind == "delete":
                 results.append(self.r.delete(op[1]))
+            elif kind == "zadd":
+                results.append(self.r.zadd(op[1], op[2]))
+            elif kind == "zrem":
+                results.append(self.r.zrem(op[1], *op[2]))
+            elif kind == "hset":
+                results.append(self.r.hset(op[1], mapping=op[2]))
+            elif kind == "lrem":
+                results.append(self.r.lrem(op[1], op[2], op[3]))
         self.ops.clear()
         return results
 

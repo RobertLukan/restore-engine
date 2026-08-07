@@ -8,7 +8,14 @@ from typing import Any
 
 import redis
 
-from pve_client import allocate_sequential_free_vmids, archive_path, connect_proxmox, qemu_vmids_in_use_on_node
+from pve_client import (
+    allocate_sequential_free_vmids,
+    archive_path,
+    assign_nodes_least_loaded,
+    connect_proxmox,
+    qemu_vmids_in_use_cluster,
+    resolve_storage_for_node,
+)
 from states import RestoreState
 
 
@@ -20,39 +27,147 @@ def job_key(cfg: dict[str, Any], job_id: str) -> str:
     return f"{cfg['redis']['job_key_prefix']}{job_id}"
 
 
+def active_restore_counts_by_node(r: redis.Redis, cfg: dict[str, Any]) -> dict[str, int]:
+    """Count PENDING/RESTORING jobs per target node (for load-balanced placement)."""
+    prefix = cfg["redis"]["job_key_prefix"]
+    suffix = cfg["redis"]["job_log_suffix"]
+    counts: dict[str, int] = {}
+    for key in r.scan_iter(f"{prefix}*", count=200):
+        if key.endswith(suffix):
+            continue
+        data = r.hgetall(key) or {}
+        state = data.get("state") or ""
+        if state not in {RestoreState.PENDING.value, RestoreState.RESTORING.value}:
+            continue
+        node = (data.get("proxmox_node") or "").strip()
+        if not node:
+            continue
+        counts[node] = counts.get(node, 0) + 1
+    return counts
+
+
 def enqueue_restores(
     r: redis.Redis,
     cfg: dict[str, Any],
     rows: list[dict[str, Any]],
     *,
-    node: str,
-    target_storage: str,
+    node: str = "",
+    nodes: list[str] | None = None,
+    target_storage: str = "",
+    storage_by_node: dict[str, str] | None = None,
     vmid_start: int,
     live_restore: bool,
     bwlimit: int,
+    restore_mode: str = "normal",
     plan_run_id: str = "",
     plan_group_index: int | None = None,
+    power_on: bool = False,
+    qga_wait_sec: int = 0,
 ) -> dict[str, Any]:
-    """Allocate sequential VMIDs and enqueue one restore job per row.
+    """Allocate target VMIDs and enqueue one restore job per row.
 
-    Raises RuntimeError on Proxmox list / VMID allocation failures.
+    ``restore_mode``:
+      - ``normal``: allocate free cluster VMIDs from ``vmid_start``; unique MAC/UUID.
+      - ``dr``: use each backup's source VMID; keep MAC/UUID; fail if VMID is in use.
+
+    ``power_on`` starts the guest after restore (live-restore already boots early).
+    ``qga_wait_sec`` > 0 waits for QEMU guest agent ping after the guest is up;
+    timeout fails the job. QGA wait implies power-on.
+
+    ``nodes`` (preferred) or ``node`` selects restore target(s). When multiple
+    nodes are given, jobs are spread with least-loaded placement (important for
+    live restore).
+
+    Storage is resolved per assigned node via ``storage_by_node`` (preferred) with
+    ``target_storage`` as fallback — so node-local ZFS mirrors can differ per host.
+
+    Raises RuntimeError on Proxmox list / VMID allocation / DR conflicts.
     """
+    mode = (restore_mode or "normal").strip().lower()
+    if mode not in {"normal", "dr"}:
+        raise RuntimeError(f"restore_mode must be 'normal' or 'dr', got {restore_mode!r}")
+
+    do_power_on = bool(power_on) or bool(live_restore)
+    try:
+        qga_sec = max(0, int(qga_wait_sec or 0))
+    except (TypeError, ValueError):
+        qga_sec = 0
+    if qga_sec > 0 and not do_power_on:
+        do_power_on = True
+
+    candidates = [n.strip() for n in (nodes or []) if str(n).strip()]
+    if not candidates:
+        single = (node or "").strip()
+        if not single:
+            raise RuntimeError("proxmox node (or nodes) is required")
+        candidates = [single]
+
+    by_node: dict[str, str] = {}
+    for key, val in (storage_by_node or {}).items():
+        n = str(key).strip()
+        s = str(val).strip()
+        if n and s:
+            by_node[n] = s
+    default_storage = (target_storage or "").strip()
+
+    # Fail fast before allocating VMIDs if any candidate lacks storage.
+    for cand in candidates:
+        resolve_storage_for_node(cand, storage_by_node=by_node, default_storage=default_storage)
+
     proxmox = connect_proxmox(cfg)
     try:
-        in_use = qemu_vmids_in_use_on_node(proxmox, node)
+        in_use = qemu_vmids_in_use_cluster(proxmox)
     except Exception as exc:
-        raise RuntimeError(f"Cannot list QEMU guests on node {node!r}: {exc}") from exc
+        raise RuntimeError(f"Cannot list QEMU VMIDs in Proxmox cluster: {exc}") from exc
 
-    try:
-        allocated_ids, _ = allocate_sequential_free_vmids(set(in_use), vmid_start, len(rows))
-    except RuntimeError:
-        raise
+    if mode == "dr":
+        allocated_ids: list[int] = []
+        seen: set[int] = set()
+        for row in rows:
+            try:
+                src_vmid = int(row["vmid"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise RuntimeError(f"DR restore requires a valid source VMID on each backup: {exc}") from exc
+            if src_vmid in seen:
+                raise RuntimeError(
+                    f"DR restore batch has duplicate source VMID {src_vmid}; "
+                    "select one snapshot per VM"
+                )
+            seen.add(src_vmid)
+            if src_vmid in in_use:
+                raise RuntimeError(
+                    f"DR restore failed: VMID {src_vmid} already exists on the Proxmox cluster. "
+                    "Remove or stop that VM first, or use Normal restore to assign a new VMID."
+                )
+            allocated_ids.append(src_vmid)
+        unique_flag = False
+        force_flag = False
+    else:
+        try:
+            allocated_ids, _ = allocate_sequential_free_vmids(set(in_use), vmid_start, len(rows))
+        except RuntimeError:
+            raise
+        unique_flag = True
+        force_flag = True
+
+    active = active_restore_counts_by_node(r, cfg)
+    node_for_row = assign_nodes_least_loaded(candidates, len(rows), active_counts=active)
+    storage_for_row = [
+        resolve_storage_for_node(n, storage_by_node=by_node, default_storage=default_storage)
+        for n in node_for_row
+    ]
 
     job_ids: list[str] = []
-    for row, target_vmid in zip(rows, allocated_ids, strict=True):
+    for row, target_vmid, target_node, target_store in zip(
+        rows, allocated_ids, node_for_row, storage_for_row, strict=True
+    ):
         job_id = str(uuid.uuid4())
         now = utc_now_iso()
         archive = archive_path(row["pve_storage"], row["voltail"])
+        try:
+            backup_size = max(0, int(row.get("size_bytes") or 0))
+        except (TypeError, ValueError):
+            backup_size = 0
         mapping = {
             "job_id": job_id,
             "state": RestoreState.PENDING.value,
@@ -61,11 +176,20 @@ def enqueue_restores(
             "source_vmid": str(row["vmid"]),
             "source_label": row.get("source_label", ""),
             "proxmox_vmid": str(target_vmid),
-            "proxmox_node": node,
-            "proxmox_storage": target_storage,
+            "proxmox_node": target_node,
+            "proxmox_storage": target_store,
             "live_restore": "1" if live_restore else "0",
+            "powered_off": "0" if do_power_on else "1",
+            "power_on": "1" if do_power_on else "0",
+            "qga_wait_sec": str(qga_sec),
+            "qga_ok": "",
+            "qga_waited_sec": "",
             "bwlimit": str(int(bwlimit or 0)),
+            "restore_mode": mode,
+            "unique": "1" if unique_flag else "0",
+            "force": "1" if force_flag else "0",
             "archive": archive,
+            "backup_size_bytes": str(backup_size),
             "progress": "0",
             "error": "",
             "created_at": now,
@@ -77,4 +201,15 @@ def enqueue_restores(
         r.rpush(cfg["redis"]["queue_key"], job_id)
         job_ids.append(job_id)
 
-    return {"enqueued": len(job_ids), "job_ids": job_ids, "proxmox_vmids_assigned": allocated_ids}
+    return {
+        "enqueued": len(job_ids),
+        "job_ids": job_ids,
+        "proxmox_vmids_assigned": allocated_ids,
+        "proxmox_nodes_assigned": node_for_row,
+        "proxmox_storages_assigned": storage_for_row,
+        "load_balance_nodes": candidates,
+        "storage_by_node": by_node or {n: default_storage for n in candidates if default_storage},
+        "restore_mode": mode,
+        "power_on": do_power_on,
+        "qga_wait_sec": qga_sec,
+    }

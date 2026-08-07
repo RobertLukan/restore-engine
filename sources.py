@@ -12,8 +12,11 @@ Config schema (new)::
         host: 10.0.0.10
         port: 8007
         verify_ssl: false
+        # Prefer API token when set; otherwise user/password ticket auth.
         api_token_id: root@pam!restore
         api_token_secret: SECRET
+        user: ""
+        password: ""
         mounts:
           - datastore: main
             namespace: ""          # root namespace
@@ -42,6 +45,8 @@ class Source:
     verify_ssl: bool
     api_token_id: str
     api_token_secret: str
+    user: str
+    password: str
     datastore: str
     namespace: str          # "" == root namespace
     pve_storage: str        # PVE storage ID bound to (datastore, namespace)
@@ -68,6 +73,8 @@ def _sources_from_server(server: dict[str, Any], index: int) -> list[Source]:
     verify_ssl = bool(server.get("verify_ssl", True))
     token_id = str(server.get("api_token_id") or "").strip()
     token_secret = str(server.get("api_token_secret") or "").strip()
+    user = str(server.get("user") or "").strip()
+    password = str(server.get("password") or "").strip()
     out: list[Source] = []
     for mount in server.get("mounts") or []:
         if not isinstance(mount, dict):
@@ -87,6 +94,8 @@ def _sources_from_server(server: dict[str, Any], index: int) -> list[Source]:
                 verify_ssl=verify_ssl,
                 api_token_id=token_id,
                 api_token_secret=token_secret,
+                user=user,
+                password=password,
                 datastore=datastore,
                 namespace=namespace,
                 pve_storage=pve_storage,
@@ -109,6 +118,8 @@ def _legacy_sources(cfg: dict[str, Any]) -> list[Source]:
         "verify_ssl": bool(pbs.get("verify_ssl", True)),
         "api_token_id": pbs.get("api_token_id", ""),
         "api_token_secret": pbs.get("api_token_secret", ""),
+        "user": pbs.get("user", ""),
+        "password": pbs.get("password", ""),
         "mounts": [{"datastore": datastore, "namespace": "", "pve_storage": pve_storage}],
     }
     return _sources_from_server(server, 0)

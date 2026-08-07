@@ -56,6 +56,12 @@ Same pattern as migration-engine on a Docker-capable LXC:
 
 Port **8001** avoids colliding with migration-engine on **8000** when both run on the same host.
 
+## Redis durability and workers
+
+Compose mounts a named volume **`redis-data`** on the bundled Redis service and enables AOF (`--appendonly yes`) so plan inventory, jobs, and reports survive container restarts.
+
+**Run a single worker replica.** Concurrent restore slots are counted in-process (`worker.max_concurrent_restores`). Scaling `worker` to multiple containers does not share that counter — each process can open its own max slots against the same Proxmox/PBS. Prefer one worker service; raise `max_concurrent_restores` inside that process if you need more parallelism.
+
 ## Redis already on the server (host) vs Redis in Docker
 
 **Short answer:** it is **not** a problem for the host to run Redis and for Compose to also run the **`redis`** service. They are **separate instances** unless you point both at the same socket/port.

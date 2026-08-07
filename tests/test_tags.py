@@ -75,7 +75,10 @@ def test_resolve_tags_endpoint(client: TestClient, main_module: Any, monkeypatch
     monkeypatch.setattr(
         main_module,
         "_resolve_tags",
-        lambda cfg, r, node, force=False: {rows[0]["backup_id"]: ["deployed"], rows[1]["backup_id"]: ["test"]},
+        lambda cfg, r, node, force=False: (
+            {rows[0]["backup_id"]: ["deployed"], rows[1]["backup_id"]: ["test"]},
+            {},
+        ),
     )
     res = client.post("/api/backups/resolve-tags", json={})
     assert res.status_code == 200
@@ -99,7 +102,7 @@ def test_restore_tag_group_selects_latest_tagged(
         out = {}
         for row in candidate_rows:
             out[row["backup_id"]] = ["deployed"] if row["vmid"] == 100 else ["other"]
-        return out
+        return out, {}
 
     monkeypatch.setattr(main_module, "_resolve_tags", fake_tags)
     monkeypatch.setattr(main_module, "redis_client", lambda: object())
@@ -136,7 +139,11 @@ def test_restore_tag_group_no_match_returns_zero(
     _login(client)
     rows = [_row(100, "2026-05-03T00:00:00Z")]
     monkeypatch.setattr(main_module, "list_vm_backups", lambda cfg: rows)
-    monkeypatch.setattr(main_module, "_resolve_tags", lambda cfg, r, node, force=False: {rows[0]["backup_id"]: ["other"]})
+    monkeypatch.setattr(
+        main_module,
+        "_resolve_tags",
+        lambda cfg, r, node, force=False: ({rows[0]["backup_id"]: ["other"]}, {}),
+    )
     monkeypatch.setattr(main_module, "redis_client", lambda: object())
     res = client.post(
         "/api/jobs/restore-tag-group",

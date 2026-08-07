@@ -12,7 +12,7 @@ from typing import Any
 import redis
 import yaml
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.middleware.sessions import SessionMiddleware
@@ -26,9 +26,11 @@ from pve_client import (
     connect_proxmox,
     extract_vm_config,
     parse_tags,
-    qemu_vmids_in_use_on_node,
+    qemu_vmids_in_use_cluster,
 )
-from states import RestoreState
+from progress_parse import safe_float, safe_int
+from queue_control import collect_job_stats, drain_pending_jobs, set_queue_paused
+from states import PlanRunStatus, PlanVerification, RestoreState
 from ui import require_ui_session, router as ui_router
 
 _cfg_path_override = (os.environ.get("RESTORE_ENGINE_CONFIG") or "").strip()
@@ -81,10 +83,15 @@ def normalize_cutoff(value: str | None) -> str:
 
 def _resolve_tags(
     cfg: dict[str, Any], rows: list[dict[str, Any]], node: str, *, force: bool = False
-) -> dict[str, list[str]]:
-    """Resolve guest tags for the given backup rows, caching per (immutable) volid."""
+) -> tuple[dict[str, list[str]], dict[str, str]]:
+    """Resolve guest tags for the given backup rows, caching per (immutable) volid.
+
+    Returns ``(tags_by_backup_id, errors_by_backup_id)``. Failures are not cached
+    and are reported so the UI does not show a false "(none)".
+    """
     r = redis_client()
     result: dict[str, list[str]] = {}
+    errors: dict[str, str] = {}
     pending: list[dict[str, Any]] = []
     for row in rows:
         volid = archive_path(row["pve_storage"], row["voltail"])
@@ -99,19 +106,52 @@ def _resolve_tags(
     if pending:
         proxmox = connect_proxmox(cfg)
 
-        def fetch(row: dict[str, Any]) -> tuple[str, str, list[str], bool]:
+        def fetch(row: dict[str, Any]) -> tuple[str, str, list[str], str]:
             try:
                 text = extract_vm_config(proxmox, node, row["_volid"])
-                return row["backup_id"], row["_volid"], parse_tags(text), True
-            except Exception:
-                return row["backup_id"], row["_volid"], [], False
+                return row["backup_id"], row["_volid"], parse_tags(text), ""
+            except Exception as exc:
+                return row["backup_id"], row["_volid"], [], str(exc)
 
         with ThreadPoolExecutor(max_workers=5) as pool:
-            for backup_id, volid, tags, ok in pool.map(fetch, pending):
-                if ok:
-                    r.set(tag_cache_key(cfg, volid), ";".join(tags))
+            for backup_id, volid, tags, err in pool.map(fetch, pending):
+                if err:
+                    errors[backup_id] = err
+                    continue
+                r.set(tag_cache_key(cfg, volid), ";".join(tags))
                 result[backup_id] = tags
-    return result
+    return result, errors
+
+
+def _dedupe_nodes(nodes: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in nodes:
+        name = str(raw).strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        out.append(name)
+    return out
+
+
+def _resolve_restore_nodes(
+    *,
+    proxmox_node: str | None,
+    proxmox_nodes: list[str] | None,
+    default_node: str,
+) -> list[str]:
+    """Prefer multi-node list; fall back to single node / config default."""
+    multi = _dedupe_nodes(list(proxmox_nodes or []))
+    if multi:
+        return multi
+    single = (proxmox_node or default_node or "").strip()
+    if not single:
+        raise HTTPException(
+            status_code=400,
+            detail="proxmox.default_node, proxmox_node, or proxmox_nodes is required",
+        )
+    return [single]
 
 
 def _enqueue_restores(
@@ -119,13 +159,18 @@ def _enqueue_restores(
     cfg: dict[str, Any],
     rows: list[dict[str, Any]],
     *,
-    node: str,
-    target_storage: str,
+    node: str = "",
+    nodes: list[str] | None = None,
+    target_storage: str = "",
+    storage_by_node: dict[str, str] | None = None,
     vmid_start: int,
     live_restore: bool,
     bwlimit: int,
+    restore_mode: str = "normal",
     plan_run_id: str = "",
     plan_group_index: int | None = None,
+    power_on: bool = False,
+    qga_wait_sec: int = 0,
 ) -> dict[str, Any]:
     """API wrapper around jobs.enqueue_restores (maps errors to HTTP)."""
     try:
@@ -134,12 +179,17 @@ def _enqueue_restores(
             cfg,
             rows,
             node=node,
+            nodes=nodes,
             target_storage=target_storage,
+            storage_by_node=storage_by_node,
             vmid_start=vmid_start,
             live_restore=live_restore,
             bwlimit=bwlimit,
+            restore_mode=restore_mode,
             plan_run_id=plan_run_id,
             plan_group_index=plan_group_index,
+            power_on=power_on,
+            qga_wait_sec=qga_wait_sec,
         )
     except RuntimeError as exc:
         msg = str(exc)
@@ -158,10 +208,15 @@ class BackupItem(BaseModel):
 class RestoreSelectedRequest(BaseModel):
     backup_ids: list[str] = Field(min_length=1)
     proxmox_node: str | None = None
-    proxmox_storage: str
-    proxmox_vmid_start: int = Field(ge=100)
+    proxmox_nodes: list[str] = Field(default_factory=list)
+    proxmox_storage: str | None = None
+    proxmox_storage_by_node: dict[str, str] = Field(default_factory=dict)
+    proxmox_vmid_start: int = Field(default=100, ge=100)
     live_restore: bool = False
     bwlimit: int = Field(default=0, ge=0)
+    restore_mode: str = Field(default="normal")  # normal | dr
+    power_on: bool = False
+    qga_wait_sec: int = Field(default=0, ge=0, le=3600)
 
 
 class JobRecord(BaseModel):
@@ -176,11 +231,33 @@ class JobRecord(BaseModel):
     proxmox_storage: str
     live_restore: bool
     bwlimit: int = 0
+    restore_mode: str = "normal"
+    power_on: bool = False
+    qga_wait_sec: int = 0
+    qga_ok: str = ""
+    qga_waited_sec: str = ""
     progress: int = 0
     error: str = ""
     created_at: str = ""
     updated_at: str = ""
-
+    restore_started_at: str = ""
+    bytes_done: int = 0
+    bytes_total: int = 0
+    speed_bps: int = 0
+    eta_sec: int | None = None
+    pve_status_text: str = ""
+    pve_upid: str = ""
+    archive: str = ""
+    plan_run_id: str = ""
+    plan_group_index: str = ""
+    backup_size_bytes: int = 0
+    network_bytes_done: int = 0
+    network_speed_bps: int = 0
+    nonzero_bytes_done: int = 0
+    nonzero_speed_bps: int = 0
+    wire_compression_ratio: float = 0.0
+    wire_sample_chunks: int = 0
+    disk_sparsity_ratio: float = 0.0
 
 api = APIRouter(prefix="/api", tags=["api"], dependencies=[Depends(require_ui_session)])
 
@@ -213,15 +290,49 @@ def restore_defaults(proxmox_node: str | None = None) -> dict[str, Any]:
         "next_free_proxmox_vmid": 100,
         "bwlimit": int(px.get("restore_bwlimit", 0) or 0),
         "live_restore": bool(px.get("live_restore_default", False)),
+        "power_on": bool(px.get("power_on_default", False)),
+        "qga_wait_sec": int(worker_cfg.get("qga_wait_sec_default", px.get("qga_wait_sec_default", 120)) or 0),
         "max_concurrent_restores": int(worker_cfg.get("max_concurrent_restores", 2) or 2),
+        "require_verified_to_run": plans_module.require_verified_to_run(cfg),
     }
+    # VMIDs are cluster-global; prefer cluster resource list over a single node.
+    try:
+        used = qemu_vmids_in_use_cluster(connect_proxmox(cfg))
+        out["next_free_proxmox_vmid"] = max(max(used) + 1 if used else 100, 100)
+    except Exception:
+        pass
     if node:
-        try:
-            used = qemu_vmids_in_use_on_node(connect_proxmox(cfg), node)
-            out["next_free_proxmox_vmid"] = max(max(used) + 1 if used else 100, 100)
-        except Exception:
-            pass
+        out["default_node"] = node or out["default_node"]
     return out
+
+
+def _normalize_storage_by_node(raw: dict[str, str] | None) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for key, val in (raw or {}).items():
+        node = str(key).strip()
+        storage = str(val).strip()
+        if node and storage:
+            out[node] = storage
+    return out
+
+
+def _require_storage_selection(
+    *,
+    nodes: list[str],
+    proxmox_storage: str | None,
+    proxmox_storage_by_node: dict[str, str] | None,
+) -> tuple[str, dict[str, str]]:
+    by_node = _normalize_storage_by_node(proxmox_storage_by_node)
+    default = (proxmox_storage or "").strip()
+    missing = [n for n in nodes if n not in by_node and not default]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Select storage for node(s): {', '.join(missing)}",
+        )
+    if not by_node and not default:
+        raise HTTPException(status_code=400, detail="proxmox_storage or proxmox_storage_by_node is required")
+    return default, by_node
 
 
 @api.post("/jobs/restore-selected")
@@ -229,13 +340,16 @@ def restore_selected(body: RestoreSelectedRequest) -> dict[str, Any]:
     cfg = load_config()
     r = redis_client()
     px = cfg.get("proxmox") or {}
-    node = (body.proxmox_node or px.get("default_node") or "").strip()
-    if not node:
-        raise HTTPException(status_code=400, detail="proxmox.default_node or proxmox_node is required")
-
-    target_storage = body.proxmox_storage.strip()
-    if not target_storage:
-        raise HTTPException(status_code=400, detail="proxmox_storage is required")
+    nodes = _resolve_restore_nodes(
+        proxmox_node=body.proxmox_node,
+        proxmox_nodes=body.proxmox_nodes,
+        default_node=str(px.get("default_node") or ""),
+    )
+    default_storage, storage_by_node = _require_storage_selection(
+        nodes=nodes,
+        proxmox_storage=body.proxmox_storage,
+        proxmox_storage_by_node=body.proxmox_storage_by_node,
+    )
 
     backups = {row["backup_id"]: row for row in list_vm_backups(cfg)}
     ordered: list[dict[str, Any]] = []
@@ -263,11 +377,15 @@ def restore_selected(body: RestoreSelectedRequest) -> dict[str, Any]:
         r,
         cfg,
         ordered,
-        node=node,
-        target_storage=target_storage,
+        nodes=nodes,
+        target_storage=default_storage,
+        storage_by_node=storage_by_node,
         vmid_start=body.proxmox_vmid_start,
         live_restore=body.live_restore,
         bwlimit=body.bwlimit,
+        restore_mode=body.restore_mode,
+        power_on=body.power_on,
+        qga_wait_sec=body.qga_wait_sec,
     )
 
 
@@ -288,20 +406,24 @@ def resolve_backup_tags(body: ResolveTagsRequest) -> dict[str, Any]:
     if body.backup_ids:
         wanted = {b.strip() for b in body.backup_ids if b.strip()}
         rows = [row for row in rows if row["backup_id"] in wanted]
-    tags_by_id = _resolve_tags(cfg, rows, node, force=body.force)
+    tags_by_id, errors = _resolve_tags(cfg, rows, node, force=body.force)
     all_tags = sorted({t for tags in tags_by_id.values() for t in tags}, key=str.lower)
-    return {"tags": tags_by_id, "all_tags": all_tags}
+    return {"tags": tags_by_id, "all_tags": all_tags, "errors": errors}
 
 
 class RestoreTagGroupRequest(BaseModel):
     tag: str = Field(min_length=1)
     at_or_before: str | None = None
     proxmox_node: str | None = None
-    proxmox_storage: str
-    proxmox_vmid_start: int = Field(ge=100)
+    proxmox_nodes: list[str] = Field(default_factory=list)
+    proxmox_storage: str | None = None
+    proxmox_storage_by_node: dict[str, str] = Field(default_factory=dict)
+    proxmox_vmid_start: int = Field(default=100, ge=100)
     live_restore: bool = False
     bwlimit: int = Field(default=0, ge=0)
-
+    restore_mode: str = Field(default="normal")
+    power_on: bool = False
+    qga_wait_sec: int = Field(default=0, ge=0, le=3600)
 
 def _latest_per_vmid(rows: list[dict[str, Any]], cutoff: str) -> list[dict[str, Any]]:
     """Pick the newest snapshot per VMID whose timestamp is <= cutoff."""
@@ -320,19 +442,25 @@ def restore_tag_group(body: RestoreTagGroupRequest) -> dict[str, Any]:
     cfg = load_config()
     r = redis_client()
     px = cfg.get("proxmox") or {}
-    node = (body.proxmox_node or px.get("default_node") or "").strip()
-    if not node:
-        raise HTTPException(status_code=400, detail="proxmox.default_node or proxmox_node is required")
-    target_storage = body.proxmox_storage.strip()
-    if not target_storage:
-        raise HTTPException(status_code=400, detail="proxmox_storage is required")
+    nodes = _resolve_restore_nodes(
+        proxmox_node=body.proxmox_node,
+        proxmox_nodes=body.proxmox_nodes,
+        default_node=str(px.get("default_node") or ""),
+    )
+    # Tag resolution only needs any online node that can read extractconfig.
+    tag_node = nodes[0]
+    default_storage, storage_by_node = _require_storage_selection(
+        nodes=nodes,
+        proxmox_storage=body.proxmox_storage,
+        proxmox_storage_by_node=body.proxmox_storage_by_node,
+    )
 
     cutoff = normalize_cutoff(body.at_or_before)
     candidates = _latest_per_vmid(list_vm_backups(cfg), cutoff)
     if not candidates:
         return {"enqueued": 0, "job_ids": [], "proxmox_vmids_assigned": [], "matched_vmids": []}
 
-    tags_by_id = _resolve_tags(cfg, candidates, node)
+    tags_by_id, _errors = _resolve_tags(cfg, candidates, tag_node)
     wanted = body.tag.strip().lower()
     selected = [
         row
@@ -347,11 +475,15 @@ def restore_tag_group(body: RestoreTagGroupRequest) -> dict[str, Any]:
         r,
         cfg,
         selected,
-        node=node,
-        target_storage=target_storage,
+        nodes=nodes,
+        target_storage=default_storage,
+        storage_by_node=storage_by_node,
         vmid_start=body.proxmox_vmid_start,
         live_restore=body.live_restore,
         bwlimit=body.bwlimit,
+        restore_mode=body.restore_mode,
+        power_on=body.power_on,
+        qga_wait_sec=body.qga_wait_sec,
     )
     result["matched_vmids"] = [row["vmid"] for row in selected]
     return result
@@ -370,10 +502,15 @@ class GroupUpsert(BaseModel):
 class LocationUpsert(BaseModel):
     name: str = Field(min_length=1)
     node: str = Field(min_length=1)
+    nodes: list[str] = Field(default_factory=list)
     storage: str = Field(min_length=1)
+    storage_by_node: dict[str, str] = Field(default_factory=dict)
     vmid_start: int = Field(default=100, ge=100)
     bwlimit: int = Field(default=0, ge=0)
     live_restore: bool = False
+    restore_mode: str = Field(default="normal")
+    power_on: bool = False
+    qga_wait_sec: int = Field(default=0, ge=0, le=3600)
 
 
 class PlanUpsert(BaseModel):
@@ -387,6 +524,21 @@ class PlanUpsert(BaseModel):
 class PlanRunRequest(BaseModel):
     at_or_before: str | None = None
     location_id: str | None = None
+    drill: bool = False
+    auto_teardown: bool = False
+    powered_off: bool | None = None
+    power_on: bool = False
+    qga_wait_sec: int = Field(default=0, ge=0, le=3600)
+    allow_unverified: bool = False
+    confirm_dr: bool = False
+
+
+class PlanTeardownRequest(BaseModel):
+    force: bool = False
+
+
+class PlanCheckRequest(BaseModel):
+    at_or_before: str | None = None
 
 
 def _http_value_error(exc: ValueError) -> HTTPException:
@@ -534,6 +686,29 @@ def api_delete_plan(plan_id: str) -> dict[str, str]:
     return {"status": "deleted"}
 
 
+@api.post("/plans/{plan_id}/check")
+def api_check_plan(plan_id: str, body: PlanCheckRequest | None = None) -> dict[str, Any]:
+    """Run readiness checks and update plan verification / last_check."""
+    cfg = load_config()
+    r = redis_client()
+    plan = plans_module.get_plan(r, cfg, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    body = body or PlanCheckRequest()
+    cutoff = normalize_cutoff(body.at_or_before)
+    try:
+        updated, check = plans_module.run_plan_readiness(
+            r,
+            cfg,
+            plan,
+            cutoff=cutoff,
+            resolve_tags_fn=lambda c, rows, node: _resolve_tags(c, rows, node),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Readiness check failed: {exc}") from exc
+    return {"plan": updated, "check": check}
+
+
 def _resolve_plan_group_rows(
     cfg: dict[str, Any],
     plan: dict[str, Any],
@@ -555,7 +730,7 @@ def _resolve_plan_group_rows(
     if need_tags:
         # Resolve tags only for latest-per-vmid candidates under the cutoff.
         candidates = _latest_per_vmid(backups, cutoff)
-        tags_by_id = _resolve_tags(cfg, candidates, node)
+        tags_by_id, _errors = _resolve_tags(cfg, candidates, node)
 
     return [
         plans_module.resolve_group_rows(group, backups, cutoff=cutoff, tags_by_backup_id=tags_by_id)
@@ -573,10 +748,24 @@ def api_run_plan(plan_id: str, body: PlanRunRequest) -> dict[str, Any]:
     if not plan.get("enabled", True):
         raise HTTPException(status_code=400, detail="Plan is disabled")
 
+    if plans_module.require_verified_to_run(cfg):
+        if plan.get("verification") != PlanVerification.VERIFIED.value and not body.allow_unverified:
+            raise HTTPException(
+                status_code=400,
+                detail="Plan is not VERIFIED; run Check first or pass allow_unverified=true",
+            )
+
     location_id = (body.location_id or plan.get("location_id") or "").strip()
     location = plans_module.get_location(r, cfg, location_id)
     if not location:
         raise HTTPException(status_code=400, detail=f"Unknown location_id: {location_id}")
+
+    restore_mode = str(location.get("restore_mode") or "normal").strip().lower()
+    if restore_mode == "dr" and not body.confirm_dr:
+        raise HTTPException(
+            status_code=400,
+            detail="DR location requires confirm_dr=true (keeps source VMIDs/MACs/UUIDs)",
+        )
 
     cutoff = normalize_cutoff(body.at_or_before)
     group_rows = _resolve_plan_group_rows(cfg, plan, cutoff=cutoff, node=location["node"])
@@ -592,6 +781,11 @@ def api_run_plan(plan_id: str, body: PlanRunRequest) -> dict[str, Any]:
             cutoff=cutoff,
             group_rows=group_rows,
             enqueue_fn=_enqueue_restores,
+            drill=bool(body.drill),
+            auto_teardown=bool(body.auto_teardown),
+            powered_off=body.powered_off,
+            power_on=bool(body.power_on),
+            qga_wait_sec=int(body.qga_wait_sec or 0),
         )
     except ValueError as exc:
         raise _http_value_error(exc) from exc
@@ -618,24 +812,195 @@ def api_get_plan_run(run_id: str) -> dict[str, Any]:
     return plans_module.aggregate_plan_run(r, cfg, run, job_key_fn=job_key)
 
 
+@api.post("/plan-runs/{run_id}/cancel")
+def api_cancel_plan_run(run_id: str) -> dict[str, Any]:
+    """Cancel an active plan run (pending jobs + stop advancing groups)."""
+    cfg = load_config()
+    r = redis_client()
+    try:
+        return plans_module.cancel_plan_run(r, cfg, run_id, job_key_fn=job_key)
+    except ValueError as exc:
+        raise _http_value_error(exc) from exc
+
+
+@api.post("/plan-runs/{run_id}/teardown")
+def api_teardown_plan_run(run_id: str, body: PlanTeardownRequest | None = None) -> dict[str, Any]:
+    """Destroy QEMU VMs created by a finished plan run."""
+    cfg = load_config()
+    r = redis_client()
+    run = plans_module.get_plan_run(r, cfg, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Plan run not found")
+    body = body or PlanTeardownRequest()
+    if run.get("status") == PlanRunStatus.RUNNING.value and not body.force:
+        raise HTTPException(
+            status_code=400,
+            detail="Plan run is still RUNNING; cancel it first or pass force=true",
+        )
+    try:
+        if run.get("status") == PlanRunStatus.RUNNING.value and body.force:
+            plans_module.cancel_plan_run(r, cfg, run_id, job_key_fn=job_key)
+            run = plans_module.get_plan_run(r, cfg, run_id) or run
+        updated = plans_module.teardown_plan_run(r, cfg, run, job_key_fn=job_key)
+    except ValueError as exc:
+        raise _http_value_error(exc) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Teardown failed: {exc}") from exc
+    return plans_module.aggregate_plan_run(r, cfg, updated, job_key_fn=job_key)
+
+
+@api.get("/reports")
+def api_list_reports(
+    plan_id: str | None = None,
+    kind: str | None = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    import reports as reports_module
+
+    cfg = load_config()
+    return reports_module.list_reports(
+        redis_client(), cfg, plan_id=plan_id, kind=kind, limit=limit
+    )
+
+
+@api.get("/reports/{report_id}")
+def api_get_report(report_id: str) -> dict[str, Any]:
+    import reports as reports_module
+
+    cfg = load_config()
+    data = reports_module.get_report(redis_client(), cfg, report_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return data
+
+
+@api.get("/reports/{report_id}/download")
+def api_download_report(report_id: str, format: str = "md") -> Response:
+    import reports as reports_module
+
+    cfg = load_config()
+    data = reports_module.get_report(redis_client(), cfg, report_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Report not found")
+    fmt = (format or "md").strip().lower()
+    safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in str(data.get("title") or report_id))[:80]
+    if fmt in {"html", "htm"}:
+        body = data.get("html") or ""
+        media = "text/html; charset=utf-8"
+        filename = f"{safe_name or report_id}.html"
+    else:
+        body = data.get("markdown") or ""
+        media = "text/markdown; charset=utf-8"
+        filename = f"{safe_name or report_id}.md"
+    return Response(
+        content=body,
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@api.get("/compliance/dashboard")
+def api_compliance_dashboard() -> dict[str, Any]:
+    import reports as reports_module
+
+    cfg = load_config()
+    r = redis_client()
+    return reports_module.compliance_dashboard(
+        r,
+        cfg,
+        list_plans_fn=plans_module.list_plans,
+        list_plan_runs_fn=plans_module.list_plan_runs,
+    )
+
+
 def _hash_to_record(data: dict[str, str]) -> JobRecord:
+    eta_raw = (data.get("eta_sec") or "").strip()
+    eta_sec: int | None
+    if eta_raw == "":
+        eta_sec = None
+    else:
+        try:
+            eta_sec = int(eta_raw)
+        except ValueError:
+            eta_sec = None
     return JobRecord(
         job_id=data["job_id"],
         state=data.get("state", ""),
         backup_id=data.get("backup_id", ""),
         vm_name=data.get("vm_name", ""),
-        source_vmid=int(data.get("source_vmid") or 0),
+        source_vmid=safe_int(data.get("source_vmid"), 0),
         source_label=data.get("source_label", ""),
-        proxmox_vmid=int(data.get("proxmox_vmid") or 0),
+        proxmox_vmid=safe_int(data.get("proxmox_vmid"), 0),
         proxmox_node=data.get("proxmox_node", ""),
         proxmox_storage=data.get("proxmox_storage", ""),
         live_restore=data.get("live_restore", "0") == "1",
-        bwlimit=int(data.get("bwlimit") or 0),
-        progress=int(data.get("progress") or 0),
+        bwlimit=safe_int(data.get("bwlimit"), 0),
+        restore_mode=(data.get("restore_mode") or "normal").strip().lower() or "normal",
+        power_on=data.get("power_on", "0") == "1",
+        qga_wait_sec=safe_int(data.get("qga_wait_sec"), 0),
+        qga_ok=data.get("qga_ok", ""),
+        qga_waited_sec=data.get("qga_waited_sec", ""),
+        progress=safe_int(data.get("progress"), 0),
         error=data.get("error", ""),
         created_at=data.get("created_at", ""),
         updated_at=data.get("updated_at", ""),
+        restore_started_at=data.get("restore_started_at", ""),
+        bytes_done=safe_int(data.get("bytes_done"), 0),
+        bytes_total=safe_int(data.get("bytes_total"), 0),
+        speed_bps=safe_int(data.get("speed_bps"), 0),
+        eta_sec=eta_sec,
+        pve_status_text=data.get("pve_status_text", ""),
+        pve_upid=data.get("pve_upid", ""),
+        archive=data.get("archive", ""),
+        plan_run_id=data.get("plan_run_id", ""),
+        plan_group_index=data.get("plan_group_index", ""),
+        backup_size_bytes=safe_int(data.get("backup_size_bytes"), 0),
+        network_bytes_done=safe_int(data.get("network_bytes_done"), 0),
+        network_speed_bps=safe_int(data.get("network_speed_bps"), 0),
+        nonzero_bytes_done=safe_int(data.get("nonzero_bytes_done"), 0),
+        nonzero_speed_bps=safe_int(data.get("nonzero_speed_bps"), 0),
+        wire_compression_ratio=safe_float(data.get("wire_compression_ratio"), 0.0),
+        wire_sample_chunks=safe_int(data.get("wire_sample_chunks"), 0),
+        disk_sparsity_ratio=safe_float(data.get("disk_sparsity_ratio"), 0.0),
     )
+
+
+def _max_concurrent_from_cfg(cfg: dict[str, Any]) -> int:
+    return max(1, int((cfg.get("worker") or {}).get("max_concurrent_restores", 2) or 2))
+
+
+@api.get("/jobs/stats")
+def jobs_stats() -> dict[str, Any]:
+    cfg = load_config()
+    r = redis_client()
+    return collect_job_stats(r, cfg, max_concurrent=_max_concurrent_from_cfg(cfg))
+
+
+@api.post("/jobs/queue/pause")
+def queue_pause() -> dict[str, Any]:
+    cfg = load_config()
+    r = redis_client()
+    set_queue_paused(r, cfg, True)
+    return collect_job_stats(r, cfg, max_concurrent=_max_concurrent_from_cfg(cfg))
+
+
+@api.post("/jobs/queue/resume")
+def queue_resume() -> dict[str, Any]:
+    cfg = load_config()
+    r = redis_client()
+    set_queue_paused(r, cfg, False)
+    return collect_job_stats(r, cfg, max_concurrent=_max_concurrent_from_cfg(cfg))
+
+
+@api.post("/jobs/queue/stop")
+def queue_stop() -> dict[str, Any]:
+    """Pause and cancel all PENDING jobs; in-flight restores continue."""
+    cfg = load_config()
+    r = redis_client()
+    drained = drain_pending_jobs(r, cfg)
+    stats = collect_job_stats(r, cfg, max_concurrent=_max_concurrent_from_cfg(cfg))
+    stats["drained"] = drained
+    return stats
 
 
 @api.get("/jobs", response_model=list[JobRecord])
@@ -723,7 +1088,13 @@ def health() -> JSONResponse:
     cfg: dict[str, Any] = {}
     try:
         cfg = load_config()
-        missing = [section for section in ("pbs", "proxmox", "redis") if not cfg.get(section)]
+        missing: list[str] = []
+        if not (cfg.get("pbs") or cfg.get("pbs_servers")):
+            missing.append("pbs_servers")
+        if not cfg.get("proxmox"):
+            missing.append("proxmox")
+        if not cfg.get("redis"):
+            missing.append("redis")
         if missing:
             config_detail = f"missing config sections: {', '.join(missing)}"
         else:
