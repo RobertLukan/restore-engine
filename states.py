@@ -14,7 +14,7 @@ class RestoreState(str, Enum):
 
 
 class PlanVerification(str, Enum):
-    """enterprise-style readiness verification for a recovery plan."""
+    """Readiness verification for a recovery plan (inventory / backup / location checks)."""
 
     NOT_VERIFIED = "NOT_VERIFIED"
     NEEDS_VERIFIED = "NEEDS_VERIFIED"
