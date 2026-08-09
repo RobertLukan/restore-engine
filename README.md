@@ -120,7 +120,7 @@ The **Settings** tab has a *Restore performance* section; the **Restores** tab m
 - **Pause / Resume** — pause stops claiming new jobs and plan group enqueue; running restores finish or fail on their own. Resume continues the queue.
 - **Stop pending** — pause + cancel all PENDING jobs; in-flight keeps going (use per-job Stop to abort a running restore).
 - Per-job **progress % / speed / ETA** from PVE task logs (best-effort). **Speed (gross)** follows PVE progress and includes sparse/zero regions. **Est. network** scales the PBS snapshot size (sum of archive sizes) by restore progress — an approximation of wire throughput, not a measured NIC counter.
-- Backup list and job details show **Size (gross)** from PBS.
+- Backup list shows **Size (gross)** from PBS; use **Estimate sizes** for an on-demand **non-zero** logical estimate from `.fidx` (better proxy for restore effort — zeros are fast). See [docs/dr-architecture.md](docs/dr-architecture.md).
 - **Default bandwidth limit** and **Live restore by default** in Settings pre-fill restore dialogs.
 
 Per restore batch, the **Restore selected** dialog also lets you set a **bandwidth limit** (passed to Proxmox as `bwlimit`), toggle **live restore**, and **multi-select Proxmox nodes** with a **storage dropdown per node**. Jobs load-balance across nodes; VMIDs are cluster-wide unique.
@@ -134,9 +134,11 @@ Note: Proxmox-side throttles (a `bwlimit` in `datacenter.cfg` or on the storage,
 3. **Check** a plan (readiness), then **Run** or **Drill** with point-in-time; download reports from the Plans tab.
 4. **Assurance** — set policy, **Assure now**, watch ASSURED/FAILED (does not perform production failback).
 5. **Compliance** — read-only posture across plans (readiness, assurance, schedule, report links).
-6. **Backups** — refresh list, select backups, **Restore selected** (ad-hoc) with isolation / overwrite options.
+6. **Backups** — refresh list, optionally **Estimate sizes** (non-zero), select backups, **Restore selected** (ad-hoc) with isolation / overwrite options.
 7. **Restores** — watch job state and progress; stop queued jobs if needed.
 8. **Audit** — browse recent operator actions when investigating who changed what.
+
+DR site design (PBS sync, Cisco FI / NIC layout, Ceph size 2 vs 3, ZFS landing mirror vs RAIDZ, speed expectations): **[docs/dr-architecture.md](docs/dr-architecture.md)**.
 
 ## Production checklist
 

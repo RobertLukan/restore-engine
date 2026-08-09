@@ -21,6 +21,7 @@ import ui as ui_module
 import plans as plans_module
 from jobs import enqueue_restores, job_key
 from pbs_client import list_vm_backups
+from pbs_wire import estimate_fidx_usage_cached
 from pve_client import (
     archive_path,
     connect_proxmox,
@@ -513,6 +514,58 @@ def resolve_backup_tags(body: ResolveTagsRequest) -> dict[str, Any]:
     tags_by_id, errors = _resolve_tags(cfg, rows, node, force=body.force)
     all_tags = sorted({t for tags in tags_by_id.values() for t in tags}, key=str.lower)
     return {"tags": tags_by_id, "all_tags": all_tags, "errors": errors}
+
+
+class EstimateSizeRequest(BaseModel):
+    backup_ids: list[str] = Field(default_factory=list)
+
+
+_ESTIMATE_SIZE_MAX = 20
+
+
+@api.post("/backups/estimate-size")
+def estimate_backup_sizes(body: EstimateSizeRequest) -> dict[str, Any]:
+    """On-demand non-zero / virtual size from PBS ``.fidx`` (cached in Redis)."""
+    ids = [b.strip() for b in (body.backup_ids or []) if isinstance(b, str) and b.strip()]
+    # Preserve order, drop duplicates.
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for bid in ids:
+        if bid not in seen:
+            seen.add(bid)
+            ordered.append(bid)
+    if not ordered:
+        raise HTTPException(status_code=400, detail="backup_ids is required")
+    if len(ordered) > _ESTIMATE_SIZE_MAX:
+        raise HTTPException(
+            status_code=400,
+            detail=f"At most {_ESTIMATE_SIZE_MAX} backup_ids per request",
+        )
+
+    cfg = load_config()
+    r = redis_client()
+    gross_by_id: dict[str, int | None] = {}
+    try:
+        for row in list_vm_backups(cfg):
+            bid = row.get("backup_id")
+            if bid in seen:
+                sb = row.get("size_bytes")
+                gross_by_id[str(bid)] = int(sb) if sb is not None else None
+    except Exception:
+        pass
+
+    estimates: dict[str, Any] = {}
+    errors: dict[str, str] = {}
+    for bid in ordered:
+        try:
+            est = estimate_fidx_usage_cached(r, cfg, bid)
+            if "size_bytes" not in est:
+                est["size_bytes"] = gross_by_id.get(bid)
+            estimates[bid] = est
+        except Exception as exc:
+            errors[bid] = str(exc) or exc.__class__.__name__
+
+    return {"estimates": estimates, "errors": errors}
 
 
 class RestoreTagGroupRequest(BaseModel):

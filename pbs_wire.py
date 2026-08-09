@@ -9,6 +9,7 @@ get ``wire_bytes / logical_chunk_size``.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import random
 import socket
@@ -54,6 +55,48 @@ class WireCompressionEstimate:
         return max(0.0, min(1.0, self.nonzero_positions / float(self.total_positions)))
 
 
+@dataclass(frozen=True)
+class FidxUsageEstimate:
+    """Logical disk usage from PBS fixed indexes (no chunk download)."""
+
+    chunk_size: int
+    fidx_files: int
+    total_positions: int
+    nonzero_positions: int
+    unique_nonzero: int
+
+    @property
+    def sparsity_ratio(self) -> float:
+        if self.total_positions <= 0:
+            return 1.0 if self.nonzero_positions > 0 else 0.0
+        return max(0.0, min(1.0, self.nonzero_positions / float(self.total_positions)))
+
+    @property
+    def virtual_bytes(self) -> int:
+        return int(self.total_positions) * int(self.chunk_size)
+
+    @property
+    def nonzero_bytes(self) -> int:
+        return int(self.nonzero_positions) * int(self.chunk_size)
+
+    @property
+    def zero_bytes(self) -> int:
+        return max(0, self.virtual_bytes - self.nonzero_bytes)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "chunk_size": self.chunk_size,
+            "fidx_files": self.fidx_files,
+            "total_positions": self.total_positions,
+            "nonzero_positions": self.nonzero_positions,
+            "unique_nonzero": self.unique_nonzero,
+            "sparsity_ratio": self.sparsity_ratio,
+            "virtual_bytes": self.virtual_bytes,
+            "nonzero_bytes": self.nonzero_bytes,
+            "zero_bytes": self.zero_bytes,
+        }
+
+
 def parse_job_backup_ref(backup_id: str) -> tuple[str, str, int]:
     """Return ``(source_id, pbs_backup_id, backup_time_epoch)`` from a job backup_id.
 
@@ -80,6 +123,26 @@ def parse_job_backup_ref(backup_id: str) -> tuple[str, str, int]:
 
 def _zero_digest(chunk_size: int) -> bytes:
     return hashlib.sha256(b"\x00" * chunk_size).digest()
+
+
+def usage_from_digests(
+    chunk_size: int,
+    digests: list[bytes],
+    *,
+    fidx_files: int = 1,
+) -> FidxUsageEstimate:
+    """Build a usage estimate from already-parsed fidx digests (no I/O)."""
+    zero = _zero_digest(chunk_size)
+    total_positions = len(digests)
+    nonzero = [d for d in digests if d != zero]
+    unique = set(nonzero)
+    return FidxUsageEstimate(
+        chunk_size=chunk_size,
+        fidx_files=fidx_files,
+        total_positions=total_positions,
+        nonzero_positions=len(nonzero),
+        unique_nonzero=len(unique),
+    )
 
 
 def _parse_fidx(data: bytes) -> tuple[int, list[bytes]]:
@@ -260,6 +323,88 @@ def _open_reader(
     return _ReaderSession(sock, leftover=rest)
 
 
+def _load_all_fidx_digests(
+    source: Source,
+    *,
+    pbs_backup_id: str,
+    backup_time: int,
+) -> tuple[int, list[bytes], int]:
+    """Return ``(chunk_size, all_digests, fidx_file_count)`` via reader protocol."""
+    headers, cookies = _auth_headers_cookies(source)
+    fidx_names = _list_fidx_names(source, pbs_backup_id, backup_time, headers, cookies)
+    if not fidx_names:
+        raise RuntimeError("No .fidx files found for snapshot")
+    session = _open_reader(source, pbs_backup_id, backup_time, headers, cookies)
+    try:
+        all_digests: list[bytes] = []
+        chunk_size = DEFAULT_CHUNK_SIZE
+        for name in fidx_names:
+            path = f"/download?file-name={urllib.parse.quote(name)}"
+            status, body = session.get(path)
+            if status != 200 or len(body) < FIDX_HEADER + 32:
+                raise RuntimeError(f"Failed to download {name} via reader: HTTP {status}")
+            chunk_size, digests = _parse_fidx(body)
+            all_digests.extend(digests)
+        return chunk_size, all_digests, len(fidx_names)
+    finally:
+        session.close()
+
+
+def estimate_fidx_usage(
+    source: Source,
+    *,
+    pbs_backup_id: str,
+    backup_time: int,
+) -> FidxUsageEstimate:
+    """Count zero vs non-zero fidx digests (no chunk payload downloads)."""
+    chunk_size, all_digests, fidx_files = _load_all_fidx_digests(
+        source, pbs_backup_id=pbs_backup_id, backup_time=backup_time
+    )
+    return usage_from_digests(chunk_size, all_digests, fidx_files=fidx_files)
+
+
+def fidx_usage_cache_key(source_id: str, pbs_backup_id: str, backup_time: int) -> str:
+    return f"restore:fidxusage:{source_id}|{pbs_backup_id}|{int(backup_time)}"
+
+
+def estimate_fidx_usage_cached(
+    r: Any,
+    cfg: dict[str, Any],
+    backup_id: str,
+) -> dict[str, Any]:
+    """Return usage dict for a job-style ``backup_id``, using Redis cache when possible."""
+    source_id, pbs_id, epoch = parse_job_backup_ref(backup_id)
+    key = fidx_usage_cache_key(source_id, pbs_id, epoch)
+    try:
+        cached = r.get(key)
+        if cached:
+            data = json.loads(cached)
+            if isinstance(data, dict) and "nonzero_bytes" in data:
+                return {**data, "cached": True, "backup_id": backup_id}
+    except Exception:
+        pass
+
+    source = source_by_id(cfg, source_id)
+    if source is None:
+        for src in load_sources(cfg):
+            if backup_id.startswith(src.source_id + "|"):
+                source = src
+                break
+    if source is None:
+        raise RuntimeError(f"No PBS source for backup_id={backup_id}")
+
+    est = estimate_fidx_usage(source, pbs_backup_id=pbs_id, backup_time=epoch)
+    payload = est.as_dict()
+    payload["backup_id"] = backup_id
+    payload["cached"] = False
+    try:
+        # Snapshots are immutable — keep indefinitely (no TTL).
+        r.set(key, json.dumps(payload, separators=(",", ":")))
+    except Exception:
+        log.warning("Failed to cache fidx usage for %s", backup_id)
+    return payload
+
+
 def estimate_wire_compression(
     source: Source,
     *,
@@ -268,12 +413,12 @@ def estimate_wire_compression(
     sample_size: int = 24,
     rng_seed: int | None = 1,
 ) -> WireCompressionEstimate:
-    """Sample chunk downloads and return wire/logical compression ratio."""
+    """Sample chunk downloads and return wire/logical compression ratio.
+
+    Uses one reader session for both ``.fidx`` download and chunk samples
+    (PBS may only allow a single reader per snapshot).
+    """
     headers, cookies = _auth_headers_cookies(source)
-    # Normalize cookie dict for upgrade helper.
-    if "Cookie" in headers and "PBSAuthCookie=" in headers["Cookie"]:
-        # already a header form from some paths
-        pass
     fidx_names = _list_fidx_names(source, pbs_backup_id, backup_time, headers, cookies)
     if not fidx_names:
         raise RuntimeError("No .fidx files found for snapshot")
@@ -294,15 +439,15 @@ def estimate_wire_compression(
         total_positions = len(all_digests)
         nonzero = [d for d in all_digests if d != zero]
         unique = list(set(nonzero))
+        fidx_files = len(fidx_names)
         if not unique:
-            # Fully sparse image — essentially no wire payload.
             return WireCompressionEstimate(
                 ratio=0.0,
                 samples=0,
                 chunk_size=chunk_size,
                 nonzero_positions=0,
                 unique_nonzero=0,
-                fidx_files=len(fidx_names),
+                fidx_files=fidx_files,
                 total_positions=total_positions,
             )
 
@@ -319,7 +464,6 @@ def estimate_wire_compression(
             raise RuntimeError("No successful chunk samples for compression estimate")
 
         mean_comp = sum(ratios) / len(ratios)
-        # Intra-image dedup: unique digests are fetched once.
         dedup = len(unique) / max(1, len(nonzero))
         ratio = max(0.0, min(1.0, mean_comp * dedup))
         return WireCompressionEstimate(
@@ -328,7 +472,7 @@ def estimate_wire_compression(
             chunk_size=chunk_size,
             nonzero_positions=len(nonzero),
             unique_nonzero=len(unique),
-            fidx_files=len(fidx_names),
+            fidx_files=fidx_files,
             total_positions=total_positions,
         )
     finally:

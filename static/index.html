@@ -356,10 +356,13 @@
             Select one or more VMs, then <strong>Restore selected</strong> — Select all never queues multiple snapshots of the same VM.
             Tags are fetched automatically from Proxmox after the list loads (PBS does not include them).
             Use <strong>Reload tags</strong> to refresh.
+            <strong>Size (gross)</strong> is the PBS archive sum; use <strong>Estimate sizes</strong> for a chunk-level
+            non-zero estimate (better proxy for restore effort — zeros restore quickly).
           </p>
           <div class="actions" style="margin-bottom: 0.75rem;">
             <button type="button" class="secondary" id="btn-refresh-backups">Refresh list</button>
             <button type="button" class="secondary" id="btn-load-tags">Reload tags</button>
+            <button type="button" class="secondary" id="btn-estimate-sizes" title="Download .fidx indexes and count non-zero chunks (cached)">Estimate sizes</button>
             <button type="button" class="secondary" id="btn-select-all">Select all</button>
             <button type="button" class="secondary" id="btn-clear-selection">Clear selection</button>
             <button type="button" class="primary" id="btn-open-restore-modal" disabled>Restore selected…</button>
@@ -1103,6 +1106,7 @@
     let jobsPollTimer = null;
     let backupInventory = [];
     let tagsById = {};
+    let sizeEstimateById = {};
     let tagErrors = {};
     const CLIENT_TRACE_MAX = 80;
     const clientTraceEvents = [];
@@ -1232,6 +1236,29 @@
         i += 1;
       }
       return x.toFixed(i === 0 ? 0 : 1) + " " + units[i];
+    }
+
+    function renderSizeCellHtml(backupId, grossBytes) {
+      const gross = grossBytes ? formatBytes(grossBytes) : "—";
+      const est = sizeEstimateById[backupId];
+      if (!est || !est.nonzero_bytes) {
+        return (
+          '<div class="size-gross">' + escapeHtml(gross) + "</div>" +
+          '<div class="size-nonzero hint" style="margin:0;font-size:0.85em;">—</div>'
+        );
+      }
+      const nz = formatBytes(est.nonzero_bytes) || "0 B";
+      const pct = Math.round((Number(est.sparsity_ratio) || 0) * 100);
+      const title =
+        "Non-zero ≈ chunk-granular used data (zeros restore quickly). " +
+        "Virtual " + (formatBytes(est.virtual_bytes) || "?") +
+        (est.cached ? " · cached" : "");
+      return (
+        '<div class="size-gross" title="PBS snapshot archive sum (gross)">' +
+          escapeHtml(gross) + "</div>" +
+        '<div class="size-nonzero hint" style="margin:0;font-size:0.85em;" title="' +
+          escapeHtml(title) + '">~' + escapeHtml(nz) + " non-zero (" + pct + "%)</div>"
+      );
     }
 
     function formatStorageOption(s) {
@@ -2039,7 +2066,7 @@
       tr.dataset.backupId = backupId;
       const sizeCell = tr.querySelector(".size-cell");
       if (sizeCell) {
-        sizeCell.textContent = row.size_bytes ? formatBytes(row.size_bytes) : "—";
+        sizeCell.innerHTML = renderSizeCellHtml(backupId, row.size_bytes);
       }
       const tagsCell = tr.querySelector(".tags-cell");
       if (tagsCell) tagsCell.innerHTML = renderTagCell(backupId);
@@ -2109,8 +2136,8 @@
             "<td>" + escapeHtml(group.vmid) + "</td>" +
             "<td>" + escapeHtml(group.source_label) + "</td>" +
             '<td class="tags-cell">' + renderTagCell(latest.backup_id) + "</td>" +
-            '<td class="size-cell" title="PBS snapshot archive sum (gross)">' +
-              escapeHtml(latest.size_bytes ? formatBytes(latest.size_bytes) : "—") + "</td>" +
+            '<td class="size-cell">' +
+              renderSizeCellHtml(latest.backup_id, latest.size_bytes) + "</td>" +
             '<td><select class="snapshot-select" title="Choose snapshot (default latest)">' +
               options + "</select></td>";
 
@@ -2258,6 +2285,74 @@
     }
 
     document.getElementById("btn-load-tags").onclick = () => loadTags({ force: true });
+
+    async function estimateSelectedSizes() {
+      const btn = document.getElementById("btn-estimate-sizes");
+      const statusEl = document.getElementById("backup-list-status");
+      const gb = document.getElementById("global-banner");
+      let ids = getSelectedBackupIds();
+      if (!ids.length) {
+        ids = [...document.querySelectorAll("#backup-tbody tr")]
+          .filter((tr) => !tr.classList.contains("hidden"))
+          .map((tr) => {
+            const sel = tr.querySelector("select.snapshot-select");
+            return (sel && sel.value) || tr.dataset.backupId;
+          })
+          .filter(Boolean);
+      }
+      if (!ids.length) {
+        banner(gb, "err", "No backups to estimate.");
+        return;
+      }
+      const maxBatch = 20;
+      const original = btn.textContent;
+      btn.disabled = true;
+      let ok = 0;
+      let fail = 0;
+      try {
+        for (let i = 0; i < ids.length; i += maxBatch) {
+          const batch = ids.slice(i, i + maxBatch);
+          btn.textContent = "Estimating " + Math.min(i + batch.length, ids.length) + "/" + ids.length + "…";
+          if (statusEl) statusEl.textContent = "Estimating non-zero sizes (" + (i + 1) + "–" + Math.min(i + batch.length, ids.length) + " of " + ids.length + ")…";
+          const res = await api("/api/backups/estimate-size", {
+            method: "POST",
+            body: JSON.stringify({ backup_ids: batch }),
+          });
+          const estimates = res.estimates || {};
+          const errors = res.errors || {};
+          Object.assign(sizeEstimateById, estimates);
+          ok += Object.keys(estimates).length;
+          fail += Object.keys(errors).length;
+          document.querySelectorAll("#backup-tbody tr").forEach((tr) => {
+            const sel = tr.querySelector("select.snapshot-select");
+            const bid = (sel && sel.value) || tr.dataset.backupId;
+            if (bid && estimates[bid]) applySnapshotToRow(tr, bid);
+          });
+          if (Object.keys(errors).length) {
+            const sample = Object.entries(errors)[0];
+            banner(gb, "err", "Estimate failed for " + sample[0] + ": " + sample[1]);
+          }
+        }
+        if (ok && !fail) {
+          banner(gb, "ok", "Estimated non-zero size for " + ok + " backup(s).");
+        } else if (ok) {
+          banner(gb, "err", "Estimated " + ok + " backup(s); " + fail + " failed.");
+        }
+        if (statusEl) {
+          const nVm = document.querySelectorAll("#backup-tbody tr").length;
+          statusEl.textContent =
+            nVm + " VM(s) · " + backupInventory.length + " snapshot(s) from PBS" +
+            (ok ? " · non-zero estimates ready" : "");
+        }
+      } catch (e) {
+        banner(gb, "err", e.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = original;
+      }
+    }
+
+    document.getElementById("btn-estimate-sizes").onclick = estimateSelectedSizes;
 
     document.getElementById("btn-select-tag").onclick = () => {
       const tag = document.getElementById("backup-tag-filter").value;
