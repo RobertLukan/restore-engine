@@ -429,42 +429,220 @@ def compliance_dashboard(
     *,
     list_plans_fn: Callable[..., list[dict[str, Any]]],
     list_plan_runs_fn: Callable[..., list[dict[str, Any]]],
+    now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Summary strip: per-plan last check + last finished run RTO."""
+    """Cross-plan posture rollup: readiness + assurance + schedule + evidence links."""
+    import plans as plans_module
+    from states import PlanAssurance, PlanVerification
+
+    clock = now or datetime.now(timezone.utc)
     plans = list_plans_fn(r, cfg)
+    require_verified = plans_module.require_verified_to_run(cfg)
+
+    active_by_plan: dict[str, dict[str, Any]] = {}
+    try:
+        for rid in r.smembers(plans_module.active_plan_runs_key(cfg)) or []:
+            run = plans_module.get_plan_run(r, cfg, str(rid))
+            if not run or run.get("status") != PlanRunStatus.RUNNING.value:
+                continue
+            if not run.get("drill"):
+                continue
+            pid = str(run.get("plan_id") or "")
+            if pid:
+                active_by_plan[pid] = run
+    except Exception:
+        active_by_plan = {}
+
+    verification_counts = {
+        PlanVerification.VERIFIED.value: 0,
+        PlanVerification.NEEDS_VERIFIED.value: 0,
+        PlanVerification.NOT_VERIFIED.value: 0,
+    }
+    assurance_counts = {
+        "ASSURED": 0,
+        "FAILED": 0,
+        "UNKNOWN": 0,
+        "IN_PROGRESS": 0,
+        "disabled": 0,
+    }
+    schedule_counts = {"enabled": 0, "overdue": 0, "due_soon": 0}
+    disabled_plans = 0
+
     items: list[dict[str, Any]] = []
     for plan in plans:
-        runs = list_plan_runs_fn(r, cfg, plan_id=plan["id"], limit=5)
-        last_run = None
+        pid = str(plan.get("id") or "")
+        enabled = bool(plan.get("enabled", True))
+        if not enabled:
+            disabled_plans += 1
+
+        ver = str(plan.get("verification") or PlanVerification.NOT_VERIFIED.value)
+        if ver not in verification_counts:
+            ver = PlanVerification.NOT_VERIFIED.value
+        if enabled:
+            verification_counts[ver] = verification_counts.get(ver, 0) + 1
+
+        runs = list_plan_runs_fn(r, cfg, plan_id=pid, limit=20)
+        last_any: dict[str, Any] | None = None
+        last_prod: dict[str, Any] | None = None
+        last_drill: dict[str, Any] | None = None
         for run in runs:
-            if run.get("status") in {
+            if run.get("status") not in {
                 PlanRunStatus.COMPLETED.value,
                 PlanRunStatus.FAILED.value,
                 PlanRunStatus.CANCELLED.value,
-            } and run.get("finished_at"):
-                last_run = run
+            } or not run.get("finished_at"):
+                continue
+            if last_any is None:
+                last_any = run
+            if run.get("drill"):
+                if last_drill is None:
+                    last_drill = run
+            elif last_prod is None:
+                last_prod = run
+            if last_prod is not None and last_drill is not None and last_any is not None:
                 break
-        rto = None
-        if last_run:
-            rto = wall_clock_rto_sec(
-                str(last_run.get("started_at") or ""),
-                str(last_run.get("finished_at") or ""),
+
+        def _rto(run: dict[str, Any] | None) -> int | None:
+            if not run:
+                return None
+            return wall_clock_rto_sec(
+                str(run.get("started_at") or ""), str(run.get("finished_at") or "")
             )
+
         check = plan.get("last_check") if isinstance(plan.get("last_check"), dict) else {}
+        active = active_by_plan.get(pid)
+        assurance_enabled = bool(plan.get("assurance_enabled", False))
+        if not assurance_enabled:
+            assurance_counts["disabled"] += 1
+            assurance_status = "DISABLED"
+            assurance_detail = str(plan.get("assurance_detail") or "")
+        elif active:
+            assurance_counts["IN_PROGRESS"] += 1
+            assurance_status = PlanAssurance.IN_PROGRESS.value
+            assurance_detail = f"assurance drill running ({active.get('id')})"
+        else:
+            assurance_status = str(plan.get("assurance_status") or PlanAssurance.UNKNOWN.value)
+            if assurance_status not in {"ASSURED", "FAILED", "UNKNOWN"}:
+                assurance_status = PlanAssurance.UNKNOWN.value
+            assurance_counts[assurance_status] = assurance_counts.get(assurance_status, 0) + 1
+            assurance_detail = str(plan.get("assurance_detail") or "")
+
+        try:
+            assured_rto = int(plan.get("assurance_last_rto_sec")) if plan.get("assurance_last_rto_sec") not in (None, "") else None
+        except (TypeError, ValueError):
+            assured_rto = None
+
+        next_sched = plans_module.next_scheduled_iso(plan, now=clock)
+        schedule_enabled = bool(plan.get("schedule_enabled", False))
+        schedule_overdue = False
+        schedule_due_soon = False
+        if schedule_enabled and enabled:
+            schedule_counts["enabled"] += 1
+            if next_sched:
+                try:
+                    nxt = datetime.fromisoformat(next_sched.replace("Z", "+00:00"))
+                    if nxt.tzinfo is None:
+                        nxt = nxt.replace(tzinfo=timezone.utc)
+                    delta = (nxt - clock).total_seconds()
+                    if delta <= 0:
+                        schedule_overdue = True
+                        schedule_counts["overdue"] += 1
+                    elif delta <= 3600:
+                        schedule_due_soon = True
+                        schedule_counts["due_soon"] += 1
+                except ValueError:
+                    pass
+            else:
+                # No next computed but schedule on → treat as due.
+                schedule_overdue = True
+                schedule_counts["overdue"] += 1
+
+        uses_tag_groups = False
+        try:
+            for gid in plan.get("group_ids") or []:
+                group = plans_module.get_group(r, cfg, str(gid))
+                if group and group.get("tags"):
+                    uses_tag_groups = True
+                    break
+        except Exception:
+            uses_tag_groups = False
+
+        risks: list[str] = []
+        if not assurance_enabled:
+            risks.append("assurance_policy_off")
+        if ver != PlanVerification.VERIFIED.value:
+            risks.append("not_verified")
+        if require_verified and ver != PlanVerification.VERIFIED.value:
+            risks.append("verify_gate_blocks_run")
+        if active:
+            risks.append("drill_in_progress")
+        tear = str((last_drill or {}).get("teardown_status") or "")
+        if last_drill and tear and tear not in {"", "completed", "skipped"}:
+            risks.append("teardown_failed")
+        if schedule_overdue:
+            risks.append("schedule_overdue")
+        if uses_tag_groups and schedule_enabled:
+            risks.append("uses_tag_groups")
+
+        prod_rto = _rto(last_prod)
+        drill_rto = _rto(last_drill)
         items.append(
             {
                 "plan_id": plan.get("id"),
                 "plan_name": plan.get("name"),
-                "enabled": bool(plan.get("enabled", True)),
-                "verification": plan.get("verification"),
+                "enabled": enabled,
+                "verification": ver,
                 "last_check_at": plan.get("last_check_at") or "",
                 "last_check_ok": bool(check.get("ok")) if check else None,
                 "last_check_summary": check.get("summary") or "",
-                "last_run_id": (last_run or {}).get("id") or "",
-                "last_run_status": (last_run or {}).get("status") or "",
-                "last_run_finished_at": (last_run or {}).get("finished_at") or "",
-                "last_run_rto_sec": rto,
-                "last_run_rto": format_duration(rto),
+                "last_check_report_id": plan.get("last_check_report_id") or "",
+                "assurance_enabled": assurance_enabled,
+                "assurance_status": assurance_status,
+                "assurance_detail": assurance_detail,
+                "assurance_updated_at": plan.get("assurance_updated_at") or "",
+                "assurance_require_qga": bool(plan.get("assurance_require_qga", False)),
+                "assurance_require_http": bool(plan.get("assurance_require_http", False)),
+                "assurance_max_rto_sec": int(plan.get("assurance_max_rto_sec") or 0),
+                "assurance_last_rto_sec": assured_rto,
+                "assurance_last_rto": format_duration(assured_rto),
+                "last_run_id": (last_any or {}).get("id") or "",
+                "last_run_status": (last_any or {}).get("status") or "",
+                "last_run_finished_at": (last_any or {}).get("finished_at") or "",
+                "last_run_rto_sec": _rto(last_any),
+                "last_run_rto": format_duration(_rto(last_any)),
+                "last_run_report_id": plan.get("last_run_report_id") or "",
+                "last_prod_run_id": (last_prod or {}).get("id") or "",
+                "last_prod_run_status": (last_prod or {}).get("status") or "",
+                "last_prod_run_finished_at": (last_prod or {}).get("finished_at") or "",
+                "last_prod_run_rto_sec": prod_rto,
+                "last_prod_run_rto": format_duration(prod_rto),
+                "last_drill_id": (last_drill or {}).get("id") or "",
+                "last_drill_status": (last_drill or {}).get("status") or "",
+                "last_drill_finished_at": (last_drill or {}).get("finished_at") or "",
+                "last_drill_rto_sec": drill_rto,
+                "last_drill_rto": format_duration(drill_rto),
+                "last_drill_teardown_status": (last_drill or {}).get("teardown_status") or "",
+                "schedule_enabled": schedule_enabled,
+                "schedule_interval_hours": int(plan.get("schedule_interval_hours") or 0),
+                "next_scheduled_at": next_sched,
+                "last_scheduled_run_at": plan.get("last_scheduled_run_at") or "",
+                "schedule_overdue": schedule_overdue,
+                "schedule_due_soon": schedule_due_soon,
+                "uses_tag_groups": uses_tag_groups,
+                "active_run_id": (active or {}).get("id") or "",
+                "risks": risks,
+                "location_id": plan.get("location_id") or "",
             }
         )
-    return {"plans": items, "generated_at": utc_now_iso()}
+
+    return {
+        "plans": items,
+        "counts": {
+            "verification": verification_counts,
+            "assurance": assurance_counts,
+            "schedule": schedule_counts,
+            "disabled_plans": disabled_plans,
+            "require_verified_to_run": require_verified,
+        },
+        "generated_at": utc_now_iso(),
+    }

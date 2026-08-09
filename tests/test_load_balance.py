@@ -30,16 +30,30 @@ class _FakeProxmox:
         self.cluster = _FakeCluster(rows)
 
 
-def test_qemu_vmids_in_use_cluster_filters_qemu() -> None:
+def test_qemu_vmids_in_use_cluster_includes_lxc() -> None:
+    """QEMU and LXC share the Proxmox VMID namespace — both must count as in-use."""
     prox = _FakeProxmox(
         [
             {"type": "qemu", "vmid": 100, "node": "pve1"},
             {"type": "lxc", "vmid": 101, "node": "pve1"},
             {"type": "qemu", "vmid": 200, "node": "pve2"},
             {"type": "qemu", "vmid": "bad"},
+            {"type": "storage", "vmid": 999},  # ignored
         ]
     )
-    assert qemu_vmids_in_use_cluster(prox) == {100, 200}  # type: ignore[arg-type]
+    assert qemu_vmids_in_use_cluster(prox) == {100, 101, 200}  # type: ignore[arg-type]
+
+
+def test_allocate_skips_lxc_held_vmid() -> None:
+    from pve_client import allocate_sequential_free_vmids
+
+    # LXC occupies 100; next free for Normal restore must be 101+.
+    used = qemu_vmids_in_use_cluster(
+        _FakeProxmox([{"type": "lxc", "vmid": 100, "node": "pve"}])  # type: ignore[arg-type]
+    )
+    ids, cursor = allocate_sequential_free_vmids(set(used), 100, 2)
+    assert ids == [101, 102]
+    assert cursor == 103
 
 
 def test_assign_nodes_least_loaded_spreads_and_respects_active() -> None:

@@ -42,12 +42,45 @@ worker:
   max_concurrent_restores: 2
   plan_check_interval_sec: 86400
   report_retain: 20
+  job_ttl_sec: 1209600
+  audit_retain: 2000
   # When true, POST /api/plans/{id}/run rejects plans that are not VERIFIED
-  # unless allow_unverified=true is sent.
+  # unless allow_unverified=true is sent. Keep false for lab convenience;
+  # set true for production (see README "Production checklist").
   require_verified_to_run: false
   # Default QGA wait when UI enables "Wait for guest agent" (seconds).
   qga_wait_sec_default: 120
 
+# Optional automation tokens (Authorization: Bearer <token>).
+# role: operator (full) | viewer (GET only)
+# ui:
+#   password: "change-me"
+#   session_secret: "long-random-string"
+#   api_tokens:
+#     - name: ci
+#       token: "long-random-secret"
+#       role: operator
+
 # Optional plans section (same require_verified_to_run key is also read here).
 # plans:
-#   require_verified_to_run: false
+#   require_verified_to_run: true
+
+notifications:
+  email:
+    enabled: false
+    host: ""
+    port: 587
+    tls: true
+    ssl: false
+    username: ""
+    password: ""
+    from: "restore-engine@example.com"
+    to: []
+  webhook:
+    enabled: false
+    url: ""
+    secret: ""
+  events:
+    check_failed: true
+    plan_run_terminal: true
+    job_failed: false

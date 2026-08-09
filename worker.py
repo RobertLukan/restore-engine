@@ -17,7 +17,13 @@ import yaml
 
 from pve_client import (
     TaskCancelled,
+    apply_network_isolation,
     connect_proxmox,
+    get_qemu_config,
+    get_qemu_guest_hostname,
+    hostname_matches_pve_name,
+    mark_qemu_managed_by_tool,
+    MANAGED_TAG,
     start_qemu_vm,
     stop_qemu_vm,
     submit_restore,
@@ -80,6 +86,12 @@ def append_log(
 def set_state(r: redis.Redis, cfg: dict[str, Any], job_id: str, state: RestoreState, **extra: str) -> None:
     mapping = {"state": state.value, "updated_at": utc_now_iso(), **extra}
     r.hset(redis_job_key(cfg, job_id), mapping=mapping)
+    try:
+        from job_hygiene import apply_job_ttl
+
+        apply_job_ttl(r, cfg, job_id, state=state.value)
+    except Exception:
+        pass
 
 
 def cancel_requested(r: redis.Redis, cfg: dict[str, Any], job_id: str) -> bool:
@@ -253,6 +265,48 @@ def process_job(r: redis.Redis, cfg: dict[str, Any], job_id: str) -> None:
         append_log(r, cfg, job_id, "INFO", "CANCELLED", f"PVE restore task {upid} stopped")
         return
 
+    # Ownership stamp so teardown/overwrite never touches foreign cluster guests.
+    # Fail the job if the stamp cannot be applied — unmarked VMs break reclaim/teardown.
+    stamp_err: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            mark_qemu_managed_by_tool(
+                proxmox,
+                node,
+                target_vmid,
+                job_id=job_id,
+                plan_run_id=str(data.get("plan_run_id") or ""),
+            )
+            r.hset(key, mapping={"managed_marked": "1", "updated_at": utc_now_iso()})
+            append_log(
+                r,
+                cfg,
+                job_id,
+                "INFO",
+                "RESTORING",
+                f"Marked VMID {target_vmid} as restore-engine managed",
+            )
+            stamp_err = None
+            break
+        except Exception as exc:
+            stamp_err = exc
+            append_log(
+                r,
+                cfg,
+                job_id,
+                "WARN",
+                "RESTORING",
+                f"Ownership stamp attempt {attempt}/3 failed for VMID {target_vmid}: {exc}",
+            )
+            time.sleep(min(2.0 * attempt, 5.0))
+    if stamp_err is not None:
+        r.hset(key, mapping={"managed_marked": "0", "updated_at": utc_now_iso()})
+        raise RuntimeError(
+            f"Failed to stamp ownership marker on VMID {target_vmid} after retries: {stamp_err}. "
+            "Guest was restored but is unmarked — reclaim/teardown will refuse it until tagged "
+            f"'{MANAGED_TAG}' manually or the guest is removed in Proxmox."
+        ) from stamp_err
+
     power_on = data.get("power_on", "0") == "1" or live_restore
     try:
         qga_wait_sec = max(0, int(data.get("qga_wait_sec") or 0))
@@ -260,6 +314,33 @@ def process_job(r: redis.Redis, cfg: dict[str, Any], job_id: str) -> None:
         qga_wait_sec = 0
     if qga_wait_sec > 0:
         power_on = True
+
+    net_mode = (data.get("network_mode") or "none").strip().lower()
+    lab_bridge = (data.get("lab_bridge") or "").strip()
+    if net_mode in {"unlink", "remap"}:
+        append_log(
+            r,
+            cfg,
+            job_id,
+            "INFO",
+            "RESTORING",
+            f"Applying network isolation mode={net_mode}"
+            + (f" bridge={lab_bridge}" if lab_bridge else ""),
+        )
+        try:
+            changed = apply_network_isolation(
+                proxmox, node, target_vmid, mode=net_mode, lab_bridge=lab_bridge
+            )
+            append_log(
+                r,
+                cfg,
+                job_id,
+                "INFO",
+                "RESTORING",
+                f"Network isolation updated: {', '.join(changed) or 'no net devices'}",
+            )
+        except Exception as exc:
+            raise RuntimeError(f"Network isolation failed for VMID {target_vmid}: {exc}") from exc
 
     if power_on:
         if not live_restore:
@@ -338,6 +419,27 @@ def process_job(r: redis.Redis, cfg: dict[str, Any], job_id: str) -> None:
                 "RESTORING",
                 f"QEMU guest agent OK after {waited:.1f}s",
             )
+            _check_guest_hostname(r, cfg, job_id, key, proxmox, node, target_vmid)
+        elif power_on:
+            # Best-effort hostname capture when powered on without an explicit QGA wait.
+            _check_guest_hostname(r, cfg, job_id, key, proxmox, node, target_vmid)
+
+        http_url = (data.get("http_check_url") or "").strip()
+        if http_url:
+            append_log(r, cfg, job_id, "INFO", "RESTORING", f"HTTP check {http_url}")
+            try:
+                from urllib import request as urlrequest
+
+                req = urlrequest.Request(http_url, method="GET")
+                with urlrequest.urlopen(req, timeout=30) as resp:
+                    code = int(getattr(resp, "status", None) or resp.getcode())
+                    if code >= 400:
+                        raise RuntimeError(f"HTTP check returned {code}")
+                r.hset(key, mapping={"http_check_ok": "1", "updated_at": utc_now_iso()})
+                append_log(r, cfg, job_id, "INFO", "RESTORING", f"HTTP check OK ({code})")
+            except Exception as exc:
+                r.hset(key, mapping={"http_check_ok": "0", "updated_at": utc_now_iso()})
+                raise RuntimeError(f"HTTP check failed: {exc}") from exc
     else:
         # Powered-off policy: ensure guest is stopped after restore.
         stop_qemu_vm(proxmox, node, target_vmid)
@@ -362,6 +464,70 @@ def process_job(r: redis.Redis, cfg: dict[str, Any], job_id: str) -> None:
     append_log(r, cfg, job_id, "INFO", "COMPLETED", f"Restore completed for VMID {target_vmid}")
 
 
+def _check_guest_hostname(
+    r: redis.Redis,
+    cfg: dict[str, Any],
+    job_id: str,
+    key: str,
+    proxmox: Any,
+    node: str,
+    target_vmid: int,
+) -> None:
+    """Compare guest OS hostname to PVE VM name. Mismatch is a warning, never a hard fail."""
+    pve_name = ""
+    try:
+        pve_cfg = get_qemu_config(proxmox, node, target_vmid)
+        pve_name = str(pve_cfg.get("name") or "").strip()
+    except Exception as exc:
+        append_log(
+            r,
+            cfg,
+            job_id,
+            "WARN",
+            "RESTORING",
+            f"Could not read PVE name for VMID {target_vmid}: {exc}",
+        )
+    guest_host = get_qemu_guest_hostname(proxmox, node, target_vmid)
+    mapping: dict[str, str] = {
+        "pve_name": pve_name,
+        "guest_hostname": guest_host or "",
+        "updated_at": utc_now_iso(),
+    }
+    if not guest_host:
+        mapping["hostname_match"] = ""
+        mapping["hostname_warning"] = ""
+        r.hset(key, mapping=mapping)
+        append_log(
+            r,
+            cfg,
+            job_id,
+            "INFO",
+            "RESTORING",
+            f"Guest hostname unavailable via QGA (PVE name={pve_name or '—'})",
+        )
+        return
+    match = hostname_matches_pve_name(guest_host, pve_name) if pve_name else False
+    mapping["hostname_match"] = "1" if match else "0"
+    if match:
+        mapping["hostname_warning"] = ""
+        r.hset(key, mapping=mapping)
+        append_log(
+            r,
+            cfg,
+            job_id,
+            "INFO",
+            "RESTORING",
+            f"Guest hostname '{guest_host}' matches PVE name '{pve_name}'",
+        )
+        return
+    warning = (
+        f"Guest hostname '{guest_host}' does not match PVE name '{pve_name or '—'}'"
+    )
+    mapping["hostname_warning"] = warning
+    r.hset(key, mapping=mapping)
+    append_log(r, cfg, job_id, "WARN", "RESTORING", warning)
+
+
 def _current_max_concurrent(cfg: dict[str, Any]) -> int:
     """Read the concurrency limit fresh so UI/config changes apply without restart."""
     try:
@@ -376,23 +542,105 @@ def worker_loop() -> None:
     r = redis.from_url(cfg["redis"]["url"], decode_responses=True)
     queue_key = cfg["redis"]["queue_key"]
 
-    active_lock = threading.Lock()
-    active_count = 0
+    import concurrency as concurrency_module
+    from pbs_client import list_vm_backups
 
     def run_job(job_id: str) -> None:
-        nonlocal active_count
         try:
             process_job(r, cfg, job_id)
         except Exception as exc:
             log.exception("Job %s failed", job_id)
             set_state(r, cfg, job_id, RestoreState.FAILED, error=str(exc), progress="0")
             append_log(r, cfg, job_id, "ERROR", "FAILED", str(exc))
+            try:
+                import notifications as notifications_module
+
+                data = r.hgetall(redis_job_key(cfg, job_id)) or {}
+                notifications_module.notify_job_failed(cfg, job=data)
+            except Exception:
+                pass
         finally:
-            with active_lock:
-                active_count -= 1
+            concurrency_module.release_slot(r, cfg)
+
+    def _start_scheduled(plan: dict[str, Any], location: dict[str, Any]) -> dict[str, Any]:
+        from datetime import datetime, timezone
+
+        cutoff = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        backups = list_vm_backups(cfg)
+        groups: list[dict[str, Any]] = []
+        for gid in plan.get("group_ids") or []:
+            group = plans_module.get_group(r, cfg, str(gid))
+            if not group:
+                raise RuntimeError(f"Missing group in plan: {gid}")
+            groups.append(group)
+        need_tags = any(g.get("tags") for g in groups)
+        tags_by_id: dict[str, list[str]] = {}
+        if need_tags:
+            # Latest-per-vmid under cutoff (same candidates as readiness / manual run).
+            best: dict[int, dict[str, Any]] = {}
+            for row in backups:
+                if row.get("timestamp", "") > cutoff:
+                    continue
+                try:
+                    vmid = int(row["vmid"])
+                except (TypeError, ValueError, KeyError):
+                    continue
+                cur = best.get(vmid)
+                if cur is None or row["timestamp"] > cur["timestamp"]:
+                    best[vmid] = row
+            candidates = list(best.values())
+            node0 = ""
+            for n in location.get("nodes") or []:
+                if str(n).strip():
+                    node0 = str(n).strip()
+                    break
+            if not node0:
+                node0 = str(location.get("node") or "").strip()
+            if not node0:
+                raise RuntimeError("Scheduled plan needs a location node to resolve guest tags")
+            if candidates:
+                proxmox = connect_proxmox(cfg)
+                tags_by_id, tag_errors = plans_module._resolve_tags_cached(
+                    r, cfg, candidates, node0, proxmox
+                )
+                if tag_errors:
+                    log.warning(
+                        "Scheduled plan %s: tag resolve failed for %s backup(s)",
+                        plan.get("id"),
+                        len(tag_errors),
+                    )
+        group_rows = [
+            plans_module.resolve_group_rows(
+                group, backups, cutoff=cutoff, tags_by_backup_id=tags_by_id
+            )
+            for group in groups
+        ]
+        if not any(group_rows):
+            raise RuntimeError("Scheduled plan resolved to zero backups")
+        drill = bool(plan.get("schedule_drill", True))
+        return plans_module.start_plan_run(
+            r,
+            cfg,
+            plan=plan,
+            location=location,
+            cutoff=cutoff,
+            group_rows=group_rows,
+            enqueue_fn=enqueue_restores,
+            drill=drill,
+            auto_teardown=drill,
+            power_on=False,
+            qga_wait_sec=0,
+        )
 
     log.info("Restore worker started (initial max_concurrent_restores=%s)", _current_max_concurrent(cfg))
+    try:
+        concurrency_module.reconcile_slots(r, cfg)
+    except Exception:
+        log.exception("Concurrency slot reconcile failed at startup")
+    last_purge = 0.0
     while True:
+        concurrency_module.touch_worker_heartbeat(r, cfg, ttl_sec=60)
+
         # Pause: no new claims and no plan enqueue (in-flight keep running).
         if is_queue_paused(r, cfg):
             time.sleep(1)
@@ -418,19 +666,44 @@ def worker_loop() -> None:
         except Exception:
             log.exception("Plan readiness tick failed")
 
+        # Scheduled drills / plan runs.
+        try:
+            n = plans_module.tick_scheduled_plan_runs(
+                r,
+                cfg,
+                start_fn=_start_scheduled,
+                on_error=lambda plan, exc: log.exception(
+                    "Scheduled plan run failed for %s", plan.get("id")
+                ),
+            )
+            if n:
+                log.info("Scheduled plan tick started %s run(s)", n)
+        except Exception:
+            log.exception("Scheduled plan tick failed")
+
+        # Occasional legacy job purge.
+        now = time.time()
+        if now - last_purge > 300:
+            last_purge = now
+            try:
+                from job_hygiene import purge_expired_scan
+
+                purged = purge_expired_scan(r, cfg)
+                if purged:
+                    log.info("Purged %s expired job(s)", purged)
+            except Exception:
+                log.exception("Job purge failed")
+
         # Re-read the limit each iteration so it can be tuned live from the dashboard.
         limit = _current_max_concurrent(cfg)
-        with active_lock:
-            at_capacity = active_count >= limit
-        if at_capacity:
+        if not concurrency_module.try_acquire_slot(r, cfg, limit=limit):
             time.sleep(1)
             continue
         item = r.blpop(queue_key, timeout=2)
         if not item:
+            concurrency_module.release_slot(r, cfg)
             continue
         _, job_id = item
-        with active_lock:
-            active_count += 1
         threading.Thread(target=run_job, args=(job_id,), daemon=True).start()
 
 

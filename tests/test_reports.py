@@ -175,3 +175,69 @@ def test_drill_run_report_tagged() -> None:
     assert row["verification"] == "VERIFIED"
     assert row["last_run_rto_sec"] == 600
     assert row["last_run_rto"] == "10m 0s"
+    assert row["last_prod_run_rto_sec"] == 600
+    assert "counts" in dash
+    assert dash["counts"]["verification"]["VERIFIED"] == 1
+    assert "assurance_policy_off" in row["risks"]
+
+
+def test_compliance_dashboard_separates_drill_and_prod() -> None:
+    r = FakeRedis()
+    group = plans.create_group(r, CFG, {"name": "g", "vmids": [1]})
+    loc = plans.create_location(
+        r, CFG, {"name": "l", "node": "pve", "storage": "local-lvm", "vmid_start": 200}
+    )
+    plan = plans.create_plan(
+        r,
+        CFG,
+        {
+            "name": "P",
+            "group_ids": [group["id"]],
+            "location_id": loc["id"],
+            "assurance_enabled": True,
+            "assurance_status": "ASSURED",
+        },
+    )
+    plans.save_plan_run(
+        r,
+        CFG,
+        {
+            "id": "drill-1",
+            "plan_id": plan["id"],
+            "plan_name": plan["name"],
+            "status": "COMPLETED",
+            "drill": True,
+            "teardown_status": "completed",
+            "started_at": "2026-08-07T11:00:00+00:00",
+            "finished_at": "2026-08-07T11:05:00+00:00",
+            "job_ids_by_group": [],
+            "group_ids": [group["id"]],
+        },
+    )
+    plans.save_plan_run(
+        r,
+        CFG,
+        {
+            "id": "prod-1",
+            "plan_id": plan["id"],
+            "plan_name": plan["name"],
+            "status": "COMPLETED",
+            "drill": False,
+            "started_at": "2026-08-07T12:00:00+00:00",
+            "finished_at": "2026-08-07T12:20:00+00:00",
+            "job_ids_by_group": [],
+            "group_ids": [group["id"]],
+        },
+    )
+    dash = reports.compliance_dashboard(
+        r,
+        CFG,
+        list_plans_fn=plans.list_plans,
+        list_plan_runs_fn=plans.list_plan_runs,
+    )
+    row = dash["plans"][0]
+    assert row["last_prod_run_rto_sec"] == 1200
+    assert row["last_drill_rto_sec"] == 300
+    assert row["assurance_status"] == "ASSURED"
+    assert dash["counts"]["assurance"]["ASSURED"] == 1
+    assert "assurance_policy_off" not in row["risks"]

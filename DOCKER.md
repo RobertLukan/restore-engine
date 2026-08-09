@@ -60,7 +60,7 @@ Port **8001** avoids colliding with migration-engine on **8000** when both run o
 
 Compose mounts a named volume **`redis-data`** on the bundled Redis service and enables AOF (`--appendonly yes`) so plan inventory, jobs, and reports survive container restarts.
 
-**Run a single worker replica.** Concurrent restore slots are counted in-process (`worker.max_concurrent_restores`). Scaling `worker` to multiple containers does not share that counter — each process can open its own max slots against the same Proxmox/PBS. Prefer one worker service; raise `max_concurrent_restores` inside that process if you need more parallelism.
+**Run one or more workers safely.** Concurrent restore slots are counted in Redis (`restore:concurrency:slots`), so multiple worker replicas share the same `worker.max_concurrent_restores` cap. Prefer a single worker unless you intentionally scale out; the Compose worker healthcheck watches the Redis heartbeat key.
 
 ## Redis already on the server (host) vs Redis in Docker
 
@@ -108,4 +108,7 @@ docker compose up -d
 
 - **PBS and Proxmox VE** need reachability from the **worker** (and usually the **api**) container to those networks.
 - **`config.yaml`** in the repo is **not** copied into the image (`.dockerignore`) to avoid leaking credentials; the image ships **`config.docker.example.yaml`** as `/app/config.docker.yaml`.
-- Product roadmap (enterprise-style plans, readiness, reports): see the long-term plan in Cursor plans / project docs when published.
+- **TLS:** Compose publishes plain HTTP on **8001**. For production, terminate TLS at a reverse proxy; do not rely on lab HTTP.
+- **Secrets:** mount a host `config.docker.yaml` (gitignored). Prefer strong `ui.session_secret`, API tokens, and `worker.require_verified_to_run: true` outside the lab.
+- **Redis:** default Compose Redis has **no password** and is reachable only on the Docker network — do not add a host `ports:` mapping for Redis in production.
+- Product status: plans / readiness / reports / drills / assurance / compliance / notifications are implemented; see README production checklist.

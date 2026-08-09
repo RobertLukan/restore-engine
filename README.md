@@ -9,14 +9,19 @@ Designed to mirror the operator experience of [migration-engine](../migration-en
 - Configure **multiple PBS servers** and Proxmox VE in the UI
 - List VM backups across every server, datastore, and namespace (each row shows its source)
 - Select multiple backups at once (checkboxes + row click)
-- Bulk restore with:
-  - one or more target nodes (**load-balanced**, least-loaded — important for live restore)
-  - target storage
-  - sequential **cluster-wide** VMID allocation
-  - optional live restore
-  - optional per-batch bandwidth limit
+- Bulk restore with load-balanced nodes, per-node storage, VMID allocation, live restore, bandwidth limit
+- **Recovery plans**: groups, locations, ordered runs, readiness check + VERIFIED gate, compliance reports (RTO)
+- **Drills**: powered-off restore, optional auto-teardown, optional schedule (interval hours)
+- **Assurance**: policy on plans (require QGA/HTTP, max RTO); drill outcomes set ASSURED/FAILED; dashboard + Assure now
+- **Compliance**: read-only posture rollup (readiness + assurance + schedule + evidence links)
+- **Audit**: browser for recent operator actions (also `GET /api/audit`)
+- **Power-on + QGA** and optional **HTTP check** after guest agent is up; guest hostname vs PVE name is a warning on mismatch
+- **Network isolation**: unlink NICs or remap to a lab bridge before power-on (gated unless location is isolated)
+- **DR overwrite**: destroy existing VMID then restore (explicit confirm; owned guests only)
+- **Email / webhook notifications** on readiness fail, plan-run terminal, optional ad-hoc job fail
+- Redis-backed **concurrency slots**, job **TTL**, **audit log**, optional **API tokens** (operator/viewer)
 - Track per-job progress and logs via Redis + worker
-- **Recovery plans** (enterprise-style): saved inventory groups, recovery locations (multi-node), ordered plan run with point-in-time
+- Ownership stamp after restore (required for reclaim/teardown); stamp failure fails the job
 
 ## Multiple PBS servers, datastores, and namespaces
 
@@ -124,10 +129,53 @@ Note: Proxmox-side throttles (a `bwlimit` in `datacenter.cfg` or on the storage,
 
 ## Workflow
 
-1. **Settings** — save and verify PBS + Proxmox connections.
-2. **Groups / Locations / Plans** — define inventory groups (tags and/or VMIDs), a recovery location, and a plan that orders groups onto that location; **Run** with an optional point-in-time.
-3. **Backups** — refresh list, select one or more VM backups, click **Restore selected** (ad-hoc).
-4. **Restores** — watch job state and progress; stop queued jobs if needed.
+1. **Settings** — save and verify PBS + Proxmox connections; optional SMTP/webhook notifications and API tokens in config.
+2. **Groups / Locations / Plans** — define inventory groups, a recovery location (including network isolation / HTTP check), and a plan; optional schedule for automatic drills.
+3. **Check** a plan (readiness), then **Run** or **Drill** with point-in-time; download reports from the Plans tab.
+4. **Assurance** — set policy, **Assure now**, watch ASSURED/FAILED (does not perform production failback).
+5. **Compliance** — read-only posture across plans (readiness, assurance, schedule, report links).
+6. **Backups** — refresh list, select backups, **Restore selected** (ad-hoc) with isolation / overwrite options.
+7. **Restores** — watch job state and progress; stop queued jobs if needed.
+8. **Audit** — browse recent operator actions when investigating who changed what.
+
+## Production checklist
+
+Lab defaults favor convenience. For anything beyond a closed lab:
+
+1. **TLS** — put a reverse proxy (Caddy/nginx) in front of `:8001` with HTTPS and secure cookies; do not expose plain HTTP on a shared network.
+2. **`ui.password` / `ui.session_secret`** — strong unique values; never leave example secrets.
+3. **`worker.require_verified_to_run: true`** (or `plans.require_verified_to_run`) — block production Runs until readiness is VERIFIED (drills/Assure can still use `allow_unverified` where intended).
+4. **Secrets** — keep `config.docker.yaml` out of git; prefer API tokens over passwords; treat SMTP password and PBS/PVE tokens as sensitive.
+5. **Redis** — Compose Redis is unauthenticated on the internal Docker network only; do not publish Redis ports to the host in production.
+6. **Single worker (or documented scale)** — concurrency slots are Redis-backed; still prefer one worker replica unless you understand shared-queue behavior (`DOCKER.md`).
+7. **Isolation** — power-on / QGA / HTTP only with unlink/remap or an isolated location; avoid `allow_non_isolated` on shared L2.
+8. **Notifications** — enable SMTP or webhook so failed readiness/drills are not UI-only.
+
+See also **Safety notes** below and **[DOCKER.md](DOCKER.md)**.
+
+## Safety notes (power-on)
+
+Power-on, live-restore, and QGA require **network isolation** (`unlink` / `remap`), an **isolated** location flag, or an explicit **allow non-isolated** override. On a shared production L2, prefer powered-off drills.
+
+## API tokens
+
+In `config.yaml` / `config.docker.yaml`:
+
+```yaml
+ui:
+  password: "..."
+  session_secret: "..."
+  api_tokens:
+    - name: automation
+      token: "long-random-secret"
+      role: operator   # or viewer (GET only)
+```
+
+Send `Authorization: Bearer <token>` instead of a session cookie. Operator actions are recorded in the Redis audit log (`GET /api/audit` and the **Audit** tab).
+
+## Notifications
+
+Under `notifications:` configure SMTP and/or a webhook URL. Events (opt-in): readiness check failed, plan/drill finished, optional ad-hoc job failed. Send is best-effort and never fails a restore. Settings UI can send a test email.
 
 ## Archive path
 

@@ -35,9 +35,51 @@ def save_yaml(cfg: dict[str, Any]) -> None:
         yaml.safe_dump(cfg, f, default_flow_style=False, allow_unicode=True, sort_keys=False, width=120)
 
 
+def _match_api_token(cfg: dict[str, Any], raw_token: str) -> dict[str, str] | None:
+    token = (raw_token or "").strip()
+    if not token:
+        return None
+    entries = (cfg.get("ui") or {}).get("api_tokens") or []
+    if not isinstance(entries, list):
+        return None
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        expected = str(entry.get("token") or "").strip()
+        if not expected:
+            continue
+        if not secrets.compare_digest(token.encode("utf-8"), expected.encode("utf-8")):
+            continue
+        role = str(entry.get("role") or "operator").strip().lower()
+        if role not in {"operator", "viewer"}:
+            role = "operator"
+        name = str(entry.get("name") or "api").strip() or "api"
+        return {"name": name, "role": role}
+    return None
+
+
 def require_ui_session(request: Request) -> None:
-    if not request.session.get("ui_authenticated"):
-        raise HTTPException(status_code=401, detail="Not authenticated")
+    """Accept a UI session cookie or ``Authorization: Bearer <api-token>``.
+
+    Viewer tokens may only use safe HTTP methods (GET/HEAD/OPTIONS).
+    """
+    if request.session.get("ui_authenticated"):
+        request.state.auth_actor = "ui-session"
+        request.state.auth_role = "operator"
+        return
+
+    auth = (request.headers.get("authorization") or "").strip()
+    if auth.lower().startswith("bearer "):
+        cfg = load_yaml()
+        matched = _match_api_token(cfg, auth[7:].strip())
+        if matched:
+            request.state.auth_actor = f"token:{matched['name']}"
+            request.state.auth_role = matched["role"]
+            if matched["role"] == "viewer" and request.method.upper() not in {"GET", "HEAD", "OPTIONS"}:
+                raise HTTPException(status_code=403, detail="Viewer API token is read-only")
+            return
+
+    raise HTTPException(status_code=401, detail="Not authenticated")
 
 
 def _mount_view(m: dict[str, Any]) -> dict[str, Any]:
@@ -162,10 +204,43 @@ class WorkerPartial(BaseModel):
     task_poll_interval_sec: int | None = None
 
 
+class EmailNotifyPartial(BaseModel):
+    enabled: bool | None = None
+    host: str | None = None
+    port: int | None = None
+    tls: bool | None = None
+    ssl: bool | None = None
+    username: str | None = None
+    password: str | None = None
+    from_addr: str | None = Field(default=None, alias="from")
+    to: list[str] | str | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+class WebhookNotifyPartial(BaseModel):
+    enabled: bool | None = None
+    url: str | None = None
+    secret: str | None = None
+
+
+class NotifyEventsPartial(BaseModel):
+    check_failed: bool | None = None
+    plan_run_terminal: bool | None = None
+    job_failed: bool | None = None
+
+
+class NotificationsPartial(BaseModel):
+    email: EmailNotifyPartial | None = None
+    webhook: WebhookNotifyPartial | None = None
+    events: NotifyEventsPartial | None = None
+
+
 class CredentialsPut(BaseModel):
     pbs_servers: list[PBSServerModel] | None = None
     proxmox: ProxmoxPartial | None = None
     worker: WorkerPartial | None = None
+    notifications: NotificationsPartial | None = None
 
 
 class ProxmoxTestOverrides(BaseModel):
@@ -229,6 +304,40 @@ def auth_logout(request: Request) -> dict[str, str]:
     return {"ok": "true"}
 
 
+def view_notifications(n: dict[str, Any]) -> dict[str, Any]:
+    email = n.get("email") or {}
+    webhook = n.get("webhook") or {}
+    events = n.get("events") or {}
+    pwd = bool((email.get("password") or "").strip())
+    return {
+        "email": {
+            "enabled": bool(email.get("enabled", False)),
+            "host": str(email.get("host") or ""),
+            "port": int(email.get("port") or 587),
+            "tls": bool(email.get("tls", True)),
+            "ssl": bool(email.get("ssl", False)),
+            "username": str(email.get("username") or ""),
+            "password_set": pwd,
+            "password": MASK if pwd else "",
+            "from": str(email.get("from") or ""),
+            "to": list(email.get("to") or [])
+            if isinstance(email.get("to"), list)
+            else [x.strip() for x in str(email.get("to") or "").split(",") if x.strip()],
+        },
+        "webhook": {
+            "enabled": bool(webhook.get("enabled", False)),
+            "url": str(webhook.get("url") or ""),
+            "secret_set": bool((webhook.get("secret") or "").strip()),
+            "secret": MASK if (webhook.get("secret") or "").strip() else "",
+        },
+        "events": {
+            "check_failed": bool(events.get("check_failed", True)),
+            "plan_run_terminal": bool(events.get("plan_run_terminal", True)),
+            "job_failed": bool(events.get("job_failed", False)),
+        },
+    }
+
+
 @router.get("/api/ui/credentials", dependencies=[Depends(require_ui_session)])
 def get_credentials() -> dict[str, Any]:
     cfg = load_yaml()
@@ -236,6 +345,7 @@ def get_credentials() -> dict[str, Any]:
         "pbs_servers": pbs_servers_view(cfg),
         "proxmox": mask_proxmox(cfg.get("proxmox") or {}),
         "worker": view_worker(cfg.get("worker") or {}),
+        "notifications": view_notifications(cfg.get("notifications") or {}),
     }
 
 
@@ -307,6 +417,40 @@ def put_credentials(body: CredentialsPut) -> dict[str, str]:
         _merge_partial(wk, body.worker, set())
         if "max_concurrent_restores" in wk:
             wk["max_concurrent_restores"] = max(1, int(wk["max_concurrent_restores"]))
+    if body.notifications:
+        ncfg = cfg.setdefault("notifications", {})
+        if body.notifications.email:
+            em = ncfg.setdefault("email", {})
+            data = body.notifications.email.model_dump(exclude_unset=True, by_alias=True)
+            for key, value in data.items():
+                if key == "password":
+                    text = value.strip() if isinstance(value, str) else value
+                    if text in ("", MASK):
+                        continue
+                    em["password"] = value
+                    continue
+                if key == "to" and isinstance(value, str):
+                    em["to"] = [x.strip() for x in value.replace(";", ",").split(",") if x.strip()]
+                    continue
+                if value is None:
+                    continue
+                em[key] = value
+        if body.notifications.webhook:
+            wh = ncfg.setdefault("webhook", {})
+            for key, value in body.notifications.webhook.model_dump(exclude_unset=True).items():
+                if key == "secret":
+                    text = value.strip() if isinstance(value, str) else value
+                    if text in ("", MASK):
+                        continue
+                if value is None:
+                    continue
+                wh[key] = value
+        if body.notifications.events:
+            ev = ncfg.setdefault("events", {})
+            for key, value in body.notifications.events.model_dump(exclude_unset=True).items():
+                if value is None:
+                    continue
+                ev[key] = value
     save_yaml(cfg)
     return {"ok": "true"}
 
@@ -323,6 +467,34 @@ def patch_worker(body: WorkerPartial) -> dict[str, Any]:
         wk["task_poll_interval_sec"] = max(1, int(wk["task_poll_interval_sec"]))
     save_yaml(cfg)
     return {"ok": True, "worker": view_worker(wk)}
+
+
+class TestEmailBody(BaseModel):
+    to: str | None = None
+
+
+@router.post("/api/ui/test/email", dependencies=[Depends(require_ui_session)])
+def test_email(body: TestEmailBody | None = None) -> dict[str, Any]:
+    """Send a test email using saved (or form-overridden) SMTP settings."""
+    import notifications as notifications_module
+
+    cfg = load_yaml()
+    to_list = None
+    if body and (body.to or "").strip():
+        to_list = [x.strip() for x in body.to.replace(";", ",").split(",") if x.strip()]
+    # Temporarily treat as enabled for the probe.
+    ncfg = cfg.setdefault("notifications", {})
+    em = ncfg.setdefault("email", {})
+    em["enabled"] = True
+    ok, detail = notifications_module.send_email(
+        cfg,
+        subject="[restore-engine] Test email",
+        body="This is a test message from restore-engine.\n",
+        to=to_list,
+    )
+    if not ok:
+        raise HTTPException(status_code=400, detail=detail)
+    return {"ok": True, "detail": detail}
 
 
 @router.post("/api/ui/test/pbs", dependencies=[Depends(require_ui_session)])

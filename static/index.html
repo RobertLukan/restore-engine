@@ -45,7 +45,7 @@
     }
     .card h2 { margin: 0 0 1rem; font-size: 1rem; font-weight: 600; }
     label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.25rem; }
-    input, select {
+    input, select, textarea {
       width: 100%;
       padding: 0.5rem 0.65rem;
       border-radius: 6px;
@@ -134,6 +134,17 @@
     label.check { display: flex; align-items: center; gap: 0.5rem; margin: 0.5rem 0; font-size: 0.9rem; }
     #login-panel { max-width: 22rem; margin: 4rem auto; }
     .hint { font-size: 0.8rem; color: var(--muted); margin-top: -0.35rem; margin-bottom: 0.75rem; }
+    textarea.diag-bundle {
+      width: 100%;
+      min-height: 14rem;
+      max-height: 28rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.72rem;
+      line-height: 1.35;
+      resize: vertical;
+      white-space: pre;
+      overflow: auto;
+    }
     .inline { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
     nav.actions button.nav.active { outline: 2px solid var(--accent); outline-offset: 2px; }
     table.vm-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
@@ -202,6 +213,7 @@
       margin: 0;
     }
     .job-log-line-err { color: var(--danger); }
+    .job-log-line-warn { color: var(--warn, #b45309); }
     .job-log-meta { color: var(--muted); }
     .actions-cell { white-space: nowrap; }
     .actions-cell button { margin-right: 0.25rem; }
@@ -261,6 +273,21 @@
       margin-bottom: 0.5rem;
     }
     .subcard .subcard-head strong { font-size: 0.9rem; }
+    .risk-chip {
+      display: inline-block;
+      font-size: 0.7rem;
+      padding: 0.1rem 0.4rem;
+      margin: 0.1rem 0.2rem 0.1rem 0;
+      border-radius: 4px;
+      background: rgba(180, 83, 9, 0.25);
+      color: #e6c07b;
+      border: 1px solid rgba(180, 83, 9, 0.4);
+    }
+    .risk-chip.ok {
+      background: rgba(61, 138, 94, 0.2);
+      color: var(--ok);
+      border-color: rgba(61, 138, 94, 0.35);
+    }
     .mount-row {
       display: grid;
       grid-template-columns: 1fr 1fr 1fr auto;
@@ -307,9 +334,12 @@
       <nav class="actions">
         <button type="button" class="secondary nav active" id="nav-backups">Backups</button>
         <button type="button" class="secondary nav" id="nav-plans">Plans</button>
+        <button type="button" class="secondary nav" id="nav-assurance">Assurance</button>
+        <button type="button" class="secondary nav" id="nav-compliance">Compliance</button>
         <button type="button" class="secondary nav" id="nav-groups">Groups</button>
         <button type="button" class="secondary nav" id="nav-locations">Locations</button>
         <button type="button" class="secondary nav" id="nav-jobs">Restores</button>
+        <button type="button" class="secondary nav" id="nav-audit">Audit</button>
         <button type="button" class="secondary nav" id="nav-credentials">Settings</button>
         <button type="button" class="secondary" id="btn-logout">Sign out</button>
       </nav>
@@ -471,14 +501,37 @@
             </div>
           </div>
           <p class="hint" id="loc-mode-dr-hint" hidden style="display:none;">
-            DR locations keep VMID/MAC/UUID from each backup and fail if that VMID already exists on the cluster.
+            DR locations keep VMID/MAC/UUID from each backup. Overwrite only reclaims guests
+            previously restored by this tool — foreign VMs/LXCs are never deleted.
+          </p>
+          <div class="row">
+            <div>
+              <label for="loc-network-mode">Network isolation</label>
+              <select id="loc-network-mode">
+                <option value="none">None (do not power on on shared L2)</option>
+                <option value="unlink">Unlink NICs (link_down)</option>
+                <option value="remap">Remap to lab bridge</option>
+              </select>
+            </div>
+            <div>
+              <label for="loc-lab-bridge">Lab bridge (for remap)</label>
+              <input id="loc-lab-bridge" placeholder="vmbr99" />
+            </div>
+          </div>
+          <label class="check"><input type="checkbox" id="loc-isolated" /> Mark location isolated (safe to power on without NIC rewrite)</label>
+          <label for="loc-http-check">HTTP check URL after QGA (optional)</label>
+          <input id="loc-http-check" placeholder="http://10.0.0.5/health" />
+          <p class="hint" style="margin:1rem 0 0.35rem;"><strong>Default guest behavior</strong></p>
+          <p class="hint" style="margin-top:0;">
+            Applied automatically on plan runs unless the Run dialog overrides them.
+            Live restore is location-only (drills that stay powered-off skip live restore).
           </p>
           <div class="inline" style="align-items:flex-end; padding-bottom:0.75rem;">
             <input type="checkbox" id="loc-live" />
-            <label for="loc-live" style="margin:0">Live restore</label>
+            <label for="loc-live" style="margin:0">Live restore (default)</label>
           </div>
-          <label class="check"><input type="checkbox" id="loc-power-on" /> Power on after restore</label>
-          <label class="check"><input type="checkbox" id="loc-qga" /> Wait for QEMU guest agent (uses timeout below)</label>
+          <label class="check"><input type="checkbox" id="loc-power-on" /> Power on after restore (default)</label>
+          <label class="check"><input type="checkbox" id="loc-qga" /> Wait for QEMU guest agent (default; uses timeout below)</label>
           <label for="loc-qga-sec">QGA timeout (seconds, 0 = off)</label>
           <input id="loc-qga-sec" type="number" min="0" max="3600" step="10" value="0" />
           <input type="hidden" id="loc-edit-id" value="" />
@@ -488,21 +541,19 @@
           </div>
           <div id="locations-status" class="hint" style="margin-top:0.75rem;"></div>
           <table class="vm-table" id="locations-table" style="margin-top:1rem;">
-            <thead><tr><th>Name</th><th>Nodes</th><th>Storage</th><th>Mode</th><th>VMID start</th><th></th></tr></thead>
+            <thead><tr><th>Name</th><th>Nodes</th><th>Storage</th><th>Mode</th><th>Net</th><th>VMID start</th><th></th></tr></thead>
             <tbody id="locations-tbody"></tbody>
           </table>
         </div>
       </div>
 
       <div id="view-plans" class="hidden">
-        <div class="card" id="compliance-strip-card">
-          <h2>Compliance</h2>
-          <p class="hint">Last readiness check and wall-clock RTO from the most recent finished plan run.</p>
-          <div id="compliance-strip" class="hint">Loading…</div>
-        </div>
         <div class="card">
           <h2>Recovery plans</h2>
-          <p class="hint">Ordered inventory groups restored to a location. Groups run sequentially; VMs within a group use worker concurrency.</p>
+          <p class="hint">
+            Ordered inventory groups restored to a location for <strong>recovery or DR</strong>.
+            Recoverability proof lives on the <strong>Assurance</strong> tab.
+          </p>
           <div class="row">
             <div><label>Name</label><input id="plan-name" placeholder="App stack restore" /></div>
             <div><label>Location</label><select id="plan-location"></select></div>
@@ -515,6 +566,15 @@
             <input type="checkbox" id="plan-enabled" checked style="margin-left:1rem;" />
             <label for="plan-enabled" style="margin:0">Enabled</label>
           </div>
+          <div class="inline" style="margin-top:0.5rem;">
+            <input type="checkbox" id="plan-schedule" />
+            <label for="plan-schedule" style="margin:0">Schedule automatic runs</label>
+            <input type="checkbox" id="plan-schedule-drill" checked style="margin-left:1rem;" />
+            <label for="plan-schedule-drill" style="margin:0">Scheduled as drill + teardown</label>
+          </div>
+          <label for="plan-schedule-hours">Schedule interval (hours, 0 = off)</label>
+          <input id="plan-schedule-hours" type="number" min="0" step="1" value="0" />
+          <p class="hint">Scheduled drills feed Assurance when a policy is enabled on the Assurance tab.</p>
           <input type="hidden" id="plan-edit-id" value="" />
           <div class="actions">
             <button type="button" class="primary" id="btn-save-plan">Save plan</button>
@@ -522,7 +582,7 @@
           </div>
           <div id="plans-status" class="hint" style="margin-top:0.75rem;"></div>
           <table class="vm-table" id="plans-table" style="margin-top:1rem;">
-            <thead><tr><th>Name</th><th>Groups</th><th>Location</th><th>State</th><th></th></tr></thead>
+            <thead><tr><th>Name</th><th>Groups</th><th>Location</th><th>State</th><th>Assurance</th><th></th></tr></thead>
             <tbody id="plans-tbody"></tbody>
           </table>
         </div>
@@ -548,6 +608,107 @@
             <thead><tr><th>When</th><th>Kind</th><th>Plan</th><th>Title</th><th></th></tr></thead>
             <tbody id="reports-tbody"></tbody>
           </table>
+        </div>
+      </div>
+
+      <div id="view-assurance" class="hidden">
+        <div class="card">
+          <h2>Restoration assurance</h2>
+          <p class="hint">
+            This tab <strong>proves recoverability</strong> with drills (restore → optional boot/checks → teardown).
+            It does <strong>not</strong> perform production DR failback — use <strong>Plans → Run</strong> for that.
+          </p>
+          <div id="assurance-counts" class="hint" style="margin-bottom:0.5rem;"></div>
+          <div class="actions" style="margin-bottom:0.75rem;">
+            <button type="button" class="secondary" id="btn-refresh-assurance">Refresh</button>
+          </div>
+          <div id="assurance-strip" class="hint">Loading…</div>
+        </div>
+        <div class="card">
+          <h2>Assurance policy</h2>
+          <p class="hint">Choose a recovery plan and set what a successful assurance drill must prove.</p>
+          <label for="assurance-plan-select">Plan</label>
+          <select id="assurance-plan-select"></select>
+          <div class="inline" style="margin-top:0.75rem;">
+            <input type="checkbox" id="assurance-enabled" />
+            <label for="assurance-enabled" style="margin:0">Enable assurance for this plan</label>
+          </div>
+          <div class="inline" style="margin-top:0.5rem;">
+            <input type="checkbox" id="assurance-require-qga" />
+            <label for="assurance-require-qga" style="margin:0">Require QGA</label>
+            <input type="checkbox" id="assurance-require-http" style="margin-left:1rem;" />
+            <label for="assurance-require-http" style="margin:0">Require HTTP check</label>
+          </div>
+          <label for="assurance-max-rto">Max RTO (seconds, 0 = no limit)</label>
+          <input id="assurance-max-rto" type="number" min="0" step="60" value="0" />
+          <p class="hint">HTTP checks use the location’s HTTP check URL. Isolation/remap is configured on Locations.</p>
+          <p class="hint" id="assurance-readiness-hint" style="margin-top:0.25rem;"></p>
+          <div class="actions">
+            <button type="button" class="primary" id="btn-save-assurance-policy">Save policy</button>
+            <button type="button" class="secondary" id="btn-assurance-check">Check readiness</button>
+            <button type="button" class="secondary" id="btn-assurance-run-now">Assure now</button>
+          </div>
+          <div id="assurance-policy-status" class="hint" style="margin-top:0.75rem;"></div>
+        </div>
+        <div class="card">
+          <h2>Recent assurance drills</h2>
+          <p class="hint">Drill plan runs only (recovery runs stay on the Plans tab).</p>
+          <div class="actions" style="margin-bottom:0.75rem;">
+            <button type="button" class="secondary" id="btn-refresh-assurance-runs">Refresh</button>
+          </div>
+          <table class="vm-table" id="assurance-runs-table">
+            <thead><tr><th>Plan</th><th>Status</th><th>RTO</th><th>Teardown</th><th>Started</th><th>Finished</th><th></th></tr></thead>
+            <tbody id="assurance-runs-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="view-compliance" class="hidden">
+        <div class="card">
+          <h2>Compliance posture</h2>
+          <p class="hint">
+            Read-only rollup of readiness and assurance evidence across plans.
+            Run drills on <strong>Assurance</strong>; production failback on <strong>Plans → Run</strong>.
+          </p>
+          <div id="compliance-counts" class="hint" style="margin-bottom:0.5rem;"></div>
+          <div class="actions" style="margin-bottom:0.75rem;">
+            <button type="button" class="secondary" id="btn-refresh-compliance">Refresh</button>
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="vm-table" id="compliance-table">
+              <thead>
+                <tr>
+                  <th>Plan</th>
+                  <th>Readiness</th>
+                  <th>Assurance</th>
+                  <th>Last DR RTO</th>
+                  <th>Last drill RTO</th>
+                  <th>Schedule</th>
+                  <th>Risks</th>
+                  <th>Evidence</th>
+                </tr>
+              </thead>
+              <tbody id="compliance-tbody"></tbody>
+            </table>
+          </div>
+          <p class="empty-state hidden" id="compliance-empty">No plans yet.</p>
+        </div>
+      </div>
+
+      <div id="view-audit" class="hidden">
+        <div class="card">
+          <h2>Audit log</h2>
+          <p class="hint">Recent operator actions (API tokens and UI). Read-only; retained in Redis.</p>
+          <div class="actions" style="margin-bottom:0.75rem;">
+            <button type="button" class="secondary" id="btn-refresh-audit">Refresh</button>
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="vm-table" id="audit-table">
+              <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Detail</th></tr></thead>
+              <tbody id="audit-tbody"></tbody>
+            </table>
+          </div>
+          <p class="empty-state hidden" id="audit-empty">No audit entries.</p>
         </div>
       </div>
 
@@ -601,11 +762,68 @@
             <label for="pve-live-restore-default" style="margin:0">Live restore by default</label>
           </div>
 
+          <h3 style="font-size:0.95rem; margin:1rem 0 0.5rem;">Email notifications</h3>
+          <p class="hint">SMTP alerts for failed readiness checks and finished plan/drill runs. Send is best-effort and never fails a restore.</p>
+          <div class="inline">
+            <input type="checkbox" id="notify-email-enabled" />
+            <label for="notify-email-enabled" style="margin:0">Enable email</label>
+          </div>
+          <div class="row">
+            <div><label>SMTP host</label><input id="notify-smtp-host" placeholder="smtp.example.com" /></div>
+            <div><label>Port</label><input id="notify-smtp-port" type="number" value="587" /></div>
+          </div>
+          <div class="inline">
+            <input type="checkbox" id="notify-smtp-tls" checked />
+            <label for="notify-smtp-tls" style="margin:0">STARTTLS</label>
+            <input type="checkbox" id="notify-smtp-ssl" style="margin-left:1rem;" />
+            <label for="notify-smtp-ssl" style="margin:0">SSL (e.g. port 465)</label>
+          </div>
+          <div class="row">
+            <div><label>Username</label><input id="notify-smtp-user" /></div>
+            <div><label>Password</label><input id="notify-smtp-password" type="password" /></div>
+          </div>
+          <label>From</label><input id="notify-smtp-from" placeholder="restore-engine@example.com" />
+          <label>To (comma-separated)</label><input id="notify-smtp-to" placeholder="ops@example.com" />
+          <div class="inline" style="margin-top:0.5rem;">
+            <input type="checkbox" id="notify-ev-check" checked />
+            <label for="notify-ev-check" style="margin:0">On readiness fail</label>
+            <input type="checkbox" id="notify-ev-run" checked style="margin-left:1rem;" />
+            <label for="notify-ev-run" style="margin:0">On plan/drill finish</label>
+            <input type="checkbox" id="notify-ev-job" style="margin-left:1rem;" />
+            <label for="notify-ev-job" style="margin:0">On ad-hoc job fail</label>
+          </div>
+          <h3 style="font-size:0.95rem; margin:1rem 0 0.5rem;">Webhook (optional)</h3>
+          <div class="inline">
+            <input type="checkbox" id="notify-webhook-enabled" />
+            <label for="notify-webhook-enabled" style="margin:0">Enable webhook</label>
+          </div>
+          <label>URL</label><input id="notify-webhook-url" placeholder="https://hooks.example.com/..." />
+          <label>Shared secret (optional header)</label><input id="notify-webhook-secret" type="password" />
+
           <div class="actions">
             <button type="button" class="secondary" id="btn-test-pve">Test Proxmox</button>
+            <button type="button" class="secondary" id="btn-test-email">Test email</button>
             <button type="button" class="primary" id="btn-save-credentials">Save settings</button>
             <button type="button" class="primary" id="btn-continue-backups">Continue to backup list</button>
           </div>
+        </div>
+        <div class="card" id="diagnostics-card">
+          <h2>Diagnostics / debug traces</h2>
+          <p class="hint">
+            Export a debug bundle for troubleshooting. Secrets stay masked. Includes health, queue,
+            recent jobs + logs, plan runs, audit, and recent browser/API errors from this session.
+          </p>
+          <label for="diag-note">What were you doing? (optional)</label>
+          <input id="diag-note" placeholder="e.g. Assure now on plan X failed after QGA wait" />
+          <div class="actions" style="margin-bottom:0.75rem;">
+            <button type="button" class="primary" id="btn-diag-collect">Collect &amp; download</button>
+            <button type="button" class="secondary" id="btn-diag-copy" disabled>Try copy</button>
+            <button type="button" class="secondary" id="btn-diag-download" disabled>Download again</button>
+            <button type="button" class="secondary" id="btn-diag-select" disabled>Select all</button>
+          </div>
+          <div id="diag-status" class="hint">No bundle yet. Use Collect &amp; download to save a JSON trace file.</div>
+          <label for="diag-bundle">Debug bundle (JSON)</label>
+          <textarea id="diag-bundle" class="diag-bundle" readonly spellcheck="false" placeholder="Click Collect & download…"></textarea>
         </div>
       </div>
     </main>
@@ -631,9 +849,16 @@
       </p>
       <p class="banner info" id="restore-mode-dr-warn" hidden style="display:none;">
         DR restore keeps <strong>VMID, MAC, and UUID</strong> from the backup.
-        It will <strong>fail if that VMID already exists</strong> on the Proxmox cluster (no overwrite).
-        Live restore can still be enabled with DR.
+        If that VMID already exists, overwrite only works for guests previously restored by
+        this tool (tagged <code>restore-engine</code>). Foreign VMs and LXCs are never deleted —
+        remove them manually in Proxmox first.
       </p>
+      <label class="check" id="restore-overwrite-wrap" hidden style="display:none;">
+        <input type="checkbox" id="restore-overwrite" /> Reclaim restore-engine-managed VMID
+      </label>
+      <label class="check" id="restore-confirm-overwrite-wrap" hidden style="display:none;">
+        <input type="checkbox" id="restore-confirm-overwrite" /> Confirm reclaim (required)
+      </label>
       <div id="restore-vmid-start-wrap">
         <label for="restore-vmid-start">First Proxmox VM ID</label>
         <input id="restore-vmid-start" type="number" min="100" step="1" />
@@ -650,6 +875,22 @@
       <label for="restore-bwlimit">Bandwidth limit (KiB/s, 0 = unlimited)</label>
       <input id="restore-bwlimit" type="number" min="0" step="1024" />
       <p class="hint">Caps read/write throughput for each restore in this batch. Leave 0 to use Proxmox defaults.</p>
+      <div class="row">
+        <div>
+          <label for="restore-network-mode">Network isolation</label>
+          <select id="restore-network-mode">
+            <option value="none">None</option>
+            <option value="unlink">Unlink NICs</option>
+            <option value="remap">Remap to lab bridge</option>
+          </select>
+        </div>
+        <div>
+          <label for="restore-lab-bridge">Lab bridge</label>
+          <input id="restore-lab-bridge" placeholder="vmbr99" />
+        </div>
+      </div>
+      <label for="restore-http-check">HTTP check URL after QGA (optional)</label>
+      <input id="restore-http-check" placeholder="" />
       <div class="inline">
         <input type="checkbox" id="restore-live" />
         <label for="restore-live" style="margin:0">Live restore (boot early, stream data in background)</label>
@@ -660,10 +901,10 @@
         <label for="restore-qga-sec">QGA timeout (seconds)</label>
         <input id="restore-qga-sec" type="number" min="10" max="3600" step="10" value="120" />
       </div>
+      <label class="check"><input type="checkbox" id="restore-allow-non-isolated" /> Allow boot without isolation (dangerous on shared L2)</label>
       <p class="hint">
-        Power-on / QGA are for isolated targets (or remapped NICs). On shared prod L2 leave them off.
-        Backups with PCI passthrough (<code>hostpci*</code>) need a <strong>root</strong> Proxmox user/token
-        (non-root API users get “only root can set hostpci…”).
+        Power-on / live / QGA require unlink, remap, or the allow checkbox.
+        Backups with PCI passthrough (<code>hostpci*</code>) need a <strong>root</strong> Proxmox user/token.
       </p>
       <div class="actions">
         <button type="button" class="primary" id="btn-restore-confirm">Enqueue restore</button>
@@ -696,9 +937,15 @@
         Normal assigns new free VMIDs and regenerates MAC / SMBIOS UUID.
       </p>
       <p class="banner info" id="taggroup-mode-dr-warn" hidden style="display:none;">
-        DR restore keeps <strong>VMID, MAC, and UUID</strong> from the backup and
-        <strong>fails if that VMID already exists</strong> on the cluster. Live restore can still be enabled.
+        DR restore keeps <strong>VMID, MAC, and UUID</strong> from the backup.
+        Enable reclaim only for guests previously restored by this tool. Foreign VMs/LXCs are never deleted.
       </p>
+      <label class="check" id="taggroup-overwrite-wrap" hidden style="display:none;">
+        <input type="checkbox" id="taggroup-overwrite" /> Reclaim restore-engine-managed VMID
+      </label>
+      <label class="check" id="taggroup-confirm-overwrite-wrap" hidden style="display:none;">
+        <input type="checkbox" id="taggroup-confirm-overwrite" /> Confirm reclaim
+      </label>
       <div id="taggroup-vmid-start-wrap">
         <label for="taggroup-vmid-start">First Proxmox VM ID</label>
         <input id="taggroup-vmid-start" type="number" min="100" step="1" />
@@ -712,6 +959,22 @@
       </div>
       <label for="taggroup-bwlimit">Bandwidth limit (KiB/s, 0 = unlimited)</label>
       <input id="taggroup-bwlimit" type="number" min="0" step="1024" />
+      <div class="row">
+        <div>
+          <label for="taggroup-network-mode">Network isolation</label>
+          <select id="taggroup-network-mode">
+            <option value="none">None</option>
+            <option value="unlink">Unlink NICs</option>
+            <option value="remap">Remap to lab bridge</option>
+          </select>
+        </div>
+        <div>
+          <label for="taggroup-lab-bridge">Lab bridge</label>
+          <input id="taggroup-lab-bridge" placeholder="vmbr99" />
+        </div>
+      </div>
+      <label for="taggroup-http-check">HTTP check URL after QGA (optional)</label>
+      <input id="taggroup-http-check" />
       <div class="inline">
         <input type="checkbox" id="taggroup-live" />
         <label for="taggroup-live" style="margin:0">Live restore</label>
@@ -722,6 +985,7 @@
         <label for="taggroup-qga-sec">QGA timeout (seconds)</label>
         <input id="taggroup-qga-sec" type="number" min="10" max="3600" step="10" value="120" />
       </div>
+      <label class="check"><input type="checkbox" id="taggroup-allow-non-isolated" /> Allow boot without isolation</label>
       <p class="hint">
         Backups with PCI passthrough (<code>hostpci*</code>) need a <strong>root</strong> Proxmox user/token.
       </p>
@@ -748,19 +1012,55 @@
       <input id="planrun-cutoff" type="datetime-local" />
       <label for="planrun-location">Location override (optional)</label>
       <select id="planrun-location"><option value="">Use plan default</option></select>
-      <label class="check"><input type="checkbox" id="planrun-drill" /> Drill mode (powered-off restore; safe on shared cluster)</label>
-      <label class="check" id="planrun-teardown-wrap"><input type="checkbox" id="planrun-auto-teardown" /> Auto-teardown VMs when drill finishes</label>
-      <label class="check"><input type="checkbox" id="planrun-power-on" /> Power on after restore (isolated location)</label>
-      <label class="check"><input type="checkbox" id="planrun-qga" /> Wait for QEMU guest agent</label>
+
+      <div id="planrun-dr-block" hidden style="display:none; margin:0.75rem 0; padding:0.75rem 0; border-top:1px solid var(--border); border-bottom:1px solid var(--border);">
+        <p class="hint" style="margin-top:0;"><strong>DR location</strong> — keeps source VMIDs, MACs, and UUIDs from each backup.</p>
+        <label class="check" id="planrun-confirm-dr-wrap">
+          <input type="checkbox" id="planrun-confirm-dr" /> I confirm DR restore (source VMIDs)
+        </label>
+        <label class="check" id="planrun-overwrite-wrap">
+          <input type="checkbox" id="planrun-overwrite" /> Reclaim restore-engine-managed VMIDs only
+        </label>
+        <label class="check" id="planrun-confirm-overwrite-wrap" hidden style="display:none;">
+          <input type="checkbox" id="planrun-confirm-overwrite" /> Confirm reclaim
+        </label>
+      </div>
+
+      <p class="hint" style="margin:0.75rem 0 0.25rem;"><strong>Run kind</strong></p>
+      <div class="radio-group">
+        <label for="planrun-kind-recovery">
+          <input type="radio" name="planrun-kind" id="planrun-kind-recovery" value="recovery" checked />
+          Recovery run
+        </label>
+        <label for="planrun-kind-drill">
+          <input type="radio" name="planrun-kind" id="planrun-kind-drill" value="drill" />
+          Drill
+        </label>
+      </div>
+      <p class="hint" id="planrun-kind-hint">Leave restored VMs in place for failback or lasting recovery.</p>
+      <p class="hint" id="planrun-assurance-hint" hidden style="display:none;">
+        For scheduled recoverability proof and ASSURED status, use the <strong>Assurance</strong> tab.
+      </p>
+      <div id="planrun-teardown-wrap" hidden style="display:none; margin-left:0.25rem;">
+        <label class="check"><input type="checkbox" id="planrun-auto-teardown" /> Destroy restored VMs when this drill finishes</label>
+      </div>
+      <input type="checkbox" id="planrun-drill" style="display:none;" tabindex="-1" aria-hidden="true" />
+
+      <p class="hint" style="margin:0.75rem 0 0.25rem;"><strong>Guest after restore</strong></p>
+      <p class="hint" id="planrun-loc-defaults" style="margin-top:0;"></p>
+      <p class="hint" id="planrun-boot-hint">
+        Drill defaults to powered-off (safe on shared L2). Power-on is for isolated or NIC-remapped locations.
+      </p>
+      <label class="check"><input type="checkbox" id="planrun-power-on" /> Power on after restore (override)</label>
+      <label class="check"><input type="checkbox" id="planrun-qga" /> Wait for QEMU guest agent (override)</label>
       <div id="planrun-qga-sec-wrap" hidden style="display:none;">
         <label for="planrun-qga-sec">QGA timeout (seconds)</label>
         <input id="planrun-qga-sec" type="number" min="10" max="3600" step="10" value="120" />
       </div>
+      <label class="check"><input type="checkbox" id="planrun-allow-non-isolated" /> Allow boot without isolation</label>
+
       <label class="check" id="planrun-allow-unverified-wrap" hidden style="display:none;">
         <input type="checkbox" id="planrun-allow-unverified" /> Allow unverified plan (gate is on)
-      </label>
-      <label class="check" id="planrun-confirm-dr-wrap" hidden style="display:none;">
-        <input type="checkbox" id="planrun-confirm-dr" /> I confirm DR restore (source VMIDs)
       </label>
       <div class="actions">
         <button type="button" class="primary" id="btn-planrun-confirm">Run plan</button>
@@ -792,6 +1092,7 @@
       <pre class="job-log-box" id="job-detail-log">Loading…</pre>
       <div class="actions">
         <button type="button" class="secondary" id="btn-job-detail-refresh">Refresh log</button>
+        <button type="button" class="secondary" id="btn-job-detail-copy">Copy job trace</button>
         <button type="button" class="secondary" id="btn-job-detail-close">Close</button>
       </div>
     </div>
@@ -803,6 +1104,54 @@
     let backupInventory = [];
     let tagsById = {};
     let tagErrors = {};
+    const CLIENT_TRACE_MAX = 80;
+    const clientTraceEvents = [];
+
+    function pushClientTrace(kind, message, extra) {
+      const entry = {
+        ts: new Date().toISOString(),
+        kind: String(kind || "event"),
+        message: String(message || "").slice(0, 2000),
+      };
+      if (extra && typeof extra === "object") {
+        try {
+          entry.extra = JSON.parse(JSON.stringify(extra));
+        } catch (_e) {
+          entry.extra = { note: "unserializable" };
+        }
+      }
+      clientTraceEvents.push(entry);
+      if (clientTraceEvents.length > CLIENT_TRACE_MAX) clientTraceEvents.shift();
+    }
+
+    window.addEventListener("error", (ev) => {
+      pushClientTrace("window.error", ev.message || "error", {
+        source: ev.filename || "",
+        line: ev.lineno || 0,
+        col: ev.colno || 0,
+      });
+    });
+    window.addEventListener("unhandledrejection", (ev) => {
+      const reason = ev.reason;
+      const msg = reason && reason.message ? reason.message : String(reason || "rejection");
+      pushClientTrace("unhandledrejection", msg);
+    });
+    (function hookConsoleForTraces() {
+      ["error", "warn"].forEach((level) => {
+        const orig = console[level] && console[level].bind(console);
+        if (!orig) return;
+        console[level] = function tracedConsole() {
+          try {
+            const parts = Array.prototype.slice.call(arguments).map((a) => {
+              if (typeof a === "string") return a;
+              try { return JSON.stringify(a); } catch (_e) { return String(a); }
+            });
+            pushClientTrace("console." + level, parts.join(" ").slice(0, 2000));
+          } catch (_e) { /* ignore */ }
+          return orig.apply(console, arguments);
+        };
+      });
+    })();
 
     function escapeHtml(s) {
       return String(s ?? "")
@@ -816,6 +1165,9 @@
       if (!el) return;
       el.className = "banner show " + (kind || "info");
       el.textContent = text || "";
+      if ((kind === "err" || kind === "warn") && text) {
+        pushClientTrace("ui.banner." + kind, String(text).slice(0, 2000));
+      }
     }
 
     let cachedClusterNodes = [];
@@ -994,11 +1346,316 @@
       try { data = text ? JSON.parse(text) : null; } catch (_) { data = { detail: text }; }
       if (!res.ok) {
         const msg = (data && (data.detail || data.message)) || res.statusText;
-        throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+        const errText = typeof msg === "string" ? msg : JSON.stringify(msg);
+        pushClientTrace("api.error", (opts.method || "GET") + " " + path + " → " + res.status, {
+          status: res.status,
+          detail: errText.slice(0, 1000),
+        });
+        throw new Error(errText);
       }
       return data;
     }
 
+    function supportBundleFilename(prefix) {
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      return (prefix || "restore-engine-debug") + "-" + stamp + ".json";
+    }
+
+    async function copyTextToClipboard(text) {
+      const value = String(text || "");
+      if (!value) return { ok: false, method: "empty" };
+
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+        try {
+          await navigator.clipboard.writeText(value);
+          return { ok: true, method: "clipboard" };
+        } catch (_e) {
+          /* common on http:// hosts */
+        }
+      }
+
+      // Prefer the visible diagnostics textarea when it already holds this text.
+      const visible = document.getElementById("diag-bundle");
+      if (visible && visible.value === value) {
+        const wasReadOnly = visible.readOnly;
+        visible.readOnly = false;
+        visible.focus();
+        visible.select();
+        try { visible.setSelectionRange(0, value.length); } catch (_e) { /* ignore */ }
+        let ok = false;
+        try { ok = document.execCommand("copy"); } catch (_e) { ok = false; }
+        visible.readOnly = wasReadOnly;
+        if (ok) return { ok: true, method: "execCommand-visible" };
+      }
+
+      const ta = document.createElement("textarea");
+      ta.value = value;
+      ta.style.cssText = "position:fixed;top:10%;left:10%;width:80%;height:40%;z-index:99999;opacity:0.01;";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      try { ta.setSelectionRange(0, value.length); } catch (_e) { /* ignore */ }
+      let ok = false;
+      try { ok = document.execCommand("copy"); } catch (_e) { ok = false; }
+      document.body.removeChild(ta);
+      if (ok) return { ok: true, method: "execCommand" };
+      return { ok: false, method: "manual" };
+    }
+
+    function downloadTextFile(filename, text) {
+      const blob = new Blob([String(text || "")], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename || supportBundleFilename();
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      return a.download;
+    }
+
+    function presentTraceInDiagnostics(text, statusMsg) {
+      setDiagBundleText(text, statusMsg || "Trace ready.");
+      showView("credentials");
+      const card = document.getElementById("diagnostics-card");
+      if (card && card.scrollIntoView) card.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    async function exportTrace(text, opts) {
+      const options = opts || {};
+      const filename = options.filename || supportBundleFilename(options.prefix || "restore-engine-trace");
+      setDiagBundleText(String(text || ""), options.statusBefore || "Preparing export…");
+      const result = options.tryCopy === false
+        ? { ok: false, method: "skipped" }
+        : await copyTextToClipboard(text);
+      if (result.ok) {
+        document.getElementById("diag-status").textContent =
+          "Copied to clipboard. File also available via Download again.";
+        banner(document.getElementById("global-banner"), "ok", options.successCopy || "Trace copied.");
+        return { ...result, downloaded: false, filename };
+      }
+      const saved = downloadTextFile(filename, text);
+      document.getElementById("diag-status").textContent =
+        "Downloaded " + saved + " (clipboard unavailable on this host).";
+      banner(
+        document.getElementById("global-banner"),
+        "ok",
+        "Downloaded " + saved + "."
+      );
+      return { ok: false, method: "download", downloaded: true, filename: saved };
+    }
+
+    async function copyOrPresentTrace(text, successMsg) {
+      presentTraceInDiagnostics(text, "Exporting job trace…");
+      return exportTrace(text, {
+        prefix: "restore-engine-job-trace",
+        successCopy: successMsg || "Job trace copied.",
+        tryCopy: true,
+      });
+    }
+
+    async function safeFetchJson(path) {
+      try {
+        return { ok: true, data: await api(path) };
+      } catch (e) {
+        return { ok: false, error: e.message || String(e) };
+      }
+    }
+
+    async function safeFetchPublic(path) {
+      try {
+        const res = await fetch(path, { credentials: "same-origin" });
+        const text = await res.text();
+        let data = null;
+        try { data = text ? JSON.parse(text) : null; } catch (_e) { data = { raw: text.slice(0, 2000) }; }
+        if (!res.ok) return { ok: false, error: (data && (data.detail || data.message)) || res.statusText };
+        return { ok: true, data };
+      } catch (e) {
+        return { ok: false, error: e.message || String(e) };
+      }
+    }
+
+    function redactCredentialsForBundle(creds) {
+      if (!creds || typeof creds !== "object") return creds;
+      const out = JSON.parse(JSON.stringify(creds));
+      const pbs = out.pbs_servers || out.pbs || [];
+      if (Array.isArray(pbs)) {
+        for (const s of pbs) {
+          if (s && typeof s === "object") {
+            if ("password" in s) s.password = s.password ? "[set]" : "";
+            if ("token_secret" in s) s.token_secret = s.token_secret ? "[set]" : "";
+            if ("password_set" in s || s.password) s.password_set = !!(s.password_set || s.password);
+            if ("token_secret_set" in s || s.token_secret) s.token_secret_set = !!(s.token_secret_set || s.token_secret);
+            delete s.password;
+            delete s.token_secret;
+          }
+        }
+      }
+      const pve = out.proxmox || out.pve || {};
+      if (pve && typeof pve === "object") {
+        if ("password" in pve) delete pve.password;
+        if ("token_secret" in pve) delete pve.token_secret;
+      }
+      const em = (out.notifications && out.notifications.email) || out.email || {};
+      if (em && typeof em === "object" && "password" in em) delete em.password;
+      const wh = (out.notifications && out.notifications.webhook) || out.webhook || {};
+      if (wh && typeof wh === "object" && "secret" in wh) delete wh.secret;
+      return out;
+    }
+
+    function pickJobIdsForLogs(jobs) {
+      const items = Array.isArray(jobs) ? jobs.slice() : [];
+      const interesting = items.filter((j) => {
+        const st = String(j.state || j.status || "").toUpperCase();
+        return st === "FAILED" || st === "CANCELLED" || st === "RUNNING" || st === "QUEUED" || st === "PENDING" || !!j.error;
+      });
+      const chosen = (interesting.length ? interesting : items).slice(0, 8);
+      return chosen.map((j) => j.job_id || j.id).filter(Boolean);
+    }
+
+    function pickPlanRunIdsForDetail(runs) {
+      const items = Array.isArray(runs) ? runs.slice() : [];
+      const interesting = items.filter((r) => {
+        const st = String(r.status || "").toUpperCase();
+        return st === "FAILED" || st === "CANCELLED" || st === "RUNNING" || !!r.error;
+      });
+      return (interesting.length ? interesting : items).slice(0, 5).map((r) => r.id).filter(Boolean);
+    }
+
+    async function buildSupportBundle() {
+      const collection_errors = [];
+      const note = (document.getElementById("diag-note").value || "").trim();
+      const [version, health, stats, jobsPage, planRuns, audit, creds, assurance] = await Promise.all([
+        safeFetchPublic("/version"),
+        safeFetchPublic("/health"),
+        safeFetchJson("/api/jobs/stats"),
+        safeFetchJson("/api/jobs?limit=25"),
+        safeFetchJson("/api/plan-runs?limit=20"),
+        safeFetchJson("/api/audit?limit=80"),
+        safeFetchJson("/api/ui/credentials"),
+        safeFetchJson("/api/assurance/dashboard"),
+      ]);
+      for (const [name, res] of [
+        ["version", version], ["health", health], ["jobs_stats", stats], ["jobs", jobsPage],
+        ["plan_runs", planRuns], ["audit", audit], ["credentials", creds], ["assurance", assurance],
+      ]) {
+        if (!res.ok) collection_errors.push({ source: name, error: res.error });
+      }
+
+      const jobItems = (jobsPage.ok && jobsPage.data && (jobsPage.data.items || jobsPage.data)) || [];
+      const jobsList = Array.isArray(jobItems) ? jobItems : [];
+      const logs_by_job_id = {};
+      for (const jobId of pickJobIdsForLogs(jobsList)) {
+        const logRes = await safeFetchJson("/api/jobs/" + encodeURIComponent(jobId) + "/log?limit=250");
+        if (logRes.ok) logs_by_job_id[jobId] = logRes.data;
+        else collection_errors.push({ source: "job_log:" + jobId, error: logRes.error });
+      }
+
+      const runItems = (planRuns.ok && planRuns.data) || [];
+      const runsList = Array.isArray(runItems) ? runItems : (runItems.items || []);
+      const plan_run_details = {};
+      for (const runId of pickPlanRunIdsForDetail(runsList)) {
+        const det = await safeFetchJson("/api/plan-runs/" + encodeURIComponent(runId));
+        if (det.ok) plan_run_details[runId] = det.data;
+        else collection_errors.push({ source: "plan_run:" + runId, error: det.error });
+      }
+
+      return {
+        kind: "restore-engine-debug-bundle",
+        generated_at: new Date().toISOString(),
+        note: note || null,
+        client: {
+          href: location.href,
+          user_agent: navigator.userAgent,
+          events: clientTraceEvents.slice(-CLIENT_TRACE_MAX),
+        },
+        version: version.ok ? version.data : null,
+        health: health.ok ? health.data : null,
+        queue_stats: stats.ok ? stats.data : null,
+        credentials_redacted: creds.ok ? redactCredentialsForBundle(creds.data) : null,
+        jobs: {
+          recent: jobsList,
+          logs_by_job_id,
+        },
+        plan_runs: {
+          recent: runsList,
+          details_by_id: plan_run_details,
+        },
+        assurance: assurance.ok ? assurance.data : null,
+        audit: audit.ok ? audit.data : null,
+        collection_errors,
+      };
+    }
+
+    function setDiagBundleText(text, statusMsg) {
+      const ta = document.getElementById("diag-bundle");
+      const status = document.getElementById("diag-status");
+      const copyBtn = document.getElementById("btn-diag-copy");
+      const selBtn = document.getElementById("btn-diag-select");
+      const dlBtn = document.getElementById("btn-diag-download");
+      ta.value = text;
+      status.textContent = statusMsg || "";
+      const has = !!text;
+      copyBtn.disabled = !has;
+      selBtn.disabled = !has;
+      dlBtn.disabled = !has;
+    }
+
+    document.getElementById("btn-diag-collect").onclick = async () => {
+      const btn = document.getElementById("btn-diag-collect");
+      btn.disabled = true;
+      setDiagBundleText("", "Collecting…");
+      try {
+        const bundle = await buildSupportBundle();
+        const text = JSON.stringify(bundle, null, 2);
+        const errN = (bundle.collection_errors || []).length;
+        setDiagBundleText(text, "Bundle ready (" + Math.round(text.length / 1024) + " KiB)" +
+          (errN ? "; " + errN + " source(s) incomplete" : "") + "…");
+        pushClientTrace("diagnostics.collect", "debug bundle collected", {
+          bytes: text.length,
+          errors: errN,
+        });
+        // Prefer download on offline http hosts; still try clipboard first.
+        await exportTrace(text, {
+          prefix: "restore-engine-debug",
+          successCopy: "Debug bundle copied.",
+          tryCopy: true,
+        });
+      } catch (e) {
+        setDiagBundleText("", "Collect failed: " + e.message);
+        banner(document.getElementById("global-banner"), "err", e.message);
+      } finally {
+        btn.disabled = false;
+      }
+    };
+
+    document.getElementById("btn-diag-copy").onclick = async () => {
+      const text = document.getElementById("diag-bundle").value;
+      if (!text) return;
+      await exportTrace(text, {
+        prefix: "restore-engine-debug",
+        successCopy: "Debug bundle copied.",
+        tryCopy: true,
+      });
+    };
+
+    document.getElementById("btn-diag-download").onclick = () => {
+      const text = document.getElementById("diag-bundle").value;
+      if (!text) return;
+      const saved = downloadTextFile(supportBundleFilename("restore-engine-debug"), text);
+      document.getElementById("diag-status").textContent = "Downloaded " + saved + ".";
+      banner(document.getElementById("global-banner"), "ok", "Downloaded " + saved + ".");
+    };
+
+    document.getElementById("btn-diag-select").onclick = () => {
+      const ta = document.getElementById("diag-bundle");
+      ta.readOnly = false;
+      ta.focus();
+      ta.select();
+      try { ta.setSelectionRange(0, ta.value.length); } catch (_e) { /* ignore */ }
+      ta.readOnly = true;
+    };
     function showLogin() {
       document.getElementById("login-screen").classList.remove("hidden");
       document.getElementById("app-screen").classList.add("hidden");
@@ -1012,7 +1669,7 @@
     }
 
     function showView(name) {
-      ["backups", "jobs", "credentials", "groups", "locations", "plans"].forEach((v) => {
+      ["backups", "jobs", "credentials", "groups", "locations", "plans", "assurance", "compliance", "audit"].forEach((v) => {
         const view = document.getElementById("view-" + v);
         const nav = document.getElementById("nav-" + v);
         if (view) view.classList.toggle("hidden", v !== name);
@@ -1020,7 +1677,7 @@
       });
       if (name === "jobs") startJobsPoll();
       else stopJobsPoll();
-      if (name === "plans") startPlanRunsPoll();
+      if (name === "plans" || name === "assurance" || name === "compliance") startPlanRunsPoll();
       else stopPlanRunsPoll();
     }
 
@@ -1085,6 +1742,13 @@
     document.getElementById("nav-groups").onclick = () => { showView("groups"); loadGroups(); };
     document.getElementById("nav-locations").onclick = () => { showView("locations"); loadLocations(); };
     document.getElementById("nav-plans").onclick = () => { showView("plans"); loadPlansPage(); };
+    document.getElementById("nav-assurance").onclick = () => { showView("assurance"); loadAssurancePage(); };
+    document.getElementById("nav-compliance").onclick = () => { showView("compliance"); loadCompliancePage(); };
+    document.getElementById("btn-refresh-assurance").onclick = () => loadAssurancePage();
+    document.getElementById("btn-refresh-assurance-runs").onclick = () => loadAssuranceDrillRuns();
+    document.getElementById("btn-refresh-compliance").onclick = () => loadCompliancePage();
+    document.getElementById("nav-audit").onclick = () => { showView("audit"); loadAuditPage(); };
+    document.getElementById("btn-refresh-audit").onclick = () => loadAuditPage();
     document.getElementById("nav-credentials").onclick = () => {
       showView("credentials");
       loadCredentialsForm();
@@ -1213,6 +1877,27 @@
       document.getElementById("pve-live-restore-default").checked = !!pve.live_restore_default;
       const worker = data.worker || {};
       document.getElementById("worker-max-concurrent").value = worker.max_concurrent_restores ?? 2;
+      const n = data.notifications || {};
+      const em = n.email || {};
+      const wh = n.webhook || {};
+      const ev = n.events || {};
+      document.getElementById("notify-email-enabled").checked = !!em.enabled;
+      document.getElementById("notify-smtp-host").value = em.host || "";
+      document.getElementById("notify-smtp-port").value = em.port || 587;
+      document.getElementById("notify-smtp-tls").checked = em.tls !== false;
+      document.getElementById("notify-smtp-ssl").checked = !!em.ssl;
+      document.getElementById("notify-smtp-user").value = em.username || "";
+      document.getElementById("notify-smtp-password").value = "";
+      document.getElementById("notify-smtp-password").placeholder = em.password_set ? "********" : "";
+      document.getElementById("notify-smtp-from").value = em.from || "";
+      document.getElementById("notify-smtp-to").value = Array.isArray(em.to) ? em.to.join(", ") : (em.to || "");
+      document.getElementById("notify-ev-check").checked = ev.check_failed !== false;
+      document.getElementById("notify-ev-run").checked = ev.plan_run_terminal !== false;
+      document.getElementById("notify-ev-job").checked = !!ev.job_failed;
+      document.getElementById("notify-webhook-enabled").checked = !!wh.enabled;
+      document.getElementById("notify-webhook-url").value = wh.url || "";
+      document.getElementById("notify-webhook-secret").value = "";
+      document.getElementById("notify-webhook-secret").placeholder = wh.secret_set ? "********" : "";
     }
 
     function credBody() {
@@ -1233,6 +1918,29 @@
         },
         worker: {
           max_concurrent_restores: Number(document.getElementById("worker-max-concurrent").value || 2),
+        },
+        notifications: {
+          email: {
+            enabled: document.getElementById("notify-email-enabled").checked,
+            host: document.getElementById("notify-smtp-host").value.trim(),
+            port: Number(document.getElementById("notify-smtp-port").value || 587),
+            tls: document.getElementById("notify-smtp-tls").checked,
+            ssl: document.getElementById("notify-smtp-ssl").checked,
+            username: document.getElementById("notify-smtp-user").value.trim(),
+            password: document.getElementById("notify-smtp-password").value,
+            from: document.getElementById("notify-smtp-from").value.trim(),
+            to: document.getElementById("notify-smtp-to").value.trim(),
+          },
+          webhook: {
+            enabled: document.getElementById("notify-webhook-enabled").checked,
+            url: document.getElementById("notify-webhook-url").value.trim(),
+            secret: document.getElementById("notify-webhook-secret").value,
+          },
+          events: {
+            check_failed: document.getElementById("notify-ev-check").checked,
+            plan_run_terminal: document.getElementById("notify-ev-run").checked,
+            job_failed: document.getElementById("notify-ev-job").checked,
+          },
         },
       };
     }
@@ -1257,6 +1965,20 @@
       try {
         const res = await api("/api/ui/test/proxmox", { method: "POST", body: JSON.stringify(credBody().proxmox) });
         banner(gb, res.ok ? "ok" : "err", res.message);
+      } catch (e) {
+        banner(gb, "err", e.message);
+      }
+    };
+
+    document.getElementById("btn-test-email").onclick = async () => {
+      const gb = document.getElementById("global-banner");
+      try {
+        await api("/api/ui/credentials", { method: "PUT", body: JSON.stringify(credBody()) });
+        const res = await api("/api/ui/test/email", {
+          method: "POST",
+          body: JSON.stringify({ to: document.getElementById("notify-smtp-to").value.trim() || null }),
+        });
+        banner(gb, "ok", res.detail || "Test email sent.");
       } catch (e) {
         banner(gb, "err", e.message);
       }
@@ -1605,12 +2327,41 @@
       const wrap = document.getElementById(kind === "taggroup" ? "taggroup-vmid-start-wrap" : "restore-vmid-start-wrap");
       const warn = document.getElementById(kind === "taggroup" ? "taggroup-mode-dr-warn" : "restore-mode-dr-warn");
       const hint = document.getElementById(kind === "taggroup" ? "taggroup-mode-hint" : "restore-mode-hint");
+      const ow = document.getElementById(kind + "-overwrite-wrap");
+      const cow = document.getElementById(kind + "-confirm-overwrite-wrap");
       if (wrap) wrap.style.display = isDr ? "none" : "";
       if (warn) {
         warn.hidden = !isDr;
         warn.style.display = isDr ? "" : "none";
       }
       if (hint) hint.style.display = isDr ? "none" : "";
+      if (ow) {
+        ow.hidden = !isDr;
+        ow.style.display = isDr ? "block" : "none";
+        if (!isDr) {
+          const cb = document.getElementById(kind + "-overwrite");
+          if (cb) cb.checked = false;
+        }
+      }
+      if (cow) {
+        const show = isDr && document.getElementById(kind + "-overwrite") && document.getElementById(kind + "-overwrite").checked;
+        cow.hidden = !show;
+        cow.style.display = show ? "block" : "none";
+        if (!show) {
+          const cb = document.getElementById(kind + "-confirm-overwrite");
+          if (cb) cb.checked = false;
+        }
+      }
+    }
+
+    function isolationBody(prefix) {
+      const network_mode = (document.getElementById(prefix + "-network-mode") || {}).value || "none";
+      const lab_bridge = ((document.getElementById(prefix + "-lab-bridge") || {}).value || "").trim();
+      const http_check_url = ((document.getElementById(prefix + "-http-check") || {}).value || "").trim();
+      const overwrite = !!(document.getElementById(prefix + "-overwrite") || {}).checked;
+      const confirm_overwrite = !!(document.getElementById(prefix + "-confirm-overwrite") || {}).checked;
+      const allow_non_isolated = !!(document.getElementById(prefix + "-allow-non-isolated") || {}).checked;
+      return { network_mode, lab_bridge, http_check_url, overwrite, confirm_overwrite, allow_non_isolated };
     }
 
     document.querySelectorAll('input[name="restore-mode"]').forEach((el) => {
@@ -1618,6 +2369,10 @@
     });
     document.querySelectorAll('input[name="taggroup-mode"]').forEach((el) => {
       el.addEventListener("change", () => syncRestoreModeUI("taggroup"));
+    });
+    ["restore", "taggroup"].forEach((kind) => {
+      const ow = document.getElementById(kind + "-overwrite");
+      if (ow) ow.addEventListener("change", () => syncRestoreModeUI(kind));
     });
     document.getElementById("loc-restore-mode").addEventListener("change", () => {
       const isDr = document.getElementById("loc-restore-mode").value === "dr";
@@ -1727,6 +2482,7 @@
         bwlimit: Number(document.getElementById("restore-bwlimit").value || 0),
         restore_mode: getRestoreMode("restore-mode"),
         ...powerOnQgaBody("restore"),
+        ...isolationBody("restore"),
       };
       try {
         const res = await api("/api/jobs/restore-selected", { method: "POST", body: JSON.stringify(body) });
@@ -1802,6 +2558,7 @@
         bwlimit: Number(document.getElementById("taggroup-bwlimit").value || 0),
         restore_mode: getRestoreMode("taggroup-mode"),
         ...powerOnQgaBody("taggroup"),
+        ...isolationBody("taggroup"),
       };
       const btn = document.getElementById("btn-taggroup-confirm");
       btn.disabled = true;
@@ -1918,7 +2675,14 @@
           : "—"],
         ["Live restore", job.live_restore ? "yes" : "no"],
         ["Power on", job.power_on ? "yes" : "no"],
+        ["Network", job.network_mode || "none"],
+        ["HTTP check", job.http_check_ok === "1" ? "ok" : (job.http_check_url ? (job.http_check_ok === "0" ? "failed" : "pending") : "—")],
         ["QGA", job.qga_ok === "1" ? ("ok · " + (job.qga_waited_sec || "") + "s") : (job.qga_wait_sec ? (job.qga_ok === "0" ? "failed" : "pending · " + job.qga_wait_sec + "s") : "—")],
+        ["Guest hostname", job.guest_hostname || "—"],
+        ["PVE name", job.pve_name || "—"],
+        ["Hostname check", job.hostname_warning
+          ? ("warning · " + job.hostname_warning)
+          : (job.hostname_match === "1" ? "match" : (job.hostname_match === "0" ? "mismatch" : "—"))],
         ["Restore mode", job.restore_mode === "dr" ? "DR (keep VMID/MAC/UUID)" : "Normal"],
         ["Bandwidth limit", job.bwlimit ? job.bwlimit + " KiB/s" : "unlimited"],
         ["Progress", (job.progress ?? 0) + "%"],
@@ -1968,6 +2732,7 @@
             div.appendChild(span);
             div.appendChild(document.createTextNode(entry.message || ""));
             if (level === "ERROR") div.classList.add("job-log-line-err");
+            if (level === "WARN" || level === "WARNING") div.classList.add("job-log-line-warn");
           }
           box.appendChild(div);
         }
@@ -2018,6 +2783,24 @@
     document.getElementById("btn-job-detail-refresh").onclick = async () => {
       if (openJobDetailId) await openJobDetail(openJobDetailId);
     };
+    document.getElementById("btn-job-detail-copy").onclick = async () => {
+      if (!openJobDetailId) return;
+      try {
+        const [job, lines] = await Promise.all([
+          api("/api/jobs/" + encodeURIComponent(openJobDetailId)),
+          api("/api/jobs/" + encodeURIComponent(openJobDetailId) + "/log?limit=500"),
+        ]);
+        const payload = {
+          kind: "restore-engine-job-trace",
+          generated_at: new Date().toISOString(),
+          job,
+          log: lines,
+        };
+        await copyOrPresentTrace(JSON.stringify(payload, null, 2), "Job trace copied.");
+      } catch (e) {
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    };
 
     async function loadJobs() {
       const statusEl = document.getElementById("jobs-list-status");
@@ -2025,10 +2808,12 @@
       const table = document.getElementById("jobs-table");
       const empty = document.getElementById("jobs-empty");
       try {
-        const jobs = await api("/api/jobs");
+        const page = await api("/api/jobs?limit=200");
+        const jobs = Array.isArray(page) ? page : (page.items || []);
         jobsById = Object.fromEntries(jobs.map((j) => [j.job_id, j]));
         const stats = await refreshJobsStats(jobs);
-        statusEl.textContent = jobs.length ? jobs.length + " job(s)" : "";
+        const total = Array.isArray(page) ? jobs.length : (page.total != null ? page.total : jobs.length);
+        statusEl.textContent = total ? total + " job(s)" + (page.has_more ? " (showing " + jobs.length + ")" : "") : "";
         const busy = (stats.active || 0) > 0 || !!stats.paused;
         if (jobsPollTimer) {
           clearInterval(jobsPollTimer);
@@ -2247,6 +3032,10 @@
       document.getElementById("loc-vmid-start").disabled = false;
       document.getElementById("loc-bwlimit").value = "0";
       document.getElementById("loc-restore-mode").value = "normal";
+      document.getElementById("loc-network-mode").value = "none";
+      document.getElementById("loc-lab-bridge").value = "";
+      document.getElementById("loc-isolated").checked = false;
+      document.getElementById("loc-http-check").value = "";
       document.getElementById("loc-live").checked = false;
       document.getElementById("loc-power-on").checked = false;
       document.getElementById("loc-qga").checked = false;
@@ -2309,6 +3098,7 @@
             "<td>" + escapeHtml(locationNodesDisplay(loc)) + "</td>" +
             "<td>" + escapeHtml(locationStorageDisplay(loc)) + "</td>" +
             "<td>" + escapeHtml((loc.restore_mode || "normal").toUpperCase()) + "</td>" +
+            "<td>" + escapeHtml(loc.network_mode || "none") + (loc.isolated ? " · iso" : "") + "</td>" +
             "<td>" + escapeHtml(loc.restore_mode === "dr" ? "source VMIDs" : loc.vmid_start) + "</td>" +
             '<td><button type="button" class="secondary tiny btn-edit-loc" data-id="' + escapeHtml(loc.id) + '">Edit</button> ' +
             '<button type="button" class="danger tiny btn-del-loc" data-id="' + escapeHtml(loc.id) + '">Delete</button></td>';
@@ -2327,6 +3117,10 @@
             document.getElementById("loc-vmid-start").value = loc.vmid_start;
             document.getElementById("loc-bwlimit").value = loc.bwlimit || 0;
             document.getElementById("loc-restore-mode").value = loc.restore_mode === "dr" ? "dr" : "normal";
+            document.getElementById("loc-network-mode").value = loc.network_mode || "none";
+            document.getElementById("loc-lab-bridge").value = loc.lab_bridge || "";
+            document.getElementById("loc-isolated").checked = !!loc.isolated;
+            document.getElementById("loc-http-check").value = loc.http_check_url || "";
             document.getElementById("loc-live").checked = !!loc.live_restore;
             document.getElementById("loc-power-on").checked = !!loc.power_on;
             document.getElementById("loc-qga").checked = Number(loc.qga_wait_sec || 0) > 0;
@@ -2380,6 +3174,10 @@
         bwlimit: Number(document.getElementById("loc-bwlimit").value || 0),
         live_restore: document.getElementById("loc-live").checked,
         restore_mode: document.getElementById("loc-restore-mode").value || "normal",
+        network_mode: document.getElementById("loc-network-mode").value || "none",
+        lab_bridge: document.getElementById("loc-lab-bridge").value.trim(),
+        isolated: document.getElementById("loc-isolated").checked,
+        http_check_url: document.getElementById("loc-http-check").value.trim(),
         power_on: document.getElementById("loc-power-on").checked,
         qga_wait_sec: document.getElementById("loc-qga").checked
           ? Number(document.getElementById("loc-qga-sec").value || 120)
@@ -2401,6 +3199,9 @@
       document.getElementById("plan-name").value = "";
       document.getElementById("plan-halt").checked = true;
       document.getElementById("plan-enabled").checked = true;
+      document.getElementById("plan-schedule").checked = false;
+      document.getElementById("plan-schedule-drill").checked = true;
+      document.getElementById("plan-schedule-hours").value = "0";
       const sel = document.getElementById("plan-groups");
       Array.from(sel.options).forEach((o) => { o.selected = false; });
     }
@@ -2450,11 +3251,15 @@
           '<div class="progress-pct" title="' + escapeHtml(checkHint) + '">' +
           escapeHtml(p.last_check_at ? ("Checked " + String(p.last_check_at).replace("T", " ").slice(0, 19)) : "Never checked") +
           "</div>";
+        const aStatus = p.assurance_enabled
+          ? (p.assurance_status || "UNKNOWN")
+          : "—";
         tr.innerHTML =
           "<td>" + escapeHtml(p.name) + "</td>" +
           "<td>" + escapeHtml(gnames) + "</td>" +
           "<td>" + escapeHtml((locById[p.location_id] && locById[p.location_id].name) || p.location_id) + "</td>" +
           "<td>" + stateHtml + "</td>" +
+          '<td title="' + escapeHtml(p.assurance_detail || "") + '">' + escapeHtml(aStatus) + "</td>" +
           '<td class="actions-cell">' +
           '<button type="button" class="secondary tiny btn-check-plan" data-id="' + escapeHtml(p.id) + '" data-name="' + escapeHtml(p.name) + '">Check</button> ' +
           '<button type="button" class="primary tiny btn-run-plan" data-id="' + escapeHtml(p.id) +
@@ -2476,6 +3281,9 @@
           document.getElementById("plan-location").value = p.location_id;
           document.getElementById("plan-halt").checked = !!p.halt_on_error;
           document.getElementById("plan-enabled").checked = !!p.enabled;
+          document.getElementById("plan-schedule").checked = !!p.schedule_enabled;
+          document.getElementById("plan-schedule-drill").checked = p.schedule_drill !== false;
+          document.getElementById("plan-schedule-hours").value = p.schedule_interval_hours || 0;
           Array.from(document.getElementById("plan-groups").options).forEach((o) => {
             o.selected = (p.group_ids || []).includes(o.value);
           });
@@ -2517,7 +3325,6 @@
         );
       });
       loadPlanRuns();
-      loadComplianceStrip();
       loadReports();
     }
 
@@ -2526,39 +3333,411 @@
       window.open("/api/reports/" + encodeURIComponent(reportId) + "/download?format=" + encodeURIComponent(format), "_blank");
     }
 
-    async function loadComplianceStrip() {
-      const el = document.getElementById("compliance-strip");
+    let cachedAssurancePlans = [];
+
+    function fillAssurancePlanSelect(plans, selectedId) {
+      const sel = document.getElementById("assurance-plan-select");
+      if (!sel) return;
+      const prev = selectedId || sel.value;
+      sel.innerHTML = (plans || []).map((p) =>
+        '<option value="' + escapeHtml(p.id) + '">' + escapeHtml(p.name) +
+        (p.assurance_enabled ? "" : " (policy off)") + "</option>"
+      ).join("");
+      if (prev && Array.from(sel.options).some((o) => o.value === prev)) sel.value = prev;
+      else if (sel.options.length) sel.selectedIndex = 0;
+      syncAssurancePolicyForm();
+    }
+
+    function syncAssurancePolicyForm() {
+      const sel = document.getElementById("assurance-plan-select");
+      const p = cachedAssurancePlans.find((x) => x.id === (sel && sel.value));
+      const hint = document.getElementById("assurance-readiness-hint");
+      if (!p) {
+        document.getElementById("assurance-enabled").checked = false;
+        document.getElementById("assurance-require-qga").checked = false;
+        document.getElementById("assurance-require-http").checked = false;
+        document.getElementById("assurance-max-rto").value = "0";
+        if (hint) hint.textContent = "";
+        return;
+      }
+      document.getElementById("assurance-enabled").checked = !!p.assurance_enabled;
+      document.getElementById("assurance-require-qga").checked = !!p.assurance_require_qga;
+      document.getElementById("assurance-require-http").checked = !!p.assurance_require_http;
+      document.getElementById("assurance-max-rto").value = p.assurance_max_rto_sec || 0;
+      if (hint) {
+        const ver = p.verification || "NOT_VERIFIED";
+        if (ver === "VERIFIED") {
+          hint.textContent = "Readiness: VERIFIED (optional for Assure now).";
+        } else {
+          hint.textContent =
+            "Readiness: " + ver + " — use Check readiness if you want a verified inventory/backup check. Assure now can still run.";
+        }
+      }
+    }
+
+    async function loadAssuranceDashboard() {
+      const el = document.getElementById("assurance-strip");
+      const countsEl = document.getElementById("assurance-counts");
       if (!el) return;
       try {
-        const data = await api("/api/compliance/dashboard");
+        const data = await api("/api/assurance/dashboard");
         const rows = data.plans || [];
+        const c = data.counts || {};
+        if (countsEl) {
+          countsEl.textContent =
+            "ASSURED " + (c.ASSURED || 0) +
+            " · FAILED " + (c.FAILED || 0) +
+            " · IN PROGRESS " + (c.IN_PROGRESS || 0) +
+            " · UNKNOWN " + (c.UNKNOWN || 0) +
+            " · policy off " + (c.disabled || 0);
+        }
         if (!rows.length) {
-          el.textContent = "No plans yet.";
+          el.textContent = "No plans yet. Create a recovery plan on the Plans tab, then enable a policy here.";
           return;
         }
         el.innerHTML = "<table class=\"vm-table\"><thead><tr>" +
-          "<th>Plan</th><th>Verification</th><th>Last check</th><th>Last run</th><th>RTO</th>" +
+          "<th>Plan</th><th>Status</th><th>RTO</th><th>Next schedule</th><th>Readiness</th><th></th>" +
           "</tr></thead><tbody>" +
           rows.map((p) => {
-            const checkLabel = p.last_check_at
-              ? ((p.last_check_ok ? "OK" : "FAIL") + " · " + String(p.last_check_at).replace("T", " ").slice(0, 19))
-              : "Never";
-            const runLabel = p.last_run_status
-              ? (p.last_run_status + (p.last_run_finished_at ? " · " + String(p.last_run_finished_at).replace("T", " ").slice(0, 19) : ""))
-              : "—";
+            const when = p.assurance_updated_at
+              ? String(p.assurance_updated_at).replace("T", " ").slice(0, 19)
+              : "";
+            let statusLabel = p.assurance_enabled ? p.assurance_status : "off";
+            if (p.assurance_status === "IN_PROGRESS") {
+              statusLabel = "IN PROGRESS";
+            } else if (when && p.assurance_enabled && p.assurance_status !== "IN_PROGRESS") {
+              statusLabel = statusLabel + " · " + when;
+            }
+            const next = p.next_scheduled_at
+              ? String(p.next_scheduled_at).replace("T", " ").slice(0, 19)
+              : (p.schedule_enabled ? "due" : "—");
+            const actions =
+              '<button type="button" class="secondary tiny btn-assurance-check" data-id="' +
+              escapeHtml(p.plan_id) + '" data-name="' + escapeHtml(p.plan_name || p.plan_id) +
+              '">Check</button> ' +
+              (p.assurance_enabled && p.assurance_status !== "IN_PROGRESS"
+                ? '<button type="button" class="secondary tiny btn-assure-dash" data-id="' + escapeHtml(p.plan_id) +
+                  '" data-location="' + escapeHtml(p.location_id || "") + '">Assure now</button> '
+                : "") +
+              (p.assurance_status === "IN_PROGRESS"
+                ? '<span class="hint">drill running</span> '
+                : "") +
+              (p.last_run_report_id
+                ? '<button type="button" class="secondary tiny btn-assurance-report" data-id="' +
+                  escapeHtml(p.last_run_report_id) + '">Report</button>'
+                : "");
             return "<tr>" +
               "<td>" + escapeHtml(p.plan_name || p.plan_id) + (p.enabled ? "" : " · disabled") + "</td>" +
+              "<td title=\"" + escapeHtml(p.assurance_detail || "") + "\">" + escapeHtml(statusLabel) + "</td>" +
+              "<td>" + escapeHtml(p.assurance_last_rto || "—") + "</td>" +
+              "<td>" + escapeHtml(next) + "</td>" +
               "<td>" + escapeHtml(p.verification || "") + "</td>" +
-              "<td title=\"" + escapeHtml(p.last_check_summary || "") + "\">" + escapeHtml(checkLabel) + "</td>" +
-              "<td>" + escapeHtml(runLabel) + "</td>" +
-              "<td>" + escapeHtml(p.last_run_rto || "—") + "</td>" +
+              '<td class="actions-cell">' + actions + "</td>" +
               "</tr>";
           }).join("") +
           "</tbody></table>";
+        el.querySelectorAll(".btn-assure-dash").forEach((btn) => {
+          btn.onclick = () => runAssurance(btn.dataset.id, btn.dataset.location || "");
+        });
+        el.querySelectorAll(".btn-assurance-check").forEach((btn) => {
+          btn.onclick = () => runAssuranceReadinessCheck(btn.dataset.id, btn.dataset.name || "Plan");
+        });
+        el.querySelectorAll(".btn-assurance-report").forEach((btn) => {
+          btn.onclick = () => downloadReport(btn.dataset.id, "html");
+        });
       } catch (e) {
-        el.textContent = "Compliance strip unavailable: " + e.message;
+        el.textContent = "Assurance dashboard unavailable: " + e.message;
       }
     }
+
+    async function loadAssuranceDrillRuns() {
+      const tbody = document.getElementById("assurance-runs-tbody");
+      if (!tbody) return;
+      try {
+        const runs = await api("/api/plan-runs?limit=40");
+        const drills = (runs || []).filter((r) => r.drill);
+        tbody.innerHTML = "";
+        if (!drills.length) {
+          tbody.innerHTML = '<tr><td colspan="7" class="hint">No drill runs yet.</td></tr>';
+          return;
+        }
+        for (const run of drills.slice(0, 20)) {
+          const tr = document.createElement("tr");
+          const dl = run.report_id
+            ? (' <button type="button" class="secondary tiny btn-assurance-run-report" data-id="' +
+              escapeHtml(run.report_id) + '">Report</button>')
+            : "";
+          tr.innerHTML =
+            "<td>" + escapeHtml(run.plan_name || run.plan_id) + "</td>" +
+            "<td>" + escapeHtml(run.status || "") + "</td>" +
+            "<td>" + escapeHtml(run.rto && run.finished_at ? String(run.rto) : "—") + "</td>" +
+            "<td>" + escapeHtml(run.teardown_status || "—") + "</td>" +
+            "<td>" + escapeHtml((run.started_at || "").slice(0, 19)) + "</td>" +
+            "<td>" + escapeHtml((run.finished_at || "").slice(0, 19)) + "</td>" +
+            '<td class="actions-cell">' + dl + "</td>";
+          tbody.appendChild(tr);
+        }
+        tbody.querySelectorAll(".btn-assurance-run-report").forEach((btn) => {
+          btn.onclick = () => downloadReport(btn.dataset.id, "html");
+        });
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="7">' + escapeHtml(e.message) + "</td></tr>";
+      }
+    }
+
+    async function loadAssurancePage() {
+      try {
+        if (!cachedLocations.length) {
+          cachedLocations = await api("/api/locations");
+        }
+        cachedAssurancePlans = await api("/api/plans");
+        fillAssurancePlanSelect(cachedAssurancePlans);
+      } catch (e) {
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+      await loadAssuranceDashboard();
+      await loadAssuranceDrillRuns();
+    }
+
+    function riskChipLabel(code) {
+      const map = {
+        assurance_policy_off: "policy off",
+        not_verified: "not verified",
+        verify_gate_blocks_run: "verify gate",
+        drill_in_progress: "drill running",
+        teardown_failed: "teardown failed",
+        schedule_overdue: "schedule overdue",
+        uses_tag_groups: "tag groups",
+      };
+      return map[code] || code;
+    }
+
+    async function loadCompliancePage() {
+      const countsEl = document.getElementById("compliance-counts");
+      const tbody = document.getElementById("compliance-tbody");
+      const empty = document.getElementById("compliance-empty");
+      const table = document.getElementById("compliance-table");
+      try {
+        const data = await api("/api/compliance/dashboard");
+        const c = data.counts || {};
+        const v = c.verification || {};
+        const a = c.assurance || {};
+        const s = c.schedule || {};
+        countsEl.textContent =
+          "Readiness VERIFIED " + (v.VERIFIED || 0) +
+          " · NEEDS " + (v.NEEDS_VERIFIED || 0) +
+          " · NOT " + (v.NOT_VERIFIED || 0) +
+          " · Assurance ASSURED " + (a.ASSURED || 0) +
+          " · FAILED " + (a.FAILED || 0) +
+          " · IN PROGRESS " + (a.IN_PROGRESS || 0) +
+          " · UNKNOWN " + (a.UNKNOWN || 0) +
+          " · policy off " + (a.disabled || 0) +
+          " · schedules overdue " + (s.overdue || 0) +
+          (c.require_verified_to_run ? " · verify-gate ON" : " · verify-gate off");
+        const plans = data.plans || [];
+        if (!plans.length) {
+          table.hidden = true;
+          empty.classList.remove("hidden");
+          tbody.innerHTML = "";
+          return;
+        }
+        table.hidden = false;
+        empty.classList.add("hidden");
+        tbody.innerHTML = plans.map((p) => {
+          const ready = (p.verification || "—") +
+            (p.last_check_at ? " · " + String(p.last_check_at).replace("T", " ").slice(0, 19) : "");
+          let assure = p.assurance_enabled ? (p.assurance_status || "—") : "off";
+          if (p.assurance_status === "IN_PROGRESS") assure = "IN PROGRESS";
+          const sched = p.schedule_enabled
+            ? (p.next_scheduled_at
+              ? String(p.next_scheduled_at).replace("T", " ").slice(0, 19)
+              : (p.schedule_overdue ? "overdue" : "due"))
+            : "—";
+          const risks = (p.risks || []).map((r) =>
+            '<span class="risk-chip">' + escapeHtml(riskChipLabel(r)) + "</span>"
+          ).join("") || '<span class="hint">—</span>';
+          const evidence = [];
+          if (p.last_check_report_id) {
+            evidence.push('<button type="button" class="secondary tiny btn-comp-report" data-id="' +
+              escapeHtml(p.last_check_report_id) + '">Check</button>');
+          }
+          if (p.last_run_report_id) {
+            evidence.push('<button type="button" class="secondary tiny btn-comp-report" data-id="' +
+              escapeHtml(p.last_run_report_id) + '">Run</button>');
+          }
+          evidence.push('<button type="button" class="secondary tiny btn-comp-assure" data-id="' +
+            escapeHtml(p.plan_id) + '">Assurance</button>');
+          return "<tr>" +
+            "<td>" + escapeHtml(p.plan_name || p.plan_id) + (p.enabled ? "" : " · disabled") + "</td>" +
+            "<td title=\"" + escapeHtml(p.last_check_summary || "") + "\">" + escapeHtml(ready) + "</td>" +
+            "<td title=\"" + escapeHtml(p.assurance_detail || "") + "\">" + escapeHtml(assure) +
+              (p.assurance_last_rto ? " · " + escapeHtml(p.assurance_last_rto) : "") + "</td>" +
+            "<td>" + escapeHtml(p.last_prod_run_rto || "—") + "</td>" +
+            "<td>" + escapeHtml(p.last_drill_rto || "—") +
+              (p.last_drill_teardown_status ? " · " + escapeHtml(p.last_drill_teardown_status) : "") + "</td>" +
+            "<td>" + escapeHtml(sched) + "</td>" +
+            "<td>" + risks + "</td>" +
+            '<td class="actions-cell">' + evidence.join(" ") + "</td>" +
+            "</tr>";
+        }).join("");
+        tbody.querySelectorAll(".btn-comp-report").forEach((btn) => {
+          btn.onclick = () => downloadReport(btn.dataset.id, "html");
+        });
+        tbody.querySelectorAll(".btn-comp-assure").forEach((btn) => {
+          btn.onclick = () => {
+            showView("assurance");
+            loadAssurancePage().then(() => {
+              const sel = document.getElementById("assurance-plan-select");
+              if (sel && btn.dataset.id) {
+                sel.value = btn.dataset.id;
+                syncAssurancePolicyForm();
+              }
+            });
+          };
+        });
+      } catch (e) {
+        countsEl.textContent = e.message;
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    }
+
+    async function loadAuditPage() {
+      const tbody = document.getElementById("audit-tbody");
+      const empty = document.getElementById("audit-empty");
+      const table = document.getElementById("audit-table");
+      try {
+        const page = await api("/api/audit?limit=200");
+        const items = page.items || [];
+        if (!items.length) {
+          table.hidden = true;
+          empty.classList.remove("hidden");
+          tbody.innerHTML = "";
+          return;
+        }
+        table.hidden = false;
+        empty.classList.add("hidden");
+        tbody.innerHTML = items.map((e) => {
+          let detail = "";
+          try {
+            detail = typeof e.detail === "string" ? e.detail : JSON.stringify(e.detail || {});
+          } catch (_err) {
+            detail = String(e.detail || "");
+          }
+          if (detail.length > 160) detail = detail.slice(0, 157) + "…";
+          return "<tr>" +
+            "<td>" + escapeHtml(String(e.ts || "").replace("T", " ").slice(0, 19)) + "</td>" +
+            "<td>" + escapeHtml(e.actor || "—") + "</td>" +
+            "<td>" + escapeHtml(e.action || "—") + "</td>" +
+            "<td title=\"" + escapeHtml(typeof e.detail === "string" ? e.detail : JSON.stringify(e.detail || {})) +
+            "\">" + escapeHtml(detail || "—") + "</td>" +
+            "</tr>";
+        }).join("");
+      } catch (e) {
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    }
+
+    async function runAssuranceReadinessCheck(planId, planName) {
+      const status = document.getElementById("assurance-policy-status");
+      if (!planId) {
+        if (status) status.textContent = "Select a plan first.";
+        return;
+      }
+      try {
+        if (status) status.textContent = "Running readiness check…";
+        const res = await api("/api/plans/" + encodeURIComponent(planId) + "/check", {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
+        showPlanCheckModal(planName || "Plan", res.check || {}, (res.plan && res.plan.last_check_report_id) || "");
+        if (status) status.textContent = "Readiness check finished.";
+        await loadAssurancePage();
+        const sel = document.getElementById("assurance-plan-select");
+        if (sel && planId) {
+          sel.value = planId;
+          syncAssurancePolicyForm();
+        }
+      } catch (e) {
+        if (status) status.textContent = e.message;
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    }
+
+    async function runAssurance(planId, locationId) {
+      const loc = cachedLocations.find((l) => l.id === locationId);
+      const body = {
+        allow_unverified: true,
+        confirm_dr: !!(loc && loc.restore_mode === "dr"),
+        allow_non_isolated: false,
+      };
+      if (loc && loc.restore_mode === "dr") {
+        if (!confirm("Assurance on a DR location keeps source VMIDs. Continue?")) return;
+      }
+      try {
+        const run = await api("/api/plans/" + encodeURIComponent(planId) + "/assure", {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        banner(
+          document.getElementById("global-banner"),
+          "ok",
+          "Assurance drill started (" + (run.job_count || 0) + " job(s))."
+        );
+        startPlanRunsPoll();
+        loadAssurancePage();
+      } catch (e) {
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    }
+
+    document.getElementById("assurance-plan-select").onchange = syncAssurancePolicyForm;
+
+    document.getElementById("btn-assurance-check").onclick = () => {
+      const planId = document.getElementById("assurance-plan-select").value;
+      const p = cachedAssurancePlans.find((x) => x.id === planId);
+      runAssuranceReadinessCheck(planId, (p && p.name) || "Plan");
+    };
+
+    document.getElementById("btn-save-assurance-policy").onclick = async () => {
+      const planId = document.getElementById("assurance-plan-select").value;
+      const status = document.getElementById("assurance-policy-status");
+      if (!planId) {
+        status.textContent = "Select a plan first.";
+        return;
+      }
+      const body = {
+        assurance_enabled: document.getElementById("assurance-enabled").checked,
+        assurance_require_qga: document.getElementById("assurance-require-qga").checked,
+        assurance_require_http: document.getElementById("assurance-require-http").checked,
+        assurance_max_rto_sec: Number(document.getElementById("assurance-max-rto").value || 0),
+      };
+      try {
+        await api("/api/plans/" + encodeURIComponent(planId), { method: "PUT", body: JSON.stringify(body) });
+        status.textContent = "Policy saved.";
+        await loadAssurancePage();
+        const sel = document.getElementById("assurance-plan-select");
+        if (sel) sel.value = planId;
+        syncAssurancePolicyForm();
+      } catch (e) {
+        status.textContent = e.message;
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    };
+
+    document.getElementById("btn-assurance-run-now").onclick = () => {
+      const planId = document.getElementById("assurance-plan-select").value;
+      const p = cachedAssurancePlans.find((x) => x.id === planId);
+      if (!p) {
+        document.getElementById("assurance-policy-status").textContent = "Select a plan first.";
+        return;
+      }
+      if (!p.assurance_enabled && !document.getElementById("assurance-enabled").checked) {
+        document.getElementById("assurance-policy-status").textContent =
+          "Enable assurance and save the policy before Assure now.";
+        return;
+      }
+      runAssurance(planId, p.location_id || "");
+    };
 
     async function loadReports() {
       const tbody = document.getElementById("reports-tbody");
@@ -2627,6 +3806,9 @@
         group_ids,
         halt_on_error: document.getElementById("plan-halt").checked,
         enabled: document.getElementById("plan-enabled").checked,
+        schedule_enabled: document.getElementById("plan-schedule").checked,
+        schedule_interval_hours: Number(document.getElementById("plan-schedule-hours").value || 0),
+        schedule_drill: document.getElementById("plan-schedule-drill").checked,
       };
       const id = document.getElementById("plan-edit-id").value;
       try {
@@ -2639,30 +3821,119 @@
       }
     };
 
-    function resolvePlanRunLocationMode() {
+    function resolvePlanRunLocation() {
       const sel = document.getElementById("planrun-location");
-      const override = sel.value;
-      let locId = override || planRunDefaultLocationId;
-      const loc = cachedLocations.find((l) => l.id === locId);
+      const locId = sel.value || planRunDefaultLocationId;
+      return cachedLocations.find((l) => l.id === locId) || null;
+    }
+
+    function resolvePlanRunLocationMode() {
+      const loc = resolvePlanRunLocation();
       return (loc && loc.restore_mode) || "normal";
+    }
+
+    function isPlanRunDrill() {
+      return !!document.getElementById("planrun-kind-drill").checked;
+    }
+
+    function syncPlanRunLocationDefaultsHint() {
+      const el = document.getElementById("planrun-loc-defaults");
+      const loc = resolvePlanRunLocation();
+      if (!el) return;
+      if (!loc) {
+        el.textContent = "No location selected — choose a plan location or override above.";
+        return;
+      }
+      const live = loc.live_restore ? "on" : "off";
+      const power = loc.power_on ? "on" : "off";
+      const qga = Number(loc.qga_wait_sec || 0) > 0 ? (loc.qga_wait_sec + "s") : "off";
+      el.textContent =
+        "Location “" + loc.name + "” defaults: live restore " + live +
+        " · power-on " + power + " · QGA " + qga +
+        ". Run checkboxes below override for this run only (live restore stays on the location).";
+    }
+
+    function applyPlanRunGuestFromLocation() {
+      const loc = resolvePlanRunLocation();
+      const drill = isPlanRunDrill();
+      syncPlanRunLocationDefaultsHint();
+      if (drill) {
+        // Drills ignore location power-on/QGA defaults unless the operator opts in.
+        resetPowerOnQga("planrun", { power_on: false, qga_wait_sec: defaultQgaWaitSec });
+        return;
+      }
+      if (!loc) {
+        resetPowerOnQga("planrun", { power_on: false, qga_wait_sec: defaultQgaWaitSec });
+        return;
+      }
+      const qgaSec = Number(loc.qga_wait_sec || 0);
+      resetPowerOnQga("planrun", {
+        power_on: !!loc.power_on || qgaSec > 0,
+        qga_wait_sec: qgaSec > 0 ? qgaSec : defaultQgaWaitSec,
+      });
+      if (qgaSec > 0) {
+        document.getElementById("planrun-qga").checked = true;
+        syncQgaUi("planrun");
+      }
+    }
+
+    function syncPlanRunKindUi() {
+      const drill = isPlanRunDrill();
+      document.getElementById("planrun-drill").checked = drill;
+      const tear = document.getElementById("planrun-teardown-wrap");
+      const kindHint = document.getElementById("planrun-kind-hint");
+      const bootHint = document.getElementById("planrun-boot-hint");
+      const assureHint = document.getElementById("planrun-assurance-hint");
+      if (drill) {
+        tear.hidden = false;
+        tear.style.display = "block";
+        if (!document.getElementById("planrun-auto-teardown").checked) {
+          document.getElementById("planrun-auto-teardown").checked = true;
+        }
+        kindHint.textContent = "Verification run. Defaults to powered-off; location power-on defaults are ignored unless you opt in below.";
+        bootHint.textContent =
+          "Drill defaults to powered-off (safe on shared L2). Check power-on only for isolated or NIC-remapped locations.";
+        if (assureHint) { assureHint.hidden = false; assureHint.style.display = "block"; }
+      } else {
+        tear.hidden = true;
+        tear.style.display = "none";
+        document.getElementById("planrun-auto-teardown").checked = false;
+        kindHint.textContent = "Leave restored VMs in place for failback or lasting recovery.";
+        bootHint.textContent =
+          "Pre-filled from the location defaults; change here to override this run. Requires isolation, remap, or Allow boot without isolation.";
+        if (assureHint) { assureHint.hidden = true; assureHint.style.display = "none"; }
+      }
     }
 
     function syncPlanRunDrUi() {
       const isDr = resolvePlanRunLocationMode() === "dr";
+      const block = document.getElementById("planrun-dr-block");
       const wrap = document.getElementById("planrun-confirm-dr-wrap");
       const warn = document.getElementById("planrun-dr-warn");
+      const ow = document.getElementById("planrun-overwrite-wrap");
+      const cow = document.getElementById("planrun-confirm-overwrite-wrap");
       if (isDr) {
-        wrap.hidden = false;
-        wrap.style.display = "block";
+        if (block) { block.hidden = false; block.style.display = "block"; }
+        if (wrap) { wrap.hidden = false; wrap.style.display = "flex"; }
         warn.hidden = false;
         warn.style.display = "block";
+        if (ow) { ow.hidden = false; ow.style.display = "flex"; }
       } else {
-        wrap.hidden = true;
-        wrap.style.display = "none";
+        if (block) { block.hidden = true; block.style.display = "none"; }
+        if (wrap) { wrap.hidden = true; }
         warn.hidden = true;
         warn.style.display = "none";
         document.getElementById("planrun-confirm-dr").checked = false;
+        if (ow) { ow.hidden = true; document.getElementById("planrun-overwrite").checked = false; }
+        if (cow) { cow.hidden = true; cow.style.display = "none"; document.getElementById("planrun-confirm-overwrite").checked = false; }
       }
+      const showCow = isDr && document.getElementById("planrun-overwrite").checked;
+      if (cow) {
+        cow.hidden = !showCow;
+        cow.style.display = showCow ? "flex" : "none";
+        if (!showCow) document.getElementById("planrun-confirm-overwrite").checked = false;
+      }
+      syncPlanRunLocationDefaultsHint();
     }
 
     function openPlanRunModal(planId, planName, verification, locationId) {
@@ -2672,11 +3943,16 @@
       document.getElementById("planrun-summary").textContent = "Run “" + planName + "” with optional point-in-time.";
       document.getElementById("planrun-cutoff").value = "";
       document.getElementById("planrun-location").value = "";
-      document.getElementById("planrun-drill").checked = false;
+      document.getElementById("planrun-kind-recovery").checked = true;
+      document.getElementById("planrun-kind-drill").checked = false;
       document.getElementById("planrun-auto-teardown").checked = false;
       document.getElementById("planrun-allow-unverified").checked = false;
       document.getElementById("planrun-confirm-dr").checked = false;
-      resetPowerOnQga("planrun", { power_on: false, qga_wait_sec: defaultQgaWaitSec });
+      document.getElementById("planrun-overwrite").checked = false;
+      document.getElementById("planrun-confirm-overwrite").checked = false;
+      document.getElementById("planrun-allow-non-isolated").checked = false;
+      syncPlanRunKindUi();
+      applyPlanRunGuestFromLocation();
       const warn = document.getElementById("planrun-unverified-warn");
       if (verification === "VERIFIED") {
         warn.hidden = true;
@@ -2688,7 +3964,7 @@
       const gateWrap = document.getElementById("planrun-allow-unverified-wrap");
       if (requireVerifiedToRun && verification !== "VERIFIED") {
         gateWrap.hidden = false;
-        gateWrap.style.display = "block";
+        gateWrap.style.display = "flex";
       } else {
         gateWrap.hidden = true;
         gateWrap.style.display = "none";
@@ -2697,17 +3973,18 @@
       document.getElementById("planrun-modal").classList.add("show");
     }
 
-    document.getElementById("planrun-location").onchange = syncPlanRunDrUi;
-    document.getElementById("planrun-drill").onchange = () => {
-      if (document.getElementById("planrun-drill").checked) {
-        document.getElementById("planrun-auto-teardown").checked = true;
-        // Drill defaults powered-off; clear power-on unless user re-checks.
-        if (!document.getElementById("planrun-power-on").checked) {
-          document.getElementById("planrun-qga").checked = false;
-          syncQgaUi("planrun");
-        }
-      }
+    document.getElementById("planrun-location").onchange = () => {
+      syncPlanRunDrUi();
+      applyPlanRunGuestFromLocation();
     };
+    const planrunOw = document.getElementById("planrun-overwrite");
+    if (planrunOw) planrunOw.addEventListener("change", syncPlanRunDrUi);
+    document.querySelectorAll('input[name="planrun-kind"]').forEach((el) => {
+      el.addEventListener("change", () => {
+        syncPlanRunKindUi();
+        applyPlanRunGuestFromLocation();
+      });
+    });
 
     document.getElementById("btn-planrun-cancel").onclick = () =>
       document.getElementById("planrun-modal").classList.remove("show");
@@ -2715,7 +3992,8 @@
     document.getElementById("btn-planrun-confirm").onclick = async () => {
       const planId = document.getElementById("planrun-plan-id").value;
       const isDr = resolvePlanRunLocationMode() === "dr";
-      const drill = document.getElementById("planrun-drill").checked;
+      const drill = isPlanRunDrill();
+      document.getElementById("planrun-drill").checked = drill;
       if (isDr && !document.getElementById("planrun-confirm-dr").checked) {
         banner(document.getElementById("global-banner"), "err", "Confirm DR restore before running.");
         return;
@@ -2726,6 +4004,10 @@
         !document.getElementById("planrun-allow-unverified").checked
       ) {
         banner(document.getElementById("global-banner"), "err", "Plan is not VERIFIED; check Allow unverified or run Check first.");
+        return;
+      }
+      if (isDr && document.getElementById("planrun-overwrite").checked && !document.getElementById("planrun-confirm-overwrite").checked) {
+        banner(document.getElementById("global-banner"), "err", "Confirm reclaim before running.");
         return;
       }
       if (isDr && !confirm("DR plan run will restore with source VMIDs/MACs/UUIDs. Continue?")) {
@@ -2742,6 +4024,9 @@
         qga_wait_sec: pq.qga_wait_sec,
         allow_unverified: document.getElementById("planrun-allow-unverified").checked,
         confirm_dr: isDr,
+        overwrite: document.getElementById("planrun-overwrite").checked,
+        confirm_overwrite: document.getElementById("planrun-confirm-overwrite").checked,
+        allow_non_isolated: document.getElementById("planrun-allow-non-isolated").checked,
       };
       try {
         const run = await api("/api/plans/" + encodeURIComponent(planId) + "/run", {
@@ -2853,10 +4138,25 @@
       }
     }
 
+    function pollActiveRunsView() {
+      const onAssurance = document.getElementById("nav-assurance") &&
+        document.getElementById("nav-assurance").classList.contains("active");
+      const onCompliance = document.getElementById("nav-compliance") &&
+        document.getElementById("nav-compliance").classList.contains("active");
+      if (onAssurance) {
+        loadAssuranceDashboard();
+        loadAssuranceDrillRuns();
+      } else if (onCompliance) {
+        loadCompliancePage();
+      } else {
+        loadPlanRuns();
+      }
+    }
+
     function startPlanRunsPoll() {
       stopPlanRunsPoll();
-      loadPlanRuns();
-      planRunsPollTimer = setInterval(loadPlanRuns, 5000);
+      pollActiveRunsView();
+      planRunsPollTimer = setInterval(pollActiveRunsView, 5000);
     }
 
     function stopPlanRunsPoll() {

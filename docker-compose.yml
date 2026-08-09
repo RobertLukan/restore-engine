@@ -76,7 +76,17 @@ services:
       RESTORE_ENGINE_CONFIG: /app/config.docker.yaml
     command: ["python", "worker.py"]
     healthcheck:
-      disable: true
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import os,sys,yaml,redis; p=os.environ.get('RESTORE_ENGINE_CONFIG','/app/config.docker.yaml'); cfg=yaml.safe_load(open(p)); r=redis.from_url(cfg['redis']['url'], decode_responses=True); k=(cfg.get('redis') or {}).get('worker_heartbeat_key','restore:worker:heartbeat'); sys.exit(0 if r.get(k) else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
     volumes:
       - ./config.docker.yaml:/app/config.docker.yaml
 

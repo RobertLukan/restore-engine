@@ -11,7 +11,7 @@ from typing import Any
 
 import redis
 import yaml
-from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -32,6 +32,7 @@ from progress_parse import safe_float, safe_int
 from queue_control import collect_job_stats, drain_pending_jobs, set_queue_paused
 from states import PlanRunStatus, PlanVerification, RestoreState
 from ui import require_ui_session, router as ui_router
+
 
 _cfg_path_override = (os.environ.get("RESTORE_ENGINE_CONFIG") or "").strip()
 CONFIG_PATH = (
@@ -171,6 +172,10 @@ def _enqueue_restores(
     plan_group_index: int | None = None,
     power_on: bool = False,
     qga_wait_sec: int = 0,
+    network_mode: str = "none",
+    lab_bridge: str = "",
+    overwrite: bool = False,
+    http_check_url: str = "",
 ) -> dict[str, Any]:
     """API wrapper around jobs.enqueue_restores (maps errors to HTTP)."""
     try:
@@ -190,6 +195,10 @@ def _enqueue_restores(
             plan_group_index=plan_group_index,
             power_on=power_on,
             qga_wait_sec=qga_wait_sec,
+            network_mode=network_mode,
+            lab_bridge=lab_bridge,
+            overwrite=overwrite,
+            http_check_url=http_check_url,
         )
     except RuntimeError as exc:
         msg = str(exc)
@@ -205,6 +214,52 @@ class BackupItem(BaseModel):
     datastore: str
 
 
+def _normalize_net_mode(raw: str | None) -> str:
+    mode = (raw or "none").strip().lower()
+    return mode if mode in {"none", "unlink", "remap"} else "none"
+
+
+def _assert_overwrite_confirm(*, overwrite: bool, confirm_overwrite: bool, restore_mode: str) -> None:
+    if not overwrite:
+        return
+    if (restore_mode or "").strip().lower() != "dr":
+        raise HTTPException(status_code=400, detail="overwrite is only valid with restore_mode=dr")
+    if not confirm_overwrite:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "DR overwrite requires confirm_overwrite=true. "
+                "Only guests previously restored by restore-engine can be reclaimed; "
+                "foreign VMs/LXCs are never deleted."
+            ),
+        )
+
+
+def _assert_power_on_isolation(
+    *,
+    power_on: bool,
+    qga_wait_sec: int,
+    live_restore: bool,
+    network_mode: str,
+    isolated: bool = False,
+    allow_non_isolated: bool = False,
+) -> None:
+    wants_boot = bool(power_on) or int(qga_wait_sec or 0) > 0 or bool(live_restore)
+    if not wants_boot or allow_non_isolated:
+        return
+    net = _normalize_net_mode(network_mode)
+    if isolated or net in {"unlink", "remap"}:
+        return
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            "Power-on / live-restore / QGA require network isolation "
+            "(network_mode=unlink|remap or an isolated location), "
+            "or pass allow_non_isolated=true"
+        ),
+    )
+
+
 class RestoreSelectedRequest(BaseModel):
     backup_ids: list[str] = Field(min_length=1)
     proxmox_node: str | None = None
@@ -217,6 +272,12 @@ class RestoreSelectedRequest(BaseModel):
     restore_mode: str = Field(default="normal")  # normal | dr
     power_on: bool = False
     qga_wait_sec: int = Field(default=0, ge=0, le=3600)
+    network_mode: str = Field(default="none")
+    lab_bridge: str = ""
+    overwrite: bool = False
+    http_check_url: str = ""
+    confirm_overwrite: bool = False
+    allow_non_isolated: bool = False
 
 
 class JobRecord(BaseModel):
@@ -236,6 +297,11 @@ class JobRecord(BaseModel):
     qga_wait_sec: int = 0
     qga_ok: str = ""
     qga_waited_sec: str = ""
+    network_mode: str = "none"
+    lab_bridge: str = ""
+    overwrite: bool = False
+    http_check_url: str = ""
+    http_check_ok: str = ""
     progress: int = 0
     error: str = ""
     created_at: str = ""
@@ -263,7 +329,7 @@ api = APIRouter(prefix="/api", tags=["api"], dependencies=[Depends(require_ui_se
 
 
 @api.get("/backups")
-def list_backups() -> list[dict[str, Any]]:
+def list_backups(offset: int = 0, limit: int | None = None) -> Any:
     cfg = load_config()
     rows = list_vm_backups(cfg)
     # Attach tags only if already cached (no PVE calls here; resolve on demand).
@@ -275,7 +341,11 @@ def list_backups() -> list[dict[str, Any]]:
     except Exception:
         for row in rows:
             row.setdefault("tags", None)
-    return rows
+    if limit is None:
+        return rows
+    from job_hygiene import paginate
+
+    return paginate(rows, offset=offset, limit=limit)
 
 
 @api.get("/restore-defaults")
@@ -336,7 +406,7 @@ def _require_storage_selection(
 
 
 @api.post("/jobs/restore-selected")
-def restore_selected(body: RestoreSelectedRequest) -> dict[str, Any]:
+def restore_selected(request: Request, body: RestoreSelectedRequest) -> dict[str, Any]:
     cfg = load_config()
     r = redis_client()
     px = cfg.get("proxmox") or {}
@@ -373,7 +443,20 @@ def restore_selected(body: RestoreSelectedRequest) -> dict[str, Any]:
                 detail=f"Backup {row['backup_id']} has no PVE storage mapping for its PBS source",
             )
 
-    return _enqueue_restores(
+    _assert_overwrite_confirm(
+        overwrite=body.overwrite,
+        confirm_overwrite=body.confirm_overwrite,
+        restore_mode=body.restore_mode,
+    )
+    _assert_power_on_isolation(
+        power_on=body.power_on,
+        qga_wait_sec=body.qga_wait_sec,
+        live_restore=body.live_restore,
+        network_mode=body.network_mode,
+        allow_non_isolated=body.allow_non_isolated,
+    )
+
+    result = _enqueue_restores(
         r,
         cfg,
         ordered,
@@ -386,7 +469,28 @@ def restore_selected(body: RestoreSelectedRequest) -> dict[str, Any]:
         restore_mode=body.restore_mode,
         power_on=body.power_on,
         qga_wait_sec=body.qga_wait_sec,
+        network_mode=body.network_mode,
+        lab_bridge=body.lab_bridge,
+        overwrite=body.overwrite,
+        http_check_url=body.http_check_url,
     )
+    _audit_action(
+        request,
+        "restore.enqueue",
+        {"enqueued": result.get("enqueued"), "mode": body.restore_mode, "overwrite": body.overwrite},
+    )
+    return result
+
+
+def _audit_action(request: Request, action: str, detail: dict[str, Any] | None = None) -> None:
+    try:
+        import audit as audit_module
+
+        cfg = load_config()
+        actor = getattr(request.state, "auth_actor", None) or "ui"
+        audit_module.append_audit(redis_client(), cfg, action=action, actor=str(actor), detail=detail or {})
+    except Exception:
+        pass
 
 
 class ResolveTagsRequest(BaseModel):
@@ -424,6 +528,12 @@ class RestoreTagGroupRequest(BaseModel):
     restore_mode: str = Field(default="normal")
     power_on: bool = False
     qga_wait_sec: int = Field(default=0, ge=0, le=3600)
+    network_mode: str = Field(default="none")
+    lab_bridge: str = ""
+    overwrite: bool = False
+    http_check_url: str = ""
+    confirm_overwrite: bool = False
+    allow_non_isolated: bool = False
 
 def _latest_per_vmid(rows: list[dict[str, Any]], cutoff: str) -> list[dict[str, Any]]:
     """Pick the newest snapshot per VMID whose timestamp is <= cutoff."""
@@ -470,6 +580,19 @@ def restore_tag_group(body: RestoreTagGroupRequest) -> dict[str, Any]:
     if not selected:
         return {"enqueued": 0, "job_ids": [], "proxmox_vmids_assigned": [], "matched_vmids": []}
 
+    _assert_overwrite_confirm(
+        overwrite=body.overwrite,
+        confirm_overwrite=body.confirm_overwrite,
+        restore_mode=body.restore_mode,
+    )
+    _assert_power_on_isolation(
+        power_on=body.power_on,
+        qga_wait_sec=body.qga_wait_sec,
+        live_restore=body.live_restore,
+        network_mode=body.network_mode,
+        allow_non_isolated=body.allow_non_isolated,
+    )
+
     selected.sort(key=lambda row: row["vmid"])
     result = _enqueue_restores(
         r,
@@ -484,6 +607,10 @@ def restore_tag_group(body: RestoreTagGroupRequest) -> dict[str, Any]:
         restore_mode=body.restore_mode,
         power_on=body.power_on,
         qga_wait_sec=body.qga_wait_sec,
+        network_mode=body.network_mode,
+        lab_bridge=body.lab_bridge,
+        overwrite=body.overwrite,
+        http_check_url=body.http_check_url,
     )
     result["matched_vmids"] = [row["vmid"] for row in selected]
     return result
@@ -511,6 +638,10 @@ class LocationUpsert(BaseModel):
     restore_mode: str = Field(default="normal")
     power_on: bool = False
     qga_wait_sec: int = Field(default=0, ge=0, le=3600)
+    network_mode: str = Field(default="none")
+    lab_bridge: str = ""
+    isolated: bool = False
+    http_check_url: str = ""
 
 
 class PlanUpsert(BaseModel):
@@ -519,6 +650,30 @@ class PlanUpsert(BaseModel):
     location_id: str = Field(min_length=1)
     halt_on_error: bool = True
     enabled: bool = True
+    schedule_enabled: bool = False
+    schedule_interval_hours: int = Field(default=0, ge=0)
+    schedule_drill: bool = True
+    assurance_enabled: bool = False
+    assurance_require_qga: bool = False
+    assurance_require_http: bool = False
+    assurance_max_rto_sec: int = Field(default=0, ge=0)
+
+
+class PlanUpdate(BaseModel):
+    """Partial plan update (Assurance tab can PATCH policy fields alone)."""
+
+    name: str | None = Field(default=None, min_length=1)
+    group_ids: list[str] | None = Field(default=None, min_length=1)
+    location_id: str | None = Field(default=None, min_length=1)
+    halt_on_error: bool | None = None
+    enabled: bool | None = None
+    schedule_enabled: bool | None = None
+    schedule_interval_hours: int | None = Field(default=None, ge=0)
+    schedule_drill: bool | None = None
+    assurance_enabled: bool | None = None
+    assurance_require_qga: bool | None = None
+    assurance_require_http: bool | None = None
+    assurance_max_rto_sec: int | None = Field(default=None, ge=0)
 
 
 class PlanRunRequest(BaseModel):
@@ -531,6 +686,9 @@ class PlanRunRequest(BaseModel):
     qga_wait_sec: int = Field(default=0, ge=0, le=3600)
     allow_unverified: bool = False
     confirm_dr: bool = False
+    overwrite: bool = False
+    confirm_overwrite: bool = False
+    allow_non_isolated: bool = False
 
 
 class PlanTeardownRequest(BaseModel):
@@ -662,16 +820,21 @@ def api_get_plan(plan_id: str) -> dict[str, Any]:
 
 
 @api.put("/plans/{plan_id}")
-def api_update_plan(plan_id: str, body: PlanUpsert) -> dict[str, Any]:
+def api_update_plan(plan_id: str, body: PlanUpdate) -> dict[str, Any]:
     cfg = load_config()
     r = redis_client()
-    for gid in body.group_ids:
-        if not plans_module.get_group(r, cfg, gid):
-            raise HTTPException(status_code=400, detail=f"Unknown group_id: {gid}")
-    if not plans_module.get_location(r, cfg, body.location_id):
-        raise HTTPException(status_code=400, detail=f"Unknown location_id: {body.location_id}")
+    payload = body.model_dump(exclude_unset=True)
+    if not payload:
+        raise HTTPException(status_code=400, detail="No plan fields to update")
+    if "group_ids" in payload:
+        for gid in payload["group_ids"] or []:
+            if not plans_module.get_group(r, cfg, gid):
+                raise HTTPException(status_code=400, detail=f"Unknown group_id: {gid}")
+    if "location_id" in payload:
+        if not plans_module.get_location(r, cfg, payload["location_id"]):
+            raise HTTPException(status_code=400, detail=f"Unknown location_id: {payload['location_id']}")
     try:
-        return plans_module.update_plan(r, cfg, plan_id, body.model_dump())
+        return plans_module.update_plan(r, cfg, plan_id, payload)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Plan not found") from exc
     except ValueError as exc:
@@ -739,7 +902,7 @@ def _resolve_plan_group_rows(
 
 
 @api.post("/plans/{plan_id}/run")
-def api_run_plan(plan_id: str, body: PlanRunRequest) -> dict[str, Any]:
+def api_run_plan(plan_id: str, request: Request, body: PlanRunRequest) -> dict[str, Any]:
     cfg = load_config()
     r = redis_client()
     plan = plans_module.get_plan(r, cfg, plan_id)
@@ -766,6 +929,30 @@ def api_run_plan(plan_id: str, body: PlanRunRequest) -> dict[str, Any]:
             status_code=400,
             detail="DR location requires confirm_dr=true (keeps source VMIDs/MACs/UUIDs)",
         )
+    _assert_overwrite_confirm(
+        overwrite=body.overwrite,
+        confirm_overwrite=body.confirm_overwrite,
+        restore_mode=restore_mode,
+    )
+    net_mode = str(location.get("network_mode") or "none")
+    drill = bool(body.drill)
+    # Location power_on is a recovery default; drills ignore it unless the run opts in.
+    wants_power = bool(body.power_on) or (
+        (not drill) and bool(location.get("power_on"))
+    )
+    # Drill default is powered-off; isolation gate only when something will boot.
+    live = bool(location.get("live_restore", False)) and not drill and (
+        body.powered_off is not True
+    )
+    if wants_power or live or int(body.qga_wait_sec or 0) > 0:
+        _assert_power_on_isolation(
+            power_on=wants_power,
+            qga_wait_sec=int(body.qga_wait_sec or location.get("qga_wait_sec") or 0),
+            live_restore=live,
+            network_mode=net_mode,
+            isolated=bool(location.get("isolated")),
+            allow_non_isolated=body.allow_non_isolated,
+        )
 
     cutoff = normalize_cutoff(body.at_or_before)
     group_rows = _resolve_plan_group_rows(cfg, plan, cutoff=cutoff, node=location["node"])
@@ -781,16 +968,22 @@ def api_run_plan(plan_id: str, body: PlanRunRequest) -> dict[str, Any]:
             cutoff=cutoff,
             group_rows=group_rows,
             enqueue_fn=_enqueue_restores,
-            drill=bool(body.drill),
+            drill=drill,
             auto_teardown=bool(body.auto_teardown),
             powered_off=body.powered_off,
             power_on=bool(body.power_on),
             qga_wait_sec=int(body.qga_wait_sec or 0),
+            overwrite=bool(body.overwrite),
         )
     except ValueError as exc:
         raise _http_value_error(exc) from exc
     except HTTPException:
         raise
+    _audit_action(
+        request,
+        "plan.run",
+        {"plan_id": plan_id, "run_id": run.get("id"), "drill": drill, "overwrite": body.overwrite},
+    )
     return plans_module.aggregate_plan_run(r, cfg, run, job_key_fn=job_key)
 
 
@@ -899,6 +1092,116 @@ def api_download_report(report_id: str, format: str = "md") -> Response:
     )
 
 
+class PlanAssureRequest(BaseModel):
+    at_or_before: str | None = None
+    allow_unverified: bool = False
+    confirm_dr: bool = False
+    allow_non_isolated: bool = False
+    overwrite: bool = False
+    confirm_overwrite: bool = False
+
+
+@api.post("/plans/{plan_id}/assure")
+def api_assure_plan(plan_id: str, request: Request, body: PlanAssureRequest | None = None) -> dict[str, Any]:
+    """Start an assurance drill (powered-off by default; QGA/HTTP when policy requires)."""
+    body = body or PlanAssureRequest()
+    cfg = load_config()
+    r = redis_client()
+    plan = plans_module.get_plan(r, cfg, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    if not plan.get("enabled", True):
+        raise HTTPException(status_code=400, detail="Plan is disabled")
+    if not plan.get("assurance_enabled"):
+        raise HTTPException(status_code=400, detail="Enable assurance on the plan first")
+
+    if plans_module.require_verified_to_run(cfg):
+        if plan.get("verification") != PlanVerification.VERIFIED.value and not body.allow_unverified:
+            raise HTTPException(
+                status_code=400,
+                detail="Plan is not VERIFIED; run Check first or pass allow_unverified=true",
+            )
+
+    location = plans_module.get_location(r, cfg, str(plan.get("location_id") or ""))
+    if not location:
+        raise HTTPException(status_code=400, detail="Plan location not found")
+
+    restore_mode = str(location.get("restore_mode") or "normal").strip().lower()
+    if restore_mode == "dr" and not body.confirm_dr:
+        raise HTTPException(
+            status_code=400,
+            detail="DR location requires confirm_dr=true for assurance runs",
+        )
+    _assert_overwrite_confirm(
+        overwrite=body.overwrite,
+        confirm_overwrite=body.confirm_overwrite,
+        restore_mode=restore_mode,
+    )
+
+    need_qga = bool(plan.get("assurance_require_qga"))
+    need_http = bool(plan.get("assurance_require_http"))
+    if need_http and not str(location.get("http_check_url") or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="assurance_require_http is set but location has no http_check_url",
+        )
+
+    qga_sec = 0
+    power_on = False
+    if need_qga or need_http:
+        power_on = True
+        try:
+            qga_sec = max(0, int(location.get("qga_wait_sec") or 0))
+        except (TypeError, ValueError):
+            qga_sec = 0
+        if qga_sec <= 0:
+            worker_cfg = cfg.get("worker") or {}
+            qga_sec = max(30, int(worker_cfg.get("qga_wait_sec_default", 120) or 120))
+
+    net_mode = str(location.get("network_mode") or "none")
+    if power_on:
+        _assert_power_on_isolation(
+            power_on=True,
+            qga_wait_sec=qga_sec,
+            live_restore=False,
+            network_mode=net_mode,
+            isolated=bool(location.get("isolated")),
+            allow_non_isolated=body.allow_non_isolated,
+        )
+
+    cutoff = normalize_cutoff(body.at_or_before)
+    group_rows = _resolve_plan_group_rows(cfg, plan, cutoff=cutoff, node=location["node"])
+    if not any(group_rows):
+        raise HTTPException(status_code=400, detail="Plan resolved to zero backups at this point in time")
+
+    try:
+        run = plans_module.start_plan_run(
+            r,
+            cfg,
+            plan=plan,
+            location=location,
+            cutoff=cutoff,
+            group_rows=group_rows,
+            enqueue_fn=_enqueue_restores,
+            drill=True,
+            auto_teardown=True,
+            powered_off=not power_on,
+            power_on=power_on,
+            qga_wait_sec=qga_sec,
+            overwrite=bool(body.overwrite),
+        )
+    except ValueError as exc:
+        raise _http_value_error(exc) from exc
+    _audit_action(request, "plan.assure", {"plan_id": plan_id, "run_id": run.get("id")})
+    return plans_module.aggregate_plan_run(r, cfg, run, job_key_fn=job_key)
+
+
+@api.get("/assurance/dashboard")
+def api_assurance_dashboard() -> dict[str, Any]:
+    cfg = load_config()
+    return plans_module.assurance_dashboard(redis_client(), cfg)
+
+
 @api.get("/compliance/dashboard")
 def api_compliance_dashboard() -> dict[str, Any]:
     import reports as reports_module
@@ -940,6 +1243,11 @@ def _hash_to_record(data: dict[str, str]) -> JobRecord:
         qga_wait_sec=safe_int(data.get("qga_wait_sec"), 0),
         qga_ok=data.get("qga_ok", ""),
         qga_waited_sec=data.get("qga_waited_sec", ""),
+        network_mode=(data.get("network_mode") or "none").strip().lower() or "none",
+        lab_bridge=data.get("lab_bridge", ""),
+        overwrite=data.get("overwrite", "0") == "1",
+        http_check_url=data.get("http_check_url", ""),
+        http_check_ok=data.get("http_check_ok", ""),
         progress=safe_int(data.get("progress"), 0),
         error=data.get("error", ""),
         created_at=data.get("created_at", ""),
@@ -1003,22 +1311,27 @@ def queue_stop() -> dict[str, Any]:
     return stats
 
 
-@api.get("/jobs", response_model=list[JobRecord])
-def list_jobs(state: str | None = None) -> list[JobRecord]:
+@api.get("/jobs")
+def list_jobs(state: str | None = None, offset: int = 0, limit: int = 100) -> dict[str, Any]:
+    from job_hygiene import collect_jobs, paginate
+
     cfg = load_config()
     r = redis_client()
-    prefix = cfg["redis"]["job_key_prefix"]
-    out: list[JobRecord] = []
-    for key in r.scan_iter(f"{prefix}*", count=100):
-        if key.endswith(cfg["redis"]["job_log_suffix"]):
-            continue
-        data = r.hgetall(key)
-        if not data:
-            continue
-        rec = _hash_to_record(data)
-        if state is None or rec.state == state:
-            out.append(rec)
-    return sorted(out, key=lambda job: job.created_at or "")
+    all_jobs = collect_jobs(r, cfg, state=state, record_fn=_hash_to_record)
+    page = paginate(all_jobs, offset=offset, limit=limit)
+    # Serialize JobRecord models for JSON.
+    page["items"] = [j.model_dump() if hasattr(j, "model_dump") else j for j in page["items"]]
+    return page
+
+
+@api.get("/audit")
+def list_audit_log(offset: int = 0, limit: int = 100) -> dict[str, Any]:
+    import audit as audit_module
+
+    cfg = load_config()
+    r = redis_client()
+    items = audit_module.list_audit(r, cfg, offset=offset, limit=limit)
+    return {"items": items, "offset": offset, "limit": limit}
 
 
 @api.get("/jobs/{job_id}", response_model=JobRecord)

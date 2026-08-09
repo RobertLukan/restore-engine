@@ -17,7 +17,7 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY main.py worker.py ui.py states.py pbs_client.py pve_client.py sources.py plans.py jobs.py progress_parse.py queue_control.py pbs_wire.py reports.py ./
+COPY main.py worker.py ui.py states.py pbs_client.py pve_client.py sources.py plans.py jobs.py progress_parse.py queue_control.py pbs_wire.py reports.py notifications.py concurrency.py audit.py job_hygiene.py ./
 COPY static/ ./static/
 COPY config.docker.example.yaml /app/config.docker.yaml
 

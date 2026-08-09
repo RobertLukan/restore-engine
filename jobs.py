@@ -13,6 +13,10 @@ from pve_client import (
     archive_path,
     assign_nodes_least_loaded,
     connect_proxmox,
+    destroy_owned_qemu_vm,
+    find_guest_resource,
+    find_qemu_node,
+    qemu_is_managed_by_tool,
     qemu_vmids_in_use_cluster,
     resolve_storage_for_node,
 )
@@ -63,12 +67,18 @@ def enqueue_restores(
     plan_group_index: int | None = None,
     power_on: bool = False,
     qga_wait_sec: int = 0,
+    network_mode: str = "none",
+    lab_bridge: str = "",
+    overwrite: bool = False,
+    http_check_url: str = "",
 ) -> dict[str, Any]:
     """Allocate target VMIDs and enqueue one restore job per row.
 
     ``restore_mode``:
       - ``normal``: allocate free cluster VMIDs from ``vmid_start``; unique MAC/UUID.
-      - ``dr``: use each backup's source VMID; keep MAC/UUID; fail if VMID is in use.
+      - ``dr``: use each backup's source VMID; keep MAC/UUID; fail if VMID is in use
+        unless ``overwrite`` is True *and* the existing QEMU was provisioned by
+        restore-engine (foreign VMs/LXCs are never destroyed).
 
     ``power_on`` starts the guest after restore (live-restore already boots early).
     ``qga_wait_sec`` > 0 waits for QEMU guest agent ping after the guest is up;
@@ -118,7 +128,7 @@ def enqueue_restores(
     try:
         in_use = qemu_vmids_in_use_cluster(proxmox)
     except Exception as exc:
-        raise RuntimeError(f"Cannot list QEMU VMIDs in Proxmox cluster: {exc}") from exc
+        raise RuntimeError(f"Cannot list guest VMIDs in Proxmox cluster: {exc}") from exc
 
     if mode == "dr":
         allocated_ids: list[int] = []
@@ -135,13 +145,16 @@ def enqueue_restores(
                 )
             seen.add(src_vmid)
             if src_vmid in in_use:
-                raise RuntimeError(
-                    f"DR restore failed: VMID {src_vmid} already exists on the Proxmox cluster. "
-                    "Remove or stop that VM first, or use Normal restore to assign a new VMID."
-                )
+                if not overwrite:
+                    raise RuntimeError(
+                        f"DR restore failed: VMID {src_vmid} already exists on the Proxmox cluster "
+                        "(QEMU or LXC). Remove that guest manually in Proxmox, or use Normal restore "
+                        "to assign a new VMID. Overwrite only reclaims guests previously restored "
+                        "by restore-engine."
+                    )
             allocated_ids.append(src_vmid)
         unique_flag = False
-        force_flag = False
+        force_flag = bool(overwrite)
     else:
         try:
             allocated_ids, _ = allocate_sequential_free_vmids(set(in_use), vmid_start, len(rows))
@@ -156,6 +169,37 @@ def enqueue_restores(
         resolve_storage_for_node(n, storage_by_node=by_node, default_storage=default_storage)
         for n in node_for_row
     ]
+
+    if mode == "dr" and overwrite:
+        for vmid in allocated_ids:
+            if int(vmid) not in in_use:
+                continue
+            guest = find_guest_resource(proxmox, int(vmid))
+            gtype = (guest or {}).get("type") or ""
+            if gtype == "lxc":
+                raise RuntimeError(
+                    f"DR overwrite refused: VMID {vmid} is an LXC container. "
+                    "restore-engine never deletes LXCs. Move/remove it in Proxmox or use Normal restore."
+                )
+            node = (guest or {}).get("node") or find_qemu_node(proxmox, int(vmid)) or (
+                candidates[0] if candidates else ""
+            )
+            if not node:
+                raise RuntimeError(f"Cannot overwrite VMID {vmid}: node unknown")
+            if not qemu_is_managed_by_tool(proxmox, node, int(vmid)):
+                raise RuntimeError(
+                    f"DR overwrite refused: VMID {vmid} on {node} was not provisioned by "
+                    "restore-engine. Foreign VMs are never deleted by this tool — remove it "
+                    "manually in Proxmox (or leave the slot empty), then retry."
+                )
+            try:
+                destroy_owned_qemu_vm(proxmox, node, int(vmid))
+            except Exception as exc:
+                raise RuntimeError(f"DR overwrite failed destroying managed VMID {vmid}: {exc}") from exc
+
+    net_mode = (network_mode or "none").strip().lower() or "none"
+    if net_mode not in {"none", "unlink", "remap"}:
+        net_mode = "none"
 
     job_ids: list[str] = []
     for row, target_vmid, target_node, target_store in zip(
@@ -184,6 +228,11 @@ def enqueue_restores(
             "qga_wait_sec": str(qga_sec),
             "qga_ok": "",
             "qga_waited_sec": "",
+            "network_mode": net_mode,
+            "lab_bridge": str(lab_bridge or "").strip(),
+            "overwrite": "1" if overwrite else "0",
+            "http_check_url": str(http_check_url or "").strip(),
+            "http_check_ok": "",
             "bwlimit": str(int(bwlimit or 0)),
             "restore_mode": mode,
             "unique": "1" if unique_flag else "0",

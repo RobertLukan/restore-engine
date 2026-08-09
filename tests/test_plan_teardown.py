@@ -50,6 +50,8 @@ def _seed_run(r: FakeRedis, *, status: str = PlanRunStatus.COMPLETED.value, dril
                 "proxmox_vmid": str(vmid),
                 "proxmox_node": "pve1",
                 "plan_run_id": "run-1",
+                "pve_upid": "UPID:pve1:1:1:1:qmrestore:" + str(vmid) + ":",
+                "managed_marked": "1",
             },
         )
     return run

@@ -93,6 +93,53 @@ def test_enqueue_dr_fails_when_vmid_in_use(monkeypatch: pytest.MonkeyPatch) -> N
         )
 
 
+def test_enqueue_dr_overwrite_refuses_lxc(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("jobs.connect_proxmox", lambda cfg: object())
+    monkeypatch.setattr("jobs.qemu_vmids_in_use_cluster", lambda px: {109})
+    monkeypatch.setattr(
+        "jobs.find_guest_resource",
+        lambda px, vmid: {"type": "lxc", "node": "pve", "vmid": int(vmid)},
+    )
+    r = FakeRedis()
+    with pytest.raises(RuntimeError, match="LXC container"):
+        enqueue_restores(
+            r,  # type: ignore[arg-type]
+            CFG,
+            [_row(109)],
+            nodes=["pve"],
+            target_storage="local-lvm",
+            vmid_start=100,
+            live_restore=False,
+            bwlimit=0,
+            restore_mode="dr",
+            overwrite=True,
+        )
+
+
+def test_enqueue_dr_overwrite_refuses_foreign(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("jobs.connect_proxmox", lambda cfg: object())
+    monkeypatch.setattr("jobs.qemu_vmids_in_use_cluster", lambda px: {109})
+    monkeypatch.setattr(
+        "jobs.find_guest_resource",
+        lambda px, vmid: {"type": "qemu", "node": "pve", "vmid": int(vmid)},
+    )
+    monkeypatch.setattr("jobs.qemu_is_managed_by_tool", lambda px, node, vmid: False)
+    r = FakeRedis()
+    with pytest.raises(RuntimeError, match="not provisioned by restore-engine"):
+        enqueue_restores(
+            r,  # type: ignore[arg-type]
+            CFG,
+            [_row(109)],
+            nodes=["pve"],
+            target_storage="local-lvm",
+            vmid_start=100,
+            live_restore=False,
+            bwlimit=0,
+            restore_mode="dr",
+            overwrite=True,
+        )
+
+
 def test_enqueue_dr_rejects_duplicate_source_vmids(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("jobs.connect_proxmox", lambda cfg: object())
     monkeypatch.setattr("jobs.qemu_vmids_in_use_cluster", lambda px: set())

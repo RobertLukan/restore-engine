@@ -9,7 +9,7 @@ from typing import Any, Callable
 
 import redis
 
-from states import PlanRunStatus, PlanVerification, RestoreState
+from states import PlanAssurance, PlanRunStatus, PlanVerification, RestoreState
 
 TERMINAL_JOB_STATES = {
     RestoreState.COMPLETED.value,
@@ -23,6 +23,13 @@ def _safe_qga_sec(raw: Any) -> int:
         return max(0, min(3600, int(raw or 0)))
     except (TypeError, ValueError):
         return 0
+
+
+def _normalize_network_mode(raw: Any) -> str:
+    mode = str(raw or "none").strip().lower()
+    if mode not in {"none", "unlink", "remap"}:
+        return "none"
+    return mode
 
 
 def utc_now_iso() -> str:
@@ -234,7 +241,7 @@ def normalize_location(payload: dict[str, Any], *, location_id: str | None = Non
     storage = storage_by_node.get(node) or storage
     if not storage:
         raise ValueError("storage is required")
-    return {
+    data = {
         "id": location_id or str(uuid.uuid4()),
         "name": name,
         "node": node,
@@ -247,9 +254,17 @@ def normalize_location(payload: dict[str, Any], *, location_id: str | None = Non
         "restore_mode": mode,
         "power_on": bool(payload.get("power_on", False)),
         "qga_wait_sec": _safe_qga_sec(payload.get("qga_wait_sec")),
+        "network_mode": _normalize_network_mode(payload.get("network_mode")),
+        "lab_bridge": str(payload.get("lab_bridge") or "").strip(),
+        "isolated": bool(payload.get("isolated", False))
+        or _normalize_network_mode(payload.get("network_mode")) in {"unlink", "remap"},
+        "http_check_url": str(payload.get("http_check_url") or "").strip(),
         "created_at": payload.get("created_at") or "",
         "updated_at": payload.get("updated_at") or "",
     }
+    if data["network_mode"] == "remap" and not data["lab_bridge"]:
+        raise ValueError("lab_bridge is required when network_mode=remap")
+    return data
 
 
 def create_location(r: redis.Redis, cfg: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
@@ -299,6 +314,18 @@ def normalize_plan(payload: dict[str, Any], *, plan_id: str | None = None) -> di
     verification = (payload.get("verification") or PlanVerification.NOT_VERIFIED.value).strip()
     if verification not in {v.value for v in PlanVerification}:
         raise ValueError(f"invalid verification: {verification}")
+    assurance_status = (payload.get("assurance_status") or PlanAssurance.UNKNOWN.value).strip()
+    if assurance_status not in {v.value for v in PlanAssurance}:
+        assurance_status = PlanAssurance.UNKNOWN.value
+    try:
+        max_rto = max(0, int(payload.get("assurance_max_rto_sec") or 0))
+    except (TypeError, ValueError):
+        max_rto = 0
+    try:
+        last_rto = payload.get("assurance_last_rto_sec")
+        last_rto_sec = int(last_rto) if last_rto not in (None, "") else None
+    except (TypeError, ValueError):
+        last_rto_sec = None
     return {
         "id": plan_id or str(uuid.uuid4()),
         "name": name,
@@ -307,9 +334,24 @@ def normalize_plan(payload: dict[str, Any], *, plan_id: str | None = None) -> di
         "halt_on_error": bool(payload.get("halt_on_error", True)),
         "enabled": bool(payload.get("enabled", True)),
         "verification": verification,
+        "schedule_enabled": bool(payload.get("schedule_enabled", False)),
+        "schedule_interval_hours": max(0, int(payload.get("schedule_interval_hours") or 0)),
+        "schedule_drill": bool(payload.get("schedule_drill", True)),
+        "last_scheduled_run_at": payload.get("last_scheduled_run_at") or "",
+        "assurance_enabled": bool(payload.get("assurance_enabled", False)),
+        "assurance_require_qga": bool(payload.get("assurance_require_qga", False)),
+        "assurance_require_http": bool(payload.get("assurance_require_http", False)),
+        "assurance_max_rto_sec": max_rto,
+        "assurance_status": assurance_status,
+        "assurance_updated_at": payload.get("assurance_updated_at") or "",
+        "assurance_last_run_id": payload.get("assurance_last_run_id") or "",
+        "assurance_last_rto_sec": last_rto_sec,
+        "assurance_detail": str(payload.get("assurance_detail") or ""),
         "last_check_at": payload.get("last_check_at") or "",
         "last_run_at": payload.get("last_run_at") or "",
         "last_check": payload.get("last_check") if isinstance(payload.get("last_check"), dict) else {},
+        "last_run_report_id": payload.get("last_run_report_id") or "",
+        "last_check_report_id": payload.get("last_check_report_id") or "",
         "created_at": payload.get("created_at") or "",
         "updated_at": payload.get("updated_at") or "",
     }
@@ -339,6 +381,19 @@ def update_plan(r: redis.Redis, cfg: dict[str, Any], plan_id: str, payload: dict
     data["created_at"] = existing.get("created_at") or ""
     data["last_check_at"] = merged.get("last_check_at") or existing.get("last_check_at") or ""
     data["last_run_at"] = merged.get("last_run_at") or existing.get("last_run_at") or ""
+    data["last_scheduled_run_at"] = merged.get("last_scheduled_run_at") or existing.get("last_scheduled_run_at") or ""
+    data["last_run_report_id"] = merged.get("last_run_report_id") or existing.get("last_run_report_id") or ""
+    data["last_check_report_id"] = merged.get("last_check_report_id") or existing.get("last_check_report_id") or ""
+    # Preserve assurance outcomes unless caller explicitly sets them.
+    for key in (
+        "assurance_status",
+        "assurance_updated_at",
+        "assurance_last_run_id",
+        "assurance_last_rto_sec",
+        "assurance_detail",
+    ):
+        if key not in payload and existing.get(key) not in (None, ""):
+            data[key] = existing.get(key)
     if "last_check" in merged and isinstance(merged.get("last_check"), dict):
         data["last_check"] = merged["last_check"]
     elif isinstance(existing.get("last_check"), dict):
@@ -548,6 +603,12 @@ def apply_check_result(
             entity_id=plan["id"],
             data={**saved, "last_check_report_id": rep["id"]},
         )
+    except Exception:
+        pass
+    try:
+        import notifications as notifications_module
+
+        notifications_module.notify_check_result(cfg, plan=saved, check=check)
     except Exception:
         pass
     return saved
@@ -910,6 +971,88 @@ def require_verified_to_run(cfg: dict[str, Any]) -> bool:
     return bool(plans_cfg.get("require_verified_to_run", worker_cfg.get("require_verified_to_run", False)))
 
 
+def plans_due_for_schedule(
+    plans: list[dict[str, Any]],
+    *,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Return enabled plans whose schedule interval has elapsed."""
+    now = now or datetime.now(timezone.utc)
+    due: list[dict[str, Any]] = []
+    for plan in plans:
+        if not plan.get("enabled", True):
+            continue
+        if not plan.get("schedule_enabled"):
+            continue
+        try:
+            hours = float(plan.get("schedule_interval_hours") or 0)
+        except (TypeError, ValueError):
+            hours = 0.0
+        if hours <= 0:
+            continue
+        last = str(plan.get("last_scheduled_run_at") or "").strip()
+        if not last:
+            due.append(plan)
+            continue
+        try:
+            last_dt = datetime.fromisoformat(last.replace("Z", "+00:00"))
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            due.append(plan)
+            continue
+        if (now - last_dt).total_seconds() >= hours * 3600:
+            due.append(plan)
+    return due
+
+
+def tick_scheduled_plan_runs(
+    r: redis.Redis,
+    cfg: dict[str, Any],
+    *,
+    start_fn: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]],
+    now: datetime | None = None,
+    on_error: Callable[[dict[str, Any], BaseException], None] | None = None,
+) -> int:
+    """Start scheduled plan/drill runs that are due. ``start_fn(plan, location) -> run``.
+
+    Returns number of runs started (or attempted after error handling).
+    """
+    now = now or datetime.now(timezone.utc)
+    due = plans_due_for_schedule(list_plans(r, cfg), now=now)
+    started = 0
+    for plan in due:
+        location = get_location(r, cfg, str(plan.get("location_id") or ""))
+        if not location:
+            continue
+        # Skip if this plan already has an active run.
+        active = False
+        for run_id in r.smembers(active_plan_runs_key(cfg)) or []:
+            run = get_plan_run(r, cfg, str(run_id))
+            if run and run.get("plan_id") == plan.get("id") and run.get("status") == PlanRunStatus.RUNNING.value:
+                active = True
+                break
+        if active:
+            continue
+        try:
+            start_fn(plan, location)
+            _save_entity(
+                r,
+                cfg,
+                key=plan_key(cfg, plan["id"]),
+                index=plans_index(cfg),
+                entity_id=plan["id"],
+                data={**plan, "last_scheduled_run_at": utc_now_iso()},
+            )
+            started += 1
+        except Exception as exc:
+            if on_error is not None:
+                on_error(plan, exc)
+            else:
+                raise
+    return started
+
+
 def _record_assigned_targets(run: dict[str, Any], result: dict[str, Any]) -> None:
     """Append VMIDs/nodes from an enqueue result onto the plan run for teardown."""
     targets = list(run.get("assigned_targets") or [])
@@ -944,6 +1087,7 @@ def start_plan_run(
     powered_off: bool | None = None,
     power_on: bool = False,
     qga_wait_sec: int = 0,
+    overwrite: bool = False,
 ) -> dict[str, Any]:
     """Create a plan run and enqueue the first non-empty group.
 
@@ -965,18 +1109,23 @@ def start_plan_run(
         location_nodes = [location["node"]]
     is_drill = bool(drill)
 
-    do_power_on = bool(power_on) or bool(location.get("power_on", False))
+    # Location power_on / qga are defaults for recovery runs only.
+    # Drills stay powered-off unless the run explicitly requests power_on / QGA.
     try:
         qga_sec = max(0, int(qga_wait_sec or 0))
     except (TypeError, ValueError):
         qga_sec = 0
-    if qga_sec <= 0 and do_power_on:
-        try:
-            qga_sec = max(0, int(location.get("qga_wait_sec") or 0))
-        except (TypeError, ValueError):
-            qga_sec = 0
-    if qga_sec > 0:
-        do_power_on = True
+    if is_drill:
+        do_power_on = bool(power_on) or qga_sec > 0
+    else:
+        do_power_on = bool(power_on) or bool(location.get("power_on", False))
+        if qga_sec <= 0 and do_power_on:
+            try:
+                qga_sec = max(0, int(location.get("qga_wait_sec") or 0))
+            except (TypeError, ValueError):
+                qga_sec = 0
+        if qga_sec > 0:
+            do_power_on = True
 
     # Drills default powered-off; explicit power-on wins (isolated env).
     if powered_off is None:
@@ -984,6 +1133,11 @@ def start_plan_run(
     if do_power_on:
         powered_off = False
     live = bool(location.get("live_restore", False)) and not bool(powered_off)
+
+    net_mode = _normalize_network_mode(location.get("network_mode"))
+    lab_bridge = str(location.get("lab_bridge") or "").strip()
+    http_check = str(location.get("http_check_url") or "").strip()
+    do_overwrite = bool(overwrite)
 
     run = {
         "id": run_id,
@@ -1003,6 +1157,10 @@ def start_plan_run(
         "powered_off": bool(powered_off),
         "power_on": do_power_on,
         "qga_wait_sec": qga_sec,
+        "network_mode": net_mode,
+        "lab_bridge": lab_bridge,
+        "http_check_url": http_check,
+        "overwrite": do_overwrite,
         "drill": is_drill,
         "auto_teardown": bool(auto_teardown) and is_drill,
         "restore_mode": str(location.get("restore_mode") or "normal").strip().lower() or "normal",
@@ -1045,6 +1203,10 @@ def start_plan_run(
         plan_group_index=start_idx,
         power_on=do_power_on,
         qga_wait_sec=qga_sec,
+        network_mode=net_mode,
+        lab_bridge=lab_bridge,
+        overwrite=do_overwrite,
+        http_check_url=http_check,
     )
     job_ids_by_group[start_idx] = list(result.get("job_ids") or [])
     run["job_ids_by_group"] = job_ids_by_group
@@ -1152,6 +1314,10 @@ def advance_plan_runs(
                 plan_group_index=idx,
                 power_on=bool(run.get("power_on", False)),
                 qga_wait_sec=int(run.get("qga_wait_sec") or 0),
+                network_mode=str(run.get("network_mode") or "none"),
+                lab_bridge=str(run.get("lab_bridge") or ""),
+                overwrite=bool(run.get("overwrite", False)),
+                http_check_url=str(run.get("http_check_url") or ""),
             )
             job_ids_by_group[idx] = list(result.get("job_ids") or [])
             run["job_ids_by_group"] = job_ids_by_group
@@ -1282,7 +1448,15 @@ def _finalize_plan_run_report(
                 teardown_plan_run(r, cfg, run, job_key_fn=job_key_fn)
             except Exception:
                 pass
-        return run
+        run = get_plan_run(r, cfg, str(run.get("id") or "")) or run
+        try:
+            apply_assurance_from_run(r, cfg, run, job_key_fn=job_key_fn)
+        except Exception:
+            pass
+        run = get_plan_run(r, cfg, str(run.get("id") or "")) or run
+        if not run.get("notification_sent"):
+            _send_plan_run_notification(r, cfg, run, job_key_fn=job_key_fn)
+        return get_plan_run(r, cfg, str(run.get("id") or "")) or run
     try:
         import reports as reports_module
 
@@ -1307,7 +1481,268 @@ def _finalize_plan_run_report(
             teardown_plan_run(r, cfg, run, job_key_fn=job_key_fn)
         except Exception:
             pass
-    return run
+    run = get_plan_run(r, cfg, str(run.get("id") or "")) or run
+    try:
+        apply_assurance_from_run(r, cfg, run, job_key_fn=job_key_fn)
+    except Exception:
+        pass
+    run = get_plan_run(r, cfg, str(run.get("id") or "")) or run
+    if not run.get("notification_sent"):
+        _send_plan_run_notification(r, cfg, run, job_key_fn=job_key_fn)
+    return get_plan_run(r, cfg, str(run.get("id") or "")) or run
+
+
+def _send_plan_run_notification(
+    r: redis.Redis,
+    cfg: dict[str, Any],
+    run: dict[str, Any],
+    *,
+    job_key_fn: Callable | None = None,
+) -> None:
+    try:
+        import notifications as notifications_module
+
+        aggregated = aggregate_plan_run(r, cfg, run, job_key_fn=job_key_fn)
+        notifications_module.notify_plan_run_terminal(cfg, run=aggregated)
+    except Exception:
+        pass
+    try:
+        save_plan_run(r, cfg, {**run, "notification_sent": True})
+    except Exception:
+        pass
+
+
+def evaluate_assurance_policy(
+    plan: dict[str, Any],
+    run: dict[str, Any],
+    jobs: list[dict[str, Any]],
+) -> tuple[str, str, int | None]:
+    """Return (assurance_status, detail, rto_sec) for a finished drill run.
+
+    Non-drill or assurance-disabled plans return UNKNOWN without changing meaning.
+    """
+    import reports as reports_module
+
+    rto = reports_module.wall_clock_rto_sec(
+        str(run.get("started_at") or ""), str(run.get("finished_at") or "")
+    )
+    if not plan.get("assurance_enabled"):
+        return PlanAssurance.UNKNOWN.value, "assurance disabled", rto
+    if not run.get("drill"):
+        return PlanAssurance.UNKNOWN.value, "not a drill run", rto
+
+    status = str(run.get("status") or "")
+    if status != PlanRunStatus.COMPLETED.value:
+        return PlanAssurance.FAILED.value, f"run status {status or 'unknown'}", rto
+
+    if run.get("auto_teardown"):
+        tear = str(run.get("teardown_status") or "")
+        if tear and tear != "completed":
+            return PlanAssurance.FAILED.value, f"teardown {tear}", rto
+
+    if plan.get("assurance_require_qga"):
+        if not jobs:
+            return PlanAssurance.FAILED.value, "no jobs to verify QGA", rto
+        for j in jobs:
+            ok = j.get("qga_ok")
+            if ok not in ("1", True, 1):
+                return PlanAssurance.FAILED.value, "QGA check failed or missing on one or more jobs", rto
+
+    if plan.get("assurance_require_http"):
+        if not jobs:
+            return PlanAssurance.FAILED.value, "no jobs to verify HTTP", rto
+        for j in jobs:
+            url = str(j.get("http_check_url") or "").strip()
+            if not url:
+                return PlanAssurance.FAILED.value, "HTTP check required but no http_check_url on jobs", rto
+            ok = j.get("http_check_ok")
+            if ok not in ("1", True, 1):
+                return PlanAssurance.FAILED.value, "HTTP check failed or missing on one or more jobs", rto
+
+    max_rto = 0
+    try:
+        max_rto = max(0, int(plan.get("assurance_max_rto_sec") or 0))
+    except (TypeError, ValueError):
+        max_rto = 0
+    if max_rto > 0 and (rto is None or rto > max_rto):
+        return (
+            PlanAssurance.FAILED.value,
+            f"RTO {rto if rto is not None else 'unknown'}s exceeds max {max_rto}s",
+            rto,
+        )
+
+    warnings: list[str] = []
+    for j in jobs:
+        warn = str(j.get("hostname_warning") or "").strip()
+        if warn:
+            warnings.append(warn)
+        elif j.get("hostname_match") == "0":
+            warnings.append(
+                f"hostname mismatch on VMID {j.get('proxmox_vmid') or j.get('job_id')}"
+            )
+    detail = "drill completed within policy"
+    if warnings:
+        detail = detail + "; warnings: " + "; ".join(warnings)
+    return PlanAssurance.ASSURED.value, detail, rto
+
+
+def apply_assurance_from_run(
+    r: redis.Redis,
+    cfg: dict[str, Any],
+    run: dict[str, Any],
+    *,
+    job_key_fn: Callable | None = None,
+) -> dict[str, Any] | None:
+    """Update plan assurance fields from a terminal drill run. Returns updated plan or None."""
+    if run.get("assurance_evaluated"):
+        return get_plan(r, cfg, str(run.get("plan_id") or ""))
+    plan = get_plan(r, cfg, str(run.get("plan_id") or ""))
+    if not plan or not plan.get("assurance_enabled") or not run.get("drill"):
+        try:
+            save_plan_run(r, cfg, {**run, "assurance_evaluated": True})
+        except Exception:
+            pass
+        return plan
+
+    aggregated = aggregate_plan_run(r, cfg, run, job_key_fn=job_key_fn)
+    jobs = list(aggregated.get("jobs") or [])
+    status, detail, rto = evaluate_assurance_policy(plan, aggregated, jobs)
+    updated = {
+        **plan,
+        "assurance_status": status,
+        "assurance_updated_at": utc_now_iso(),
+        "assurance_last_run_id": str(run.get("id") or ""),
+        "assurance_last_rto_sec": rto,
+        "assurance_detail": detail,
+        "last_run_at": plan.get("last_run_at") or run.get("finished_at") or utc_now_iso(),
+    }
+    saved = _save_entity(
+        r,
+        cfg,
+        key=plan_key(cfg, plan["id"]),
+        index=plans_index(cfg),
+        entity_id=plan["id"],
+        data=updated,
+    )
+    try:
+        save_plan_run(
+            r,
+            cfg,
+            {
+                **run,
+                "assurance_evaluated": True,
+                "assurance_status": status,
+                "assurance_detail": detail,
+            },
+        )
+    except Exception:
+        pass
+    return saved
+
+
+def next_scheduled_iso(plan: dict[str, Any], *, now: datetime | None = None) -> str:
+    """Best-effort next scheduled run timestamp (UTC ISO), or empty."""
+    if not plan.get("schedule_enabled"):
+        return ""
+    try:
+        hours = float(plan.get("schedule_interval_hours") or 0)
+    except (TypeError, ValueError):
+        hours = 0.0
+    if hours <= 0:
+        return ""
+    now = now or datetime.now(timezone.utc)
+    last = str(plan.get("last_scheduled_run_at") or "").strip()
+    if last:
+        try:
+            last_dt = datetime.fromisoformat(last.replace("Z", "+00:00"))
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=timezone.utc)
+            nxt = last_dt.timestamp() + hours * 3600
+            return datetime.fromtimestamp(nxt, tz=timezone.utc).isoformat()
+        except ValueError:
+            pass
+    return now.isoformat()
+
+
+def assurance_dashboard(
+    r: redis.Redis,
+    cfg: dict[str, Any],
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Aggregate assurance status for all plans."""
+    import reports as reports_module
+
+    now = now or datetime.now(timezone.utc)
+    plans = list_plans(r, cfg)
+    # Active assurance drills overlay UNKNOWN while a run is in flight.
+    active_by_plan: dict[str, dict[str, Any]] = {}
+    try:
+        for rid in r.smembers(active_plan_runs_key(cfg)) or []:
+            run = get_plan_run(r, cfg, str(rid))
+            if not run or run.get("status") != PlanRunStatus.RUNNING.value:
+                continue
+            if not run.get("drill"):
+                continue
+            pid = str(run.get("plan_id") or "")
+            if pid:
+                active_by_plan[pid] = run
+    except Exception:
+        active_by_plan = {}
+
+    items: list[dict[str, Any]] = []
+    counts = {"ASSURED": 0, "FAILED": 0, "UNKNOWN": 0, "IN_PROGRESS": 0, "disabled": 0}
+    for plan in plans:
+        status = str(plan.get("assurance_status") or PlanAssurance.UNKNOWN.value)
+        active = active_by_plan.get(str(plan.get("id") or ""))
+        if not plan.get("assurance_enabled"):
+            counts["disabled"] += 1
+            status_out = "DISABLED"
+            detail = plan.get("assurance_detail") or ""
+        elif active:
+            counts["IN_PROGRESS"] += 1
+            status_out = PlanAssurance.IN_PROGRESS.value
+            detail = f"assurance drill running ({active.get('id')})"
+        else:
+            if status not in {"ASSURED", "FAILED", "UNKNOWN"}:
+                status = PlanAssurance.UNKNOWN.value
+            counts[status] = counts.get(status, 0) + 1
+            status_out = status
+            detail = plan.get("assurance_detail") or ""
+        rto = plan.get("assurance_last_rto_sec")
+        try:
+            rto_int = int(rto) if rto not in (None, "") else None
+        except (TypeError, ValueError):
+            rto_int = None
+        items.append(
+            {
+                "plan_id": plan.get("id"),
+                "plan_name": plan.get("name"),
+                "enabled": bool(plan.get("enabled", True)),
+                "assurance_enabled": bool(plan.get("assurance_enabled", False)),
+                "assurance_status": status_out,
+                "assurance_detail": detail,
+                "assurance_updated_at": plan.get("assurance_updated_at") or "",
+                "assurance_last_run_id": plan.get("assurance_last_run_id") or "",
+                "assurance_last_rto_sec": rto_int,
+                "assurance_last_rto": reports_module.format_duration(rto_int),
+                "assurance_require_qga": bool(plan.get("assurance_require_qga", False)),
+                "assurance_require_http": bool(plan.get("assurance_require_http", False)),
+                "assurance_max_rto_sec": int(plan.get("assurance_max_rto_sec") or 0),
+                "verification": plan.get("verification"),
+                "schedule_enabled": bool(plan.get("schedule_enabled", False)),
+                "schedule_interval_hours": int(plan.get("schedule_interval_hours") or 0),
+                "next_scheduled_at": next_scheduled_iso(plan, now=now),
+                "last_run_report_id": plan.get("last_run_report_id") or "",
+                "location_id": plan.get("location_id") or "",
+                "active_run_id": (active or {}).get("id") or "",
+            }
+        )
+    return {
+        "plans": items,
+        "counts": counts,
+        "generated_at": utc_now_iso(),
+    }
 
 
 def collect_plan_run_targets(
@@ -1363,7 +1798,12 @@ def teardown_plan_run(
 ) -> dict[str, Any]:
     """Destroy QEMU VMs created by a plan run. Idempotent when already torn down."""
     from jobs import job_key as default_job_key
-    from pve_client import connect_proxmox, destroy_qemu_vm, find_qemu_node
+    from pve_client import (
+        GuestOwnershipError,
+        connect_proxmox,
+        destroy_owned_qemu_vm,
+        find_qemu_node,
+    )
 
     if job_key_fn is None:
         job_key_fn = default_job_key
@@ -1386,8 +1826,22 @@ def teardown_plan_run(
         connect = connect_fn or connect_proxmox
         proxmox = connect(cfg)
 
-    destroy = destroy_fn or destroy_qemu_vm
+    destroy = destroy_fn or destroy_owned_qemu_vm
     find_node = find_node_fn or find_qemu_node
+
+    # Jobs for this run that actually started a PVE restore (provenance for unmarked leftovers).
+    provenance_vmids: set[int] = set()
+    for group_jobs in run.get("job_ids_by_group") or []:
+        for jid in group_jobs or []:
+            data = r.hgetall(job_key_fn(cfg, jid)) or {}
+            if not data:
+                continue
+            if not (data.get("pve_upid") or data.get("restore_started_at") or data.get("managed_marked") == "1"):
+                continue
+            try:
+                provenance_vmids.add(int(data.get("proxmox_vmid")))
+            except (TypeError, ValueError):
+                continue
 
     for t in targets:
         vmid = int(t["vmid"])
@@ -1401,13 +1855,24 @@ def teardown_plan_run(
                 entry["error"] = "node unknown"
                 results.append(entry)
                 continue
-            destroy(proxmox, node, vmid)
+            # Injected destroy_fn (tests) keeps prior signature; owned destroy gets provenance.
+            if destroy_fn is None:
+                destroy(
+                    proxmox,
+                    node,
+                    vmid,
+                    allow_run_provenance=(vmid in provenance_vmids),
+                )
+            else:
+                destroy(proxmox, node, vmid)
             entry["ok"] = True
+        except GuestOwnershipError as exc:
+            entry["error"] = str(exc)
         except Exception as exc:
             # Missing VM is success for teardown (already gone).
             msg = str(exc)
             lower = msg.lower()
-            if "does not exist" in lower or "no such" in lower or "not found" in lower:
+            if "does not exist" in lower or "no such" in lower or "not found" in lower or "absent" in lower:
                 entry["ok"] = True
                 entry["error"] = "already gone"
             else:

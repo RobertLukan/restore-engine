@@ -21,6 +21,15 @@ class PlanVerification(str, Enum):
     VERIFIED = "VERIFIED"
 
 
+class PlanAssurance(str, Enum):
+    """Recoverability proof from assurance drills (separate from readiness verification)."""
+
+    UNKNOWN = "UNKNOWN"
+    IN_PROGRESS = "IN_PROGRESS"
+    ASSURED = "ASSURED"
+    FAILED = "FAILED"
+
+
 class PlanRunStatus(str, Enum):
     RUNNING = "RUNNING"
     COMPLETED = "COMPLETED"
