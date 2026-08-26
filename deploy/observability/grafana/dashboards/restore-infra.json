@@ -1,0 +1,356 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "content": "## Restore bottleneck view\n\nDuring a restore blast, read **gauges first** (red ≈ saturated), then the NIC % charts.\n\n| If this is high | You are likely bound by |\n|-----------------|-------------------------|\n| **CPU** | PVE decompress / restore workers — lower concurrency or fewer parallel VMs on this node |\n| **IO wait** | Local disk / Ceph client latency — storage or OSD side, not the PBS link |\n| **RAM** | Host memory pressure — reduce concurrency |\n| **Backup NIC %** | PBS → PVE path (link or PBS read) |\n| **Storage NIC %** | Ceph/replication or storage uplink |\n\nSet variables: **backup NIC** / **storage NIC** and their **link speeds (Gbit)** (lab often 1–10; DR 40).",
+        "mode": "markdown"
+      },
+      "title": "",
+      "type": "text"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.7 },
+              { "color": "red", "value": 0.85 }
+            ]
+          }
+        }
+      },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 4 },
+      "id": 10,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": false },
+      "targets": [
+        {
+          "expr": "proxmox_node_cpustat_cpu_percent{proxmox_node=~\"$pve_node\"}",
+          "legendFormat": "cpu",
+          "refId": "A"
+        }
+      ],
+      "title": "CPU busy",
+      "description": "Node CPU utilization from PVE OTel. Red ≥ 85% → CPU-bound restores.",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.2 },
+              { "color": "red", "value": 0.35 }
+            ]
+          }
+        }
+      },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 4 },
+      "id": 11,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        {
+          "expr": "clamp_max(proxmox_node_cpustat_wait_seconds_total{proxmox_node=~\"$pve_node\"}, 1)",
+          "legendFormat": "iowait",
+          "refId": "A"
+        }
+      ],
+      "title": "IO wait",
+      "description": "PVE wait fraction (same as node Summary IO delay). Do not use rate(iowait)/cpus — OTel iowait counters are jiffy-scaled and inflate that formula ~100×. High with modest NIC % → storage/Ceph latency bound.",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.8 },
+              { "color": "red", "value": 0.92 }
+            ]
+          }
+        }
+      },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 4 },
+      "id": 12,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        {
+          "expr": "proxmox_node_memory_memused_bytes{proxmox_node=~\"$pve_node\"} / proxmox_node_memory_memtotal_bytes{proxmox_node=~\"$pve_node\"}",
+          "legendFormat": "ram",
+          "refId": "A"
+        }
+      ],
+      "title": "RAM used",
+      "description": "Host memory fill. Red ≥ 92% → risk of reclaim/swap; reduce concurrency.",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0 },
+              { "color": "red", "value": 0 }
+            ]
+          }
+        }
+      },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 4 },
+      "id": 13,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "value_and_name" },
+      "targets": [
+        {
+          "expr": "proxmox_node_cpustat_avg1_ratio{proxmox_node=~\"$pve_node\"}",
+          "legendFormat": "load1",
+          "refId": "A"
+        },
+        {
+          "expr": "proxmox_node_cpustat_cpus_ratio{proxmox_node=~\"$pve_node\"}",
+          "legendFormat": "CPUs",
+          "refId": "B"
+        }
+      ],
+      "title": "Load vs CPUs",
+      "description": "If load1 ≫ CPU count, runnable backlog (CPU contention).",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.7 },
+              { "color": "red", "value": 0.85 }
+            ]
+          },
+          "custom": { "drawStyle": "line", "fillOpacity": 20, "showPoints": "never" }
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+      "id": 20,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "(rate(proxmox_node_network_receive_bytes_total{device=~\"$nic_backup\", proxmox_node=~\"$pve_node\"}[1m]) + rate(proxmox_node_network_transmit_bytes_total{device=~\"$nic_backup\", proxmox_node=~\"$pve_node\"}[1m])) / ($link_backup_gbit * 1e9 / 8)",
+          "legendFormat": "backup NIC util {{device}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Backup / PBS path — link utilization",
+      "description": "RX+TX as fraction of $link_backup_gbit. Red ≥ 85% → network-bound on PBS path (or PBS read feeding a full link).",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.7 },
+              { "color": "red", "value": 0.85 }
+            ]
+          },
+          "custom": { "drawStyle": "line", "fillOpacity": 20, "showPoints": "never" }
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
+      "id": 21,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "(rate(proxmox_node_network_receive_bytes_total{device=~\"$nic_storage\", proxmox_node=~\"$pve_node\"}[1m]) + rate(proxmox_node_network_transmit_bytes_total{device=~\"$nic_storage\", proxmox_node=~\"$pve_node\"}[1m])) / ($link_storage_gbit * 1e9 / 8)",
+          "legendFormat": "storage NIC util {{device}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Storage / Ceph path — link utilization",
+      "description": "RX+TX as fraction of $link_storage_gbit. High with Ceph size=3 often means replication/cluster traffic.",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "showPoints": "never" }
+        }
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 18 },
+      "id": 22,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "rate(proxmox_node_network_receive_bytes_total{device=~\"$nic_backup\", proxmox_node=~\"$pve_node\"}[1m])",
+          "legendFormat": "RX {{device}}",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(proxmox_node_network_transmit_bytes_total{device=~\"$nic_backup\", proxmox_node=~\"$pve_node\"}[1m])",
+          "legendFormat": "TX {{device}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Backup NIC absolute rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "showPoints": "never" }
+        }
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 18 },
+      "id": 23,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "rate(proxmox_node_network_receive_bytes_total{device=~\"$nic_storage\", proxmox_node=~\"$pve_node\"}[1m])",
+          "legendFormat": "RX {{device}}",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(proxmox_node_network_transmit_bytes_total{device=~\"$nic_storage\", proxmox_node=~\"$pve_node\"}[1m])",
+          "legendFormat": "TX {{device}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Storage NIC absolute rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "showPoints": "never" }
+        }
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 25 },
+      "id": 30,
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] } },
+      "targets": [
+        {
+          "expr": "topk(6, rate(proxmox_node_network_receive_bytes_total{proxmox_node=~\"$pve_node\", device!~\"lo|tap.*|veth.*|fwbr.*|fwpr.*|fwln.*\"}[1m]) + rate(proxmox_node_network_transmit_bytes_total{proxmox_node=~\"$pve_node\", device!~\"lo|tap.*|veth.*|fwbr.*|fwpr.*|fwln.*\"}[1m]))",
+          "legendFormat": "{{device}} RX+TX",
+          "refId": "A"
+        }
+      ],
+      "title": "Busiest NICs (RX+TX)",
+      "description": "If an unexpected device dominates, traffic may not be on the path you think.",
+      "type": "timeseries"
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["restore-engine", "infra", "bottleneck"],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values(proxmox_node_cpustat_cpu_percent, proxmox_node)",
+        "includeAll": false,
+        "multi": false,
+        "name": "pve_node",
+        "label": "PVE node",
+        "query": { "query": "label_values(proxmox_node_cpustat_cpu_percent, proxmox_node)", "refId": "StandardVariableQuery" },
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values(proxmox_node_network_receive_bytes_total{proxmox_node=~\"$pve_node\"}, device)",
+        "includeAll": false,
+        "multi": false,
+        "name": "nic_backup",
+        "label": "Backup/PBS NIC",
+        "query": { "query": "label_values(proxmox_node_network_receive_bytes_total{proxmox_node=~\"$pve_node\"}, device)", "refId": "StandardVariableQuery" },
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values(proxmox_node_network_receive_bytes_total{proxmox_node=~\"$pve_node\"}, device)",
+        "includeAll": false,
+        "multi": false,
+        "name": "nic_storage",
+        "label": "Storage/Ceph NIC",
+        "query": { "query": "label_values(proxmox_node_network_receive_bytes_total{proxmox_node=~\"$pve_node\"}, device)", "refId": "StandardVariableQuery" },
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "current": { "selected": true, "text": "10", "value": "10" },
+        "name": "link_backup_gbit",
+        "label": "Backup link Gbit",
+        "query": "10",
+        "type": "textbox"
+      },
+      {
+        "current": { "selected": true, "text": "10", "value": "10" },
+        "name": "link_storage_gbit",
+        "label": "Storage link Gbit",
+        "query": "10",
+        "type": "textbox"
+      }
+    ]
+  },
+  "time": { "from": "now-30m", "to": "now" },
+  "timezone": "browser",
+  "title": "Restore infra",
+  "uid": "restore-infra",
+  "version": 3
+}

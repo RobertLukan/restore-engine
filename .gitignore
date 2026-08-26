@@ -2,6 +2,8 @@
 .pytest_cache/
 __pycache__/
 *.pyc
+.coverage
+htmlcov/
 config.yaml
 config.*.yaml
 !config.docker.example.yaml
@@ -13,3 +15,6 @@ config.*.yaml
 *.pfx
 restore-engine-bundle-amd64.tar
 redis-amd64-rootfs.tar
+# Offline transfer bundles (may accidentally include secrets — never commit)
+restore-engine-offline*.tar
+restore-engine-offline*.tar.gz

@@ -18,6 +18,7 @@ class FakeRedis:
         self.hashes: dict[str, dict[str, str]] = {}
         self.lists: dict[str, list[str]] = {}
         self.zsets: dict[str, dict[str, float]] = {}
+        self.ttls: dict[str, int] = {}
 
     def get(self, key: str) -> str | None:
         return self.kv.get(key)
@@ -132,15 +133,70 @@ class FakeRedis:
                 removed += 1
         return removed
 
-    def hset(self, key: str, mapping: dict[str, str] | None = None, **kwargs: str) -> int:
+    def hset(
+        self,
+        key: str,
+        field: Any = None,
+        value: Any = None,
+        mapping: dict[str, str] | None = None,
+        **kwargs: str,
+    ) -> int:
         h = self.hashes.setdefault(key, {})
-        data = dict(mapping or {})
-        data.update(kwargs)
-        h.update({str(k): str(v) for k, v in data.items()})
+        data: dict[str, str] = {}
+        if mapping is not None:
+            data.update({str(k): str(v) for k, v in mapping.items()})
+        if isinstance(field, dict):
+            data.update({str(k): str(v) for k, v in field.items()})
+        elif field is not None and value is not None:
+            data[str(field)] = str(value)
+        data.update({str(k): str(v) for k, v in kwargs.items()})
+        h.update(data)
         return len(data)
+
+    def hget(self, key: str, field: str) -> str | None:
+        return self.hashes.get(key, {}).get(field)
 
     def hgetall(self, key: str) -> dict[str, str]:
         return dict(self.hashes.get(key, {}))
+
+    def expire(self, key: str, ttl: int) -> bool:
+        self.ttls[key] = int(ttl)
+        return True
+
+    def lpush(self, key: str, *values: str) -> int:
+        lst = self.lists.setdefault(key, [])
+        for v in reversed(values):
+            lst.insert(0, str(v))
+        return len(lst)
+
+    def ltrim(self, key: str, start: int, end: int) -> bool:
+        lst = self.lists.get(key, [])
+        n = len(lst)
+        if end < 0:
+            end = n + end
+        end = min(end, n - 1)
+        if start < 0:
+            start = n + start
+        if n == 0 or start > end:
+            self.lists[key] = []
+        else:
+            self.lists[key] = lst[start : end + 1]
+        return True
+
+    def lrange(self, key: str, start: int, end: int) -> list[str]:
+        lst = self.lists.get(key, [])
+        n = len(lst)
+        if end < 0:
+            end = n + end
+        end = min(end, n - 1)
+        if start < 0:
+            start = n + start
+        if n == 0 or start > end or start >= n:
+            return []
+        return list(lst[start : end + 1])
+
+    def ping(self) -> bool:
+        return True
 
     def rpush(self, key: str, *values: str) -> int:
         lst = self.lists.setdefault(key, [])
@@ -190,9 +246,22 @@ class FakePipeline:
         self.ops.append(("zrem", key, members))
         return self
 
-    def hset(self, key: str, mapping: dict[str, str] | None = None, **kwargs: str) -> FakePipeline:
-        data = dict(mapping or {})
-        data.update(kwargs)
+    def hset(
+        self,
+        key: str,
+        field: Any = None,
+        value: Any = None,
+        mapping: dict[str, str] | None = None,
+        **kwargs: str,
+    ) -> FakePipeline:
+        data: dict[str, str] = {}
+        if mapping is not None:
+            data.update({str(k): str(v) for k, v in mapping.items()})
+        if isinstance(field, dict):
+            data.update({str(k): str(v) for k, v in field.items()})
+        elif field is not None and value is not None:
+            data[str(field)] = str(value)
+        data.update({str(k): str(v) for k, v in kwargs.items()})
         self.ops.append(("hset", key, data))
         return self
 
@@ -269,8 +338,21 @@ def test_group_location_plan_crud() -> None:
 
 
 def test_normalize_group_requires_match() -> None:
-    with pytest.raises(ValueError, match="tag or one vmid"):
+    with pytest.raises(ValueError, match="at least one of"):
         plans.normalize_group({"name": "empty"})
+
+
+def test_normalize_group_name_patterns_and_ranges() -> None:
+    g = plans.normalize_group(
+        {
+            "name": "web",
+            "name_patterns": ["web-*", "re:^db-"],
+            "vmid_ranges": ["100-110", {"start": 200, "end": 205}],
+        }
+    )
+    assert g["name_patterns"] == ["web-*", "re:^db-"]
+    assert g["vmid_ranges"] == [{"start": 100, "end": 110}, {"start": 200, "end": 205}]
+    assert g["vmids"] == []
 
 
 def test_resolve_group_rows_tags_and_vmids() -> None:
@@ -316,6 +398,61 @@ def test_resolve_group_rows_tags_and_vmids() -> None:
     vmid_group = {"name": "g2", "tags": [], "vmids": [20], "source_ids": []}
     rows2 = plans.resolve_group_rows(vmid_group, backups, cutoff="2026-12-31T23:59:59Z")
     assert [row["vmid"] for row in rows2] == [20]
+
+
+def test_resolve_group_rows_name_patterns_and_ranges() -> None:
+    backups = [
+        {
+            "backup_id": "a",
+            "vmid": 101,
+            "name": "web-front",
+            "timestamp": "2026-02-01T00:00:00Z",
+            "source_id": "main",
+        },
+        {
+            "backup_id": "b",
+            "vmid": 150,
+            "name": "db-primary",
+            "timestamp": "2026-02-01T00:00:00Z",
+            "source_id": "main",
+        },
+        {
+            "backup_id": "c",
+            "vmid": 250,
+            "name": "util",
+            "timestamp": "2026-02-01T00:00:00Z",
+            "source_id": "main",
+        },
+        {
+            "backup_id": "d",
+            "vmid": 999,
+            "name": "pinned",
+            "timestamp": "2026-02-01T00:00:00Z",
+            "source_id": "main",
+        },
+    ]
+    # Name glob + range + explicit vmid (union).
+    group = {
+        "name": "mix",
+        "tags": [],
+        "vmids": [999],
+        "name_patterns": ["web-*"],
+        "vmid_ranges": [{"start": 140, "end": 160}],
+        "source_ids": [],
+    }
+    rows = plans.resolve_group_rows(group, backups, cutoff="2026-12-31T23:59:59Z")
+    assert [r["vmid"] for r in rows] == [101, 150, 999]
+
+    regex_group = {
+        "name": "re",
+        "tags": [],
+        "vmids": [],
+        "name_patterns": ["re:^db-"],
+        "vmid_ranges": [],
+        "source_ids": [],
+    }
+    rows2 = plans.resolve_group_rows(regex_group, backups, cutoff="2026-12-31T23:59:59Z")
+    assert [r["vmid"] for r in rows2] == [150]
 
 
 def test_advance_plan_run_enqueues_second_group() -> None:

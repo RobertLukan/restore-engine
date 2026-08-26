@@ -93,3 +93,81 @@ def test_notify_plan_run_terminal(monkeypatch: Any) -> None:
         run={"id": "r1", "plan_name": "P", "status": "COMPLETED", "drill": True},
     )
     assert calls == ["plan_run_terminal"]
+
+
+def test_post_webhook_success(monkeypatch: Any) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeResp:
+        status = 200
+
+        def getcode(self) -> int:
+            return 200
+
+        def __enter__(self) -> FakeResp:
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            return None
+
+    def fake_urlopen(req: Any, timeout: int = 15) -> FakeResp:
+        captured["url"] = req.full_url
+        try:
+            captured["headers"] = list(req.header_items())
+        except Exception:
+            captured["headers"] = [(k, req.get_header(k)) for k in ("X-Restore-Engine-Secret", "Content-Type")]
+        captured["data"] = req.data
+        return FakeResp()
+
+    monkeypatch.setattr(notifications.request, "urlopen", fake_urlopen)
+    cfg = {
+        "notifications": {
+            "webhook": {
+                "enabled": True,
+                "url": "https://hooks.example/restore",
+                "secret": "s3cret",
+            }
+        }
+    }
+    ok, detail = notifications.post_webhook(cfg, {"event": "job_failed", "x": 1})
+    assert ok is True
+    assert "200" in detail
+    assert captured["url"] == "https://hooks.example/restore"
+    secret_hdr = None
+    for k, v in captured["headers"]:
+        if str(k).lower() == "x-restore-engine-secret":
+            secret_hdr = v
+            break
+    assert secret_hdr == "s3cret"
+
+
+def test_post_webhook_missing_url() -> None:
+    ok, detail = notifications.post_webhook(
+        {"notifications": {"webhook": {"url": "", "secret": ""}}},
+        {"event": "x"},
+    )
+    assert ok is False
+    assert "not configured" in detail.lower()
+
+
+def test_post_webhook_http_error_soft(monkeypatch: Any) -> None:
+    from urllib import error as urlerror
+
+    def boom(req: Any, timeout: int = 15) -> Any:
+        raise urlerror.HTTPError(
+            "https://hooks.example/restore",
+            500,
+            "Server Error",
+            hdrs=None,  # type: ignore[arg-type]
+            fp=None,
+        )
+
+    monkeypatch.setattr(notifications.request, "urlopen", boom)
+    cfg = {
+        "notifications": {
+            "webhook": {"enabled": True, "url": "https://hooks.example/restore", "secret": ""}
+        }
+    }
+    ok, detail = notifications.post_webhook(cfg, {"event": "check_failed"})
+    assert ok is False
+    assert "500" in detail

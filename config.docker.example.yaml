@@ -21,6 +21,9 @@ proxmox:
   host: "10.0.0.20"
   port: 8006
   verify_ssl: false
+  # HTTP timeout for API calls (proxmoxer default is 5s — too short when the
+  # node is busy, e.g. after resolving tags for hundreds of backups).
+  timeout_sec: 30
   default_node: pve
   api_token_id: ""
   api_token_secret: ""
@@ -50,6 +53,21 @@ worker:
   require_verified_to_run: false
   # Default QGA wait when UI enables "Wait for guest agent" (seconds).
   qga_wait_sec_default: 120
+
+# Optional Grafana embed + API snapshot (see docs/infra-metrics.md).
+# Enable Compose profile: docker compose --profile observability up -d
+monitoring:
+  enabled: true
+  api_snapshot: true
+  grafana:
+    # Browser-reachable URL (not docker DNS). Lab example:
+    # base_url: "http://192.168.123.197:3001"
+    base_url: ""
+    dashboards:
+      - id: infra
+        title: "Infra"
+        uid: "restore-infra"
+        path: "/d/restore-infra/restore-infra?orgId=1&kiosk&theme=dark"
 
 # Optional automation tokens (Authorization: Bearer <token>).
 # role: operator (full) | viewer (GET only)

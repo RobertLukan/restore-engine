@@ -3,7 +3,7 @@
 #
 #   docker compose build
 #   docker compose up -d
-#   open http://localhost:8001  (dashboard; login = ui.password in config)
+#   open http://localhost:8006  (dashboard; login = ui.password in config)
 #
 # Override config (recommended for real secrets):
 #   cp config.docker.example.yaml config.docker.yaml
@@ -14,6 +14,12 @@
 #
 # Build on Apple Silicon but deploy on Intel/AMD64 Linux: keep `platform: linux/amd64` below.
 # For native ARM64 builds on Mac (local test only), comment out all `platform` lines.
+#
+# Optional observability (Grafana + Prometheus + OTel Collector):
+#   docker compose --profile observability up -d
+#   Grafana http://localhost:3001  (admin / see GRAFANA_ADMIN_PASSWORD)
+#   Point PVE/PBS Metric Server OpenTelemetry at <host>:4318
+#   See docs/infra-metrics.md
 
 services:
   # In-container Redis only (not published to the host by default). Safe alongside a
@@ -42,7 +48,7 @@ services:
         condition: service_healthy
     networks: [restore]
     ports:
-      - "8001:8000"
+      - "8006:8000"
     environment:
       RESTORE_ENGINE_CONFIG: /app/config.docker.yaml
     command: >
@@ -90,9 +96,63 @@ services:
     volumes:
       - ./config.docker.yaml:/app/config.docker.yaml
 
+  prometheus:
+    profiles: [observability]
+    image: prom/prometheus:v2.55.1
+    platform: linux/amd64
+    restart: unless-stopped
+    networks: [restore]
+    volumes:
+      - ./deploy/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    ports:
+      - "9090:9090"
+
+  otel-collector:
+    profiles: [observability]
+    image: otel/opentelemetry-collector-contrib:0.114.0
+    platform: linux/amd64
+    restart: unless-stopped
+    networks: [restore]
+    volumes:
+      - ./deploy/observability/otel/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    ports:
+      - "4317:4317"   # OTLP gRPC (PVE/PBS Metric Server)
+      - "4318:4318"   # OTLP HTTP
+
+  grafana:
+    profiles: [observability]
+    image: grafana/grafana:11.3.1
+    platform: linux/amd64
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    networks: [restore]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change-me-grafana}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_AUTH_ANONYMOUS_ORG_NAME: Main Org.
+    volumes:
+      - ./deploy/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+
 networks:
   restore:
     driver: bridge
 
 volumes:
   redis-data:
+  prometheus-data:
+  grafana-data:

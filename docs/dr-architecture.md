@@ -62,52 +62,158 @@ For roles still on TLB/ALB (Ceph, VM, backup):
 
 Where the **switch supports LACP** (e.g. Nexus), Linux **`802.3ad`** bonds remain appropriate — that is separate from FI-facing pairs.
 
+DR target (failover vs `active-backup` vs TLB/ALB, unique service profiles): see **UCS: fabric failover vs Linux bonding** below.
+
+---
+
+## UCS: fabric failover vs Linux bonding
+
+FIs do **not** present host LACP the way Nexus does. Two vNICs pinned to FI-A and FI-B are **HA**, not a LAG.
+
+| Mechanism | On FI-facing 40 G? |
+|-----------|---------------------|
+| **UCS vNIC fabric failover** (one vNIC, preferred fabric) | **Yes** — intended HA; OS sees one NIC / MAC |
+| Two vNICs + **`balance-tlb` / `balance-alb`** | **No** — asymmetric paths; ALB MAC/CAM games on FIs; **TLB does not add RX** (restore ingest is RX) |
+| Two vNICs + Linux **`active-backup`** | Only if you need host ARP path-check (“FI up, northbound dead”). **Disable** fabric failover on those vNICs — never run both |
+| Linux **`802.3ad` (LACP)** | **Nexus only** (3×10, and PBS if recabled there) |
+
+**Do not mix** fabric failover and a Linux bond on the same vNICs.
+
+Failover’s cost vs dual-vNIC bonding: **no aggregation on that vNIC when healthy** (active/standby for that role), HA is opaque to Linux/Netdata, and UCS does not fail over on “FI up / Nexus uplinks dead.” Dual+TLB does **not** fix that and does not double PBS RX.
+
+Healthy **throughput** comes from **splitting roles across preferred fabrics** (PBS prefer A, Ceph cluster prefer B), not from bonding one role across A+B. One FI death: both roles share the survivor (degraded, service up). Do **not** hard-pin without failover.
+
+**Unique service profiles per server** do not change this. Failover is a per-vNIC property on each profile. Share a **LAN connectivity policy** / updating template so all four nodes match; keep the **same** preferred-fabric pattern on every node. Unique SPs only make drift (vNIC order → Linux names) more likely — bonding would make that worse.
+
 ---
 
 ## DR networking (target)
 
-DR nodes have (planned):
+DR nodes (planned):
 
-- **2×40 Gbit/s** → two different FIs (HA, no LACP on FI)
-- **4×10 Gbit/s** → Cisco Nexus (**LACP supported**)
+- **2×40 Gbit/s** → two different FIs (HA, **no** LACP on FI; fabric failover)
+- **4×10 Gbit/s** → Cisco Nexus (**LACP supported**); **3×10 split across both Nexus** (vPC/MLAG), **1×10** to a single Nexus
 
-Do **not** clone all 12 production vNICs. Keep DR simpler.
+Do **not** clone all 12 production vNICs. Do **not** split the remaining 10 Gs as “2×10 Ceph public + 3×10 VM” — only three 10 Gs remain after corosync.
 
 ### Target assignment (per hyperconverged DR node)
 
 | Ports | Config | Role |
 |-------|--------|------|
-| **40 G #1** | Prefer FI-A, **Fabric Failover on**, **no** Linux bond | **PBS / backup** (restore ingest RX) |
-| **40 G #2** | Prefer FI-B, **Fabric Failover on**, **no** Linux bond | **Ceph cluster** (replication TX) |
-| **3×10 G** | Linux bond **`802.3ad` (LACP)** → Nexus | **Ceph public + VM uplink + mgmt** (VLAN-separated) |
-| **1×10 G** | Standalone | **Corosync only** |
+| **40 G #1** | Prefer FI-A, **Fabric Failover on**, **no** Linux bond | **PBS / backup** data + **mgmt VLAN** (separate subnets) |
+| **40 G #2** | Prefer FI-B, **Fabric Failover on**, **no** Linux bond | **Ceph internal (cluster)** — OSD↔OSD replication |
+| **3×10 G** | Linux **`802.3ad` (LACP)** → **both Nexus** | VLANs: **Ceph external (public)**, **VM uplink**, **corosync ring1** |
+| **1×10 G** | Standalone, one Nexus | **Corosync ring0 only** |
 
 ```text
-PBS  --40G-->  node  --40G cluster-->  other OSDs
-                 │
-                 └── 3×10 LACP: Ceph public / VMs / mgmt
+PBS  --40G backup-->  PVE  --40G cluster-->  other OSDs
+                        │
+                        └── 3×10 LACP (both Nexus): Ceph public / VMs / corosync ring1
 ```
+
+Use **all three** leftover 10 Gs in **one** LACP. A 2×10 Ceph-only bond would cap public at ~20 Gbit/s during restore while a dedicated VM 10 G sat idle. Guest traffic is small in a restore window; Ceph public is not.
+
+### VLANs on the 3×10 LACP
+
+| VLAN | Role |
+|------|------|
+| Ceph **external** (public) | RBD client (PVE → primary OSD); Ceph mons |
+| VM uplink | Guests |
+| Corosync **ring1** | Second knet ring; **QoS/CoS**; **MTU 1500** — **not** the Ceph public subnet |
+
+### VLANs on backup 40 G
+
+| VLAN | Role |
+|------|------|
+| PBS / backup | Restore ingest (PVE RX) |
+| Mgmt | SSH, PVE API — **not** the PBS subnet |
+
+Mgmt on the backup **physical** is acceptable as a **separate VLAN + QoS**: FI path survives Nexus trouble; traffic is tiny TCP (unlike corosync). Costs: that NIC can sit at ~40 G RX during restore (QoS required); bouncing the backup vNIC can drop SSH — keep **CIMC / UCSM / KVM** as real OOB.
+
+Do **not** let hostname/default route pull extra bulk onto this NIC:
+
+- Proxmox **live migration** → VM (3×10) network, not backup/mgmt IP
+- Ceph mons / public → Ceph external VLAN on 3×10
+- restore-engine / browsers → **mgmt** IP, not the PBS VLAN IP
+
+Simpler alternative: mgmt VLAN on the 3×10 next to VM (conventional HCI; less FI vs Nexus diversity for SSH).
 
 ### Why this split (utilization + write amplification)
 
-- During a restore blast, **VM-only use of a 40 G** wastes a fat pipe while Ceph is starved.
-- **PBS can approach ~40 Gbit/s (~5 GB/s)** into the node; that will **not** “fit” through **3×10 G (~3.75 GB/s)** if **all** Ceph public + cluster traffic shares that LACP bond — especially with replication.
-- On hyperconverged restore, critical flows are **PBS RX** and **Ceph cluster TX** (replicas to other nodes). Put those on the **two 40 G** links (opposite preferred fabrics + failover).
-- Put **public / VM / mgmt** on Nexus LACP; guest traffic is usually small vs restore.
+- VM-only use of a 40 G wastes a fat pipe while Ceph is starved.
+- PBS can approach ~40 Gbit/s (~5 GB/s) **into one node**; that will **not** fit through 3×10 if **public + cluster** share that bond, especially with RF3.
+- Critical restore flows: **PBS RX** (backup 40 G) and **OSD replica** traffic (cluster 40 G). Public on 3×10 still carries PVE → primary OSD (see restore path below).
+- Spread preferred fabric so both 40 Gs work when healthy.
 
-### Fabric failover vs “use both 40 Gs”
+### Corosync (two knet rings)
 
-- **HA:** each 40 G vNIC has fabric failover so one FI death does not kill that role.
-- **Throughput when healthy:** PBS and Ceph cluster prefer **different** FIs so both 40 Gs work.
-- If one FI fails, both roles share the surviving FI (degraded bandwidth, service up). Do **not** hard-pin roles to FIs **without** failover.
+The dedicated 10 G lands on **one** Nexus only. The 3×10 LACP is already dual-homed — that is ring1, **not** a VLAN on a 40 G.
+
+| Ring | Path | Survives |
+|------|------|----------|
+| **ring0** | Dedicated 1×10 → Nexus-A | Nexus-B down; LACP degraded; FI/40 G issues |
+| **ring1** | VLAN on 3×10 LACP | Nexus-A / that 10 G cable down (bond still has members on B) |
+
+Use two **knet rings**, not a Linux bond of 10 G + LACP (bond failover can lose the token). **Do not** put corosync on either 40 G (those pipes fill during restore). **Do not** put ring1 on Ceph public or Ceph cluster.
 
 ### DR cutover checklist
 
-1. Build 3×10 LACP + Ceph public VLANs; bring OSDs up.
-2. Bring dedicated 10 G corosync; form/join cluster.
-3. UCSM: two 40 G vNICs, opposite fabric, failover on; PVE: two bridges, no 40 G bond.
-4. Place PBS VLAN on the backup 40 G bridge; test throughput.
+1. Cable 3×10 LACP across **both** Nexus; VLANs for Ceph public, VM, corosync ring1 (+ QoS); bring OSDs up.
+2. Dedicated 10 G corosync ring0; form/join cluster; add ring1 on the LACP VLAN.
+3. UCSM: two 40 G vNICs, opposite fabric, failover on; PVE: two bridges, **no** 40 G bond.
+4. PBS VLAN + mgmt VLAN on the backup 40 G bridge; set PVE **migration** off that IP; test throughput.
 5. Run restore-engine drills.
+
+---
+
+## Ceph networks (public vs cluster)
+
+| Name here | Ceph term | What it carries |
+|-----------|-----------|-----------------|
+| **External** | `public_network` | Clients ↔ OSDs (**RBD** reads/writes), mons |
+| **Internal** | `cluster_network` | OSD↔OSD **replication, backfill, recovery**, OSD heartbeats |
+
+If `cluster_network` is unset, replicas share **public** (worse during restore).
+
+**RBD mirroring** (site-to-site) is client-like → **public**, not cluster. Local RF3 (`size=3`) is **not** mirroring.
+
+---
+
+## Restore data path (PBS → PVE → Ceph RF3)
+
+PBS does **not** talk to Ceph. PVE **terminates** the backup stream, then **writes a new RBD**.
+
+```text
+PBS  --backup 40G-->  PVE (qemu / pbs client)
+                         |
+                         | Ceph public (3×10 LACP)
+                         v
+                    primary OSD
+                         |
+                         | Ceph cluster (40G)
+                         +--> replica OSD
+                         +--> replica OSD     (size=3)
+```
+
+| Hop | Network |
+|-----|---------|
+| PBS → PVE | Dedicated **backup 40 G** |
+| PVE (`librbd` / QEMU) → primary OSD | Ceph **external** |
+| Primary OSD → other OSDs | Ceph **internal** |
+
+Not on the data path: VM uplink (except guest after boot), corosync, mgmt (API only).
+
+The client sends each write only to the **primary**. On **4-node HCI**, primaries are spread, so most client writes **leave the restoring node on public**. The cluster net is used only by **OSDs** (replicas), never by QEMU.
+
+Rough factors, useful restore rate **W** (balanced CRUSH, 4 nodes, size=3):
+
+| | One node restoring | Four nodes restoring (each at W) |
+|--|--------------------|----------------------------------|
+| PBS RX | W | W |
+| Public TX/RX | ~0.75 W | ~0.75 W each way |
+| Cluster TX/RX | ~0.5 W | **~2 W** each way |
+
+Live-restore uses the **same** pipes (PBS read and RBD write overlap); it does not add bandwidth.
 
 ---
 
@@ -120,35 +226,86 @@ Numbers are **planning ceilings**, not guarantees. Real limits: CPU (older M6-cl
 | Path | Approx raw |
 |------|------------|
 | 1×40 Gbit/s | ~5 GB/s |
-| 3×10 G LACP | ~3.75 GB/s |
+| 3×10 G LACP | ~3.75 GB/s each way (full duplex) |
 | 1×10 Gbit/s | ~1.25 GB/s |
 
-### Ceph replication tax (simplified)
+Useful = unique RBD bytes written (one copy). RF3 then stores three copies: cluster ≈ **(N−1)×** useful from primaries.
 
-For **size = N** (replica count), a primary OSD roughly sends **(N−1)×** useful data to peers on the **cluster** network (plus public/client overhead when not local).
-
-| Pool | Cluster TX vs useful write (rough) | Implication |
-|------|--------------------------------------|-------------|
-| **size=3** (typical prod) | ~**2×** useful | Cluster often limits before a single 40 G PBS RX |
-| **size=2** | ~**1×** useful | Less amp; faster first land; less durability in the window |
+| Pool | Cluster vs useful (rough) | Implication |
+|------|---------------------------|-------------|
+| **size=3** | ~**2×** useful | Four-way restore: **cluster 40 G** binds before per-node PBS 40 G |
+| **size=2** | ~**1×** useful | Faster first land; less durability in the window |
 | Local **ZFS** (no Ceph repl) | **~1×** to local disks | Fastest first land; node-local until migrate |
-
-With **40 G PBS + 40 G cluster** and size=3, a **per-node network-bound useful** restore rate on the order of **~15–20 Gbit/s (~2–2.5 GB/s)** is a more honest ceiling than “5 GB/s” (cluster ≈ useful×2). Disks/CPU often land lower.
 
 With **PBS on 40 G and all Ceph on 3×10 only**, expect **worse** (shared ~30 Gbit/s for public + replication).
 
-### Whole-estate wall time
+### Four nodes in parallel (this NIC layout, size=3)
+
+Per node, cluster load ≈ **2× W** each way on a 40 G (~5 GB/s) cap → **W ≈ 2.5 GB/s/node** (~20 Gbit/s useful).
+
+| | Network math |
+|--|----------------|
+| Per node useful | **~2.5 GB/s** (~20 Gbit/s) |
+| **4-node aggregate useful** | **~10 GB/s** (~80 Gbit/s) |
+| Per-node PBS 40 G | Only ~20 Gbit/s needed (half idle) |
+| Public 3×10 | ~0.75×2.5 GB/s ≈ 1.9 GB/s — **headroom** |
+| OSD media writes cluster-wide | **~3× useful** ≈ 30 GB/s (~7.5 GB/s/node) |
+
+**One node restoring:** cluster on that node is only ~0.5 W, so **PBS 40 G** and **public 3×10** cap first → **~5 GB/s** useful on that node. Four-way is **slower per node**, **faster in total**.
+
+PBS must **transmit ~80 Gbit/s** cluster-wide to hit the four-node network cap:
+
+| PBS uplinks | Who limits 4-way restore |
+|-------------|---------------------------|
+| **2×40 G** and TX actually spreads (four PVE IPs) | Tie: PBS ≈ Ceph cluster (~10 GB/s useful) |
+| **1×40 G** or TLB stuck on one slave | **PBS** → ~1.25 GB/s/node, ~5 GB/s total |
+
+### Honest sustained
+
+Use **~40–60%** of line-rate for planning (M6 CPU, PBS chunk reconstruct, Ceph overhead, LACP hash):
+
+| | Network math | Planning |
+|--|----------------|----------|
+| 4 nodes, RF3, PBS can do 80 Gbit/s | ~10 GB/s | **~4–6 GB/s** useful (~15–20 TB/h) |
+| Same, PBS only 40 Gbit/s | ~5 GB/s | **~2–3 GB/s** (~7–11 TB/h) |
 
 - **Non-zero** bytes (Backups → **Estimate sizes**) drive effort more than gross PBS archive size.
 - Many **100–200 GiB** apps: parallelize across all 4 nodes; often minutes–tens of minutes each at good concurrency.
 - **≤2 TiB** disks (even inside an “8 TiB” SQL VM): plan per disk; hours-class for dense data.
-- Full **~60–70 TiB** virtual estate to durable Ceph size=3: typically **many hours to >1 day** at realistic sustained rates — optimize **business RTO waves**, not one flat clock.
+- Full **~60–70 TiB** virtual estate to durable Ceph size=3: typically **many hours to >1 day** — optimize **business RTO waves**, not one flat clock.
 
 ### restore-engine knobs
 
 - `max_concurrent_restores`, multi-node targets, **bwlimit = 0**, clear datacenter/PBS throttles for the window.
 - Live-restore improves **time-to-usable**, not always time-to-full-disk.
 - Pause Ceph scrub/backfill during the blast when safe.
+
+---
+
+## PBS cabling: stay on FI vs Nexus LACP
+
+LACP on Nexus is how PBS can **offer** ~80 Gbit/s. Whether to recable depends on the **path to PVE backup 40 Gs**, not on LACP as an idea.
+
+If PBS and PVE backup vNICs both stay on **FIs**, restore can stay **on-fabric** (PBS → FI → PVE) and never use Nexus.
+
+If **only PBS** moves to Nexus:
+
+```text
+PBS  --LACP 2×40-->  Nexus  --FI uplinks-->  FI  -->  PVE backup 40G
+```
+
+All restore hairpins on **FI northbound**. If those uplinks are thin or shared with VM/Ceph public, LACP can **lose** more than it gains. Recable only if FI uplinks are **≥80 Gbit/s** with headroom, **or** PVE backup NICs also land on Nexus.
+
+On FI, PBS cannot LACP: two 40 G vNICs = two fabrics (prefer A/B + failover), **not** one 80 G LAG. **Do not** use TLB/ALB toward FIs.
+
+**Can the PBS M6 fill ~80 Gbit/s?** 21 NVMe + ~1 TB RAM / L2ARC can likely **read** that. Restore is usually limited by **parallel streams**, **PVE decrypt/decompress CPU**, then PBS CPU/TLS. **One job is often ~10–25 Gbit/s**, not 80. Even perfect PBS TX only **ties** the RF3 cluster 40 G cap (~10 GB/s useful); it does not double restore.
+
+Measure before recabling:
+
+1. `iperf3` with many streams to **all four** PVE backup IPs (path/NIC test).
+2. One fat VM restore, then 4–8 in parallel; watch PBS TX, PVE backup RX, Ceph cluster, CPU.
+
+If iperf is ~80 Gbit/s but restore is ~20 Gbit/s with idle NICs → CPU/jobs, not cabling. If iperf is ~40 Gbit/s with one slave busy → path/TLB; Nexus LACP (with a fat path) may help. If recabling: **2×40 G LACP across both Nexus**, PBS off Ceph/VM VLANs.
 
 ---
 
@@ -207,3 +364,4 @@ Optane: useful as **special**/SLOG or a small fast pool; it will not hold the wh
 
 - **Non-zero size estimate** (from `.fidx`): on-demand beside gross size — Backups UI **Estimate sizes** / `POST /api/backups/estimate-size`.
 - Multi-node restore, concurrency, live-restore, bwlimit — use for DR waves; see README Performance tuning.
+- **Infra metrics**: optional Grafana Compose profile + Netdata (lab install / prod optional) + PVE/PBS OpenTelemetry — see [infra-metrics.md](infra-metrics.md).

@@ -50,6 +50,11 @@ def parse_tags(config_text: str) -> list[str]:
 
 def connect_proxmox(cfg: dict[str, Any]) -> ProxmoxAPI:
     p = cfg["proxmox"]
+    try:
+        timeout = float(p.get("timeout_sec", 30) or 30)
+    except (TypeError, ValueError):
+        timeout = 30.0
+    timeout = max(5.0, timeout)
     token_id = (p.get("api_token_id") or "").strip()
     token_secret = (p.get("api_token_secret") or "").strip()
     if token_id and token_secret:
@@ -65,6 +70,7 @@ def connect_proxmox(cfg: dict[str, Any]) -> ProxmoxAPI:
             token_value=token_secret,
             port=int(p.get("port", 8006)),
             verify_ssl=bool(p.get("verify_ssl", True)),
+            timeout=timeout,
         )
     user = (p.get("user") or "").strip()
     password = (p.get("password") or "").strip()
@@ -76,6 +82,7 @@ def connect_proxmox(cfg: dict[str, Any]) -> ProxmoxAPI:
         password=password,
         port=int(p.get("port", 8006)),
         verify_ssl=bool(p.get("verify_ssl", True)),
+        timeout=timeout,
     )
 
 
@@ -614,12 +621,20 @@ def list_node_storages(proxmox: ProxmoxAPI, node: str) -> list[dict[str, Any]]:
             total = int(row.get("total") or 0)
         except (TypeError, ValueError):
             total = 0
+        try:
+            enabled = int(row.get("enabled") if row.get("enabled") is not None else 1) == 1
+        except (TypeError, ValueError):
+            enabled = bool(row.get("enabled", True))
+        try:
+            active = int(row.get("active") if row.get("active") is not None else 1)
+        except (TypeError, ValueError):
+            active = 1 if row.get("active", True) else 0
         out.append(
             {
                 "id": sid,
                 "type": str(row.get("type") or ""),
-                "enabled": int(row.get("enabled", 1)) == 1,
-                "active": int(row.get("active", 1)),
+                "enabled": enabled,
+                "active": active,
                 "usable_for_vm_disks": supports_images,
                 "supports_disk_import": supports_images,
                 "avail_bytes": avail,

@@ -339,6 +339,7 @@
         <button type="button" class="secondary nav" id="nav-groups">Groups</button>
         <button type="button" class="secondary nav" id="nav-locations">Locations</button>
         <button type="button" class="secondary nav" id="nav-jobs">Restores</button>
+        <button type="button" class="secondary nav" id="nav-infra">Infra</button>
         <button type="button" class="secondary nav" id="nav-audit">Audit</button>
         <button type="button" class="secondary nav" id="nav-credentials">Settings</button>
         <button type="button" class="secondary" id="btn-logout">Sign out</button>
@@ -354,18 +355,19 @@
             Backups are listed from your configured Proxmox Backup Server datastore.
             One row per VM (latest snapshot selected by default); use the Timestamp dropdown to pick an older backup.
             Select one or more VMs, then <strong>Restore selected</strong> — Select all never queues multiple snapshots of the same VM.
-            Tags are fetched automatically from Proxmox after the list loads (PBS does not include them).
-            Use <strong>Reload tags</strong> to refresh.
+            Tags are <strong>not</strong> loaded automatically (PVE <code>extractconfig</code> per snapshot is expensive on large estates).
+            Use <strong>Load tags</strong> when you need tag filter / restore-by-tag (results are Redis-cached afterward).
             <strong>Size (gross)</strong> is the PBS archive sum; use <strong>Estimate sizes</strong> for a chunk-level
             non-zero estimate (better proxy for restore effort — zeros restore quickly).
           </p>
           <div class="actions" style="margin-bottom: 0.75rem;">
             <button type="button" class="secondary" id="btn-refresh-backups">Refresh list</button>
-            <button type="button" class="secondary" id="btn-load-tags">Reload tags</button>
+            <button type="button" class="secondary" id="btn-load-tags" title="Calls PVE extractconfig for each snapshot (slow on large inventories)">Load tags</button>
             <button type="button" class="secondary" id="btn-estimate-sizes" title="Download .fidx indexes and count non-zero chunks (cached)">Estimate sizes</button>
             <button type="button" class="secondary" id="btn-select-all">Select all</button>
             <button type="button" class="secondary" id="btn-clear-selection">Clear selection</button>
             <button type="button" class="primary" id="btn-open-restore-modal" disabled>Restore selected…</button>
+            <button type="button" class="secondary" id="btn-save-selection-group" disabled>Save selection as group…</button>
             <button type="button" class="primary" id="btn-open-taggroup-modal">Restore by tag group…</button>
           </div>
           <div class="inline" style="gap:0.5rem;">
@@ -454,13 +456,30 @@
       <div id="view-groups" class="hidden">
         <div class="card">
           <h2>Inventory groups</h2>
-          <p class="hint">Saved sets of VMs by tags (all tags must match) and/or explicit VMIDs. Used as building blocks in recovery plans.</p>
+          <p class="hint">
+            Building blocks for recovery plans. Membership is the <strong>union</strong> of:
+            explicit VMIDs, VMID ranges, name patterns (globs or <code>re:</code> regex), and/or tags (AND).
+            Optional PBS <code>source_ids</code> limits which backup sources are considered.
+            Tip: on Backups, select VMs → <strong>Save selection as group…</strong>.
+          </p>
           <div class="row">
             <div><label>Name</label><input id="group-name" placeholder="Tier-1 apps" /></div>
             <div><label>Tags (comma-separated, AND)</label><input id="group-tags" placeholder="prod, app" /></div>
           </div>
+          <div class="row">
+            <div>
+              <label>Name patterns (comma-separated)</label>
+              <input id="group-name-patterns" placeholder="web-*, db-*, re:^sql-" />
+            </div>
+            <div>
+              <label>VMID ranges (comma-separated)</label>
+              <input id="group-vmid-ranges" placeholder="100-199, 500-520" />
+            </div>
+          </div>
           <label>VMIDs (comma-separated, optional)</label>
           <input id="group-vmids" placeholder="100, 101" />
+          <label>PBS source IDs (comma-separated, optional)</label>
+          <input id="group-source-ids" placeholder="main" />
           <input type="hidden" id="group-edit-id" value="" />
           <div class="actions">
             <button type="button" class="primary" id="btn-save-group">Save group</button>
@@ -468,7 +487,7 @@
           </div>
           <div id="groups-status" class="hint" style="margin-top:0.75rem;"></div>
           <table class="vm-table" id="groups-table" style="margin-top:1rem;">
-            <thead><tr><th>Name</th><th>Tags</th><th>VMIDs</th><th></th></tr></thead>
+            <thead><tr><th>Name</th><th>Selectors</th><th></th></tr></thead>
             <tbody id="groups-tbody"></tbody>
           </table>
         </div>
@@ -698,6 +717,26 @@
         </div>
       </div>
 
+      <div id="view-infra" class="hidden">
+        <div class="card">
+          <h2>Infrastructure metrics</h2>
+          <p class="hint">
+            Grafana (optional Compose profile <code>observability</code>) for Netdata per-NIC charts and PVE/PBS OpenTelemetry.
+            Without Grafana, a live API snapshot of CPU/RAM from PVE/PBS is shown below.
+            See <code>docs/infra-metrics.md</code>.
+          </p>
+          <div class="actions" style="margin-bottom:0.75rem;">
+            <button type="button" class="secondary" id="btn-refresh-infra">Refresh snapshot</button>
+            <a class="secondary btn" id="link-open-grafana" href="#" target="_blank" rel="noopener" hidden>Open Grafana</a>
+          </div>
+          <div id="infra-grafana-wrap" class="hidden" style="margin-bottom:1rem;">
+            <iframe id="infra-grafana-frame" title="Grafana infra dashboard" style="width:100%; min-height:70vh; border:1px solid var(--border); border-radius:6px; background:#111;"></iframe>
+          </div>
+          <div id="infra-snapshot-status" class="hint"></div>
+          <div id="infra-snapshot" style="display:grid; gap:0.75rem; margin-top:0.75rem;"></div>
+        </div>
+      </div>
+
       <div id="view-audit" class="hidden">
         <div class="card">
           <h2>Audit log</h2>
@@ -916,6 +955,35 @@
     </div>
   </div>
 
+  <div id="group-from-selection-modal" class="modal-backdrop">
+    <div class="modal">
+      <h3>Save selection as inventory group</h3>
+      <p class="hint" id="group-from-selection-summary">No VMs selected.</p>
+      <div class="radio-group">
+        <label>
+          <input type="radio" name="group-from-sel-mode" id="group-from-sel-create" value="create" checked />
+          Create new group
+        </label>
+        <label>
+          <input type="radio" name="group-from-sel-mode" id="group-from-sel-append" value="append" />
+          Add VMIDs to existing group
+        </label>
+      </div>
+      <div id="group-from-sel-create-wrap">
+        <label for="group-from-sel-name">Group name</label>
+        <input id="group-from-sel-name" placeholder="Selected VMs" />
+      </div>
+      <div id="group-from-sel-append-wrap" hidden style="display:none;">
+        <label for="group-from-sel-existing">Existing group</label>
+        <select id="group-from-sel-existing"></select>
+      </div>
+      <div class="actions">
+        <button type="button" class="primary" id="btn-group-from-sel-confirm">Save</button>
+        <button type="button" class="secondary" id="btn-group-from-sel-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <div id="taggroup-modal" class="modal-backdrop">
     <div class="modal">
       <h3>Restore by tag group</h3>
@@ -1104,6 +1172,7 @@
   <script>
     let credentialsVerified = false;
     let jobsPollTimer = null;
+    let infraPollTimer = null;
     let backupInventory = [];
     let tagsById = {};
     let sizeEstimateById = {};
@@ -1293,6 +1362,16 @@
         return;
       }
       container.innerHTML = "";
+      if (Object.keys(errors).length) {
+        const warn = document.createElement("p");
+        warn.className = "hint";
+        warn.textContent =
+          "Some nodes failed: " +
+          Object.entries(errors)
+            .map(([n, msg]) => n + " — " + msg)
+            .join("; ");
+        container.appendChild(warn);
+      }
       for (const node of nodes) {
         const row = document.createElement("div");
         row.className = "node-storage-row";
@@ -1696,7 +1775,7 @@
     }
 
     function showView(name) {
-      ["backups", "jobs", "credentials", "groups", "locations", "plans", "assurance", "compliance", "audit"].forEach((v) => {
+      ["backups", "jobs", "credentials", "groups", "locations", "plans", "assurance", "compliance", "audit", "infra"].forEach((v) => {
         const view = document.getElementById("view-" + v);
         const nav = document.getElementById("nav-" + v);
         if (view) view.classList.toggle("hidden", v !== name);
@@ -1706,6 +1785,12 @@
       else stopJobsPoll();
       if (name === "plans" || name === "assurance" || name === "compliance") startPlanRunsPoll();
       else stopPlanRunsPoll();
+      if (name === "infra") {
+        loadInfraPage();
+        startInfraPoll();
+      } else {
+        stopInfraPoll();
+      }
     }
 
     async function refreshHealth() {
@@ -1766,6 +1851,7 @@
       loadBackupList();
     };
     document.getElementById("nav-jobs").onclick = () => showView("jobs");
+    document.getElementById("nav-infra").onclick = () => showView("infra");
     document.getElementById("nav-groups").onclick = () => { showView("groups"); loadGroups(); };
     document.getElementById("nav-locations").onclick = () => { showView("locations"); loadLocations(); };
     document.getElementById("nav-plans").onclick = () => { showView("plans"); loadPlansPage(); };
@@ -2084,9 +2170,24 @@
         .filter(Boolean);
     }
 
+    function getSelectedVmids() {
+      const ids = [];
+      const seen = new Set();
+      for (const tr of document.querySelectorAll("#backup-tbody tr")) {
+        if (!tr.querySelector("input.backup-cb:checked")) continue;
+        const v = Number(tr.dataset.vmid);
+        if (!Number.isFinite(v) || seen.has(v)) continue;
+        seen.add(v);
+        ids.push(v);
+      }
+      return ids;
+    }
+
     function updateRestoreButton() {
       const n = getSelectedBackupIds().length;
       document.getElementById("btn-open-restore-modal").disabled = n === 0;
+      const saveBtn = document.getElementById("btn-save-selection-group");
+      if (saveBtn) saveBtn.disabled = n === 0;
     }
 
     async function loadBackupList() {
@@ -2165,9 +2266,8 @@
         refreshTagUI();
         applyTagFilter();
         updateRestoreButton();
-        // Tags live in guest config (via PVE extractconfig), not the PBS snapshot list.
-        // Load them automatically after the cheap PBS inventory is on screen.
-        loadTags({ quiet: true });
+        // Tags intentionally NOT auto-loaded: extractconfig × every snapshot overloads PVE.
+        // Use the "Load tags" button when needed (Redis-cached after first fetch).
       } catch (e) {
         statusEl.textContent = "";
         banner(document.getElementById("global-banner"), "err", e.message);
@@ -2284,7 +2384,7 @@
       return tagsLoadInFlight;
     }
 
-    document.getElementById("btn-load-tags").onclick = () => loadTags({ force: true });
+    document.getElementById("btn-load-tags").onclick = () => loadTags({ force: false });
 
     async function estimateSelectedSizes() {
       const btn = document.getElementById("btn-estimate-sizes");
@@ -2979,6 +3079,107 @@
       }
     }
 
+    function formatPct(x) {
+      const n = Number(x);
+      if (!Number.isFinite(n)) return "—";
+      return (n <= 1 ? n * 100 : n).toFixed(1) + "%";
+    }
+
+    function formatBps(n) {
+      const v = Number(n);
+      if (!Number.isFinite(v) || v < 0) return "—";
+      return (formatBytes(v) || "0 B") + "/s";
+    }
+
+    function renderInfraCard(title, rows) {
+      const body = rows
+        .map(([k, v]) => "<div><span class=\"hint\">" + escapeHtml(k) + "</span><div>" + escapeHtml(String(v)) + "</div></div>")
+        .join("");
+      return (
+        '<div style="border:1px solid var(--border); border-radius:6px; padding:0.75rem;">' +
+        "<strong>" + escapeHtml(title) + "</strong>" +
+        '<div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(7rem,1fr)); gap:0.5rem; margin-top:0.5rem;">' +
+        body + "</div></div>"
+      );
+    }
+
+    async function loadInfraPage() {
+      const statusEl = document.getElementById("infra-snapshot-status");
+      const snapEl = document.getElementById("infra-snapshot");
+      const gWrap = document.getElementById("infra-grafana-wrap");
+      const frame = document.getElementById("infra-grafana-frame");
+      const gLink = document.getElementById("link-open-grafana");
+      try {
+        const data = await api("/api/infra/metrics");
+        const mon = data.monitoring || {};
+        const grafana = mon.grafana || {};
+        const dashes = grafana.dashboards || [];
+        if (dashes.length && dashes[0].embed_url) {
+          gWrap.classList.remove("hidden");
+          if (frame.src !== dashes[0].embed_url) frame.src = dashes[0].embed_url;
+          gLink.hidden = false;
+          gLink.href = dashes[0].embed_url.replace(/[?&]kiosk[^&]*/g, "").replace(/\?&/, "?").replace(/\?$/, "") || grafana.base_url;
+        } else {
+          gWrap.classList.add("hidden");
+          frame.removeAttribute("src");
+          gLink.hidden = true;
+        }
+        const parts = [];
+        for (const n of data.nodes || []) {
+          const mem =
+            n.mem_total
+              ? (formatBytes(n.mem_used) || "?") + " / " + (formatBytes(n.mem_total) || "?")
+              : "—";
+          parts.push(
+            renderInfraCard("PVE " + (n.id || "?"), [
+              ["CPU", formatPct(n.cpu)],
+              ["RAM", mem],
+              ["Net in", formatBps(n.net_in_bps)],
+              ["Net out", formatBps(n.net_out_bps)],
+              ["Online", n.online ? "yes" : "no"],
+            ])
+          );
+        }
+        for (const p of data.pbs || []) {
+          const mem =
+            p.mem_total
+              ? (formatBytes(p.mem_used) || "?") + " / " + (formatBytes(p.mem_total) || "?")
+              : "—";
+          parts.push(
+            renderInfraCard("PBS " + (p.label || p.id || "?"), [
+              ["Host", p.host || "—"],
+              ["OK", p.ok ? "yes" : "no"],
+              ["CPU", formatPct(p.cpu)],
+              ["RAM", mem],
+            ])
+          );
+        }
+        snapEl.innerHTML = parts.length
+          ? parts.join("")
+          : '<p class="hint">No PVE/PBS snapshot data (check credentials / api_snapshot).</p>';
+        const errs = data.errors || [];
+        statusEl.textContent =
+          "Snapshot " + (data.ts || "") +
+          (errs.length ? " · " + errs.length + " error(s): " + errs[0] : "") +
+          (grafana.base_url ? " · Grafana configured" : " · set monitoring.grafana.base_url for embed");
+      } catch (e) {
+        statusEl.textContent = "";
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    }
+
+    function startInfraPoll() {
+      stopInfraPoll();
+      infraPollTimer = setInterval(loadInfraPage, 10000);
+    }
+
+    function stopInfraPoll() {
+      if (infraPollTimer) clearInterval(infraPollTimer);
+      infraPollTimer = null;
+    }
+
+    document.getElementById("btn-refresh-infra").onclick = loadInfraPage;
+
     function startJobsPoll() {
       stopJobsPoll();
       loadJobs();
@@ -3050,11 +3251,56 @@
         .filter(Boolean);
     }
 
+    function formatGroupSelectors(g) {
+      const bits = [];
+      if ((g.vmids || []).length) bits.push("VMIDs " + g.vmids.join(", "));
+      if ((g.vmid_ranges || []).length) {
+        bits.push(
+          "ranges " +
+            g.vmid_ranges
+              .map((r) => (typeof r === "string" ? r : (r.start + "-" + r.end)))
+              .join(", ")
+        );
+      }
+      if ((g.name_patterns || []).length) bits.push("names " + g.name_patterns.join(", "));
+      if ((g.tags || []).length) bits.push("tags " + g.tags.join(", "));
+      if ((g.source_ids || []).length) bits.push("sources " + g.source_ids.join(", "));
+      return bits.join(" · ") || "(empty)";
+    }
+
+    function groupBodyFromForm() {
+      return {
+        name: document.getElementById("group-name").value.trim(),
+        tags: parseCsv(document.getElementById("group-tags").value),
+        name_patterns: parseCsv(document.getElementById("group-name-patterns").value),
+        vmid_ranges: parseCsv(document.getElementById("group-vmid-ranges").value),
+        vmids: parseCsv(document.getElementById("group-vmids").value)
+          .map((v) => Number(v))
+          .filter((n) => Number.isFinite(n)),
+        source_ids: parseCsv(document.getElementById("group-source-ids").value),
+      };
+    }
+
     function resetGroupForm() {
       document.getElementById("group-edit-id").value = "";
       document.getElementById("group-name").value = "";
       document.getElementById("group-tags").value = "";
+      document.getElementById("group-name-patterns").value = "";
+      document.getElementById("group-vmid-ranges").value = "";
       document.getElementById("group-vmids").value = "";
+      document.getElementById("group-source-ids").value = "";
+    }
+
+    function fillGroupForm(g) {
+      document.getElementById("group-edit-id").value = g.id;
+      document.getElementById("group-name").value = g.name || "";
+      document.getElementById("group-tags").value = (g.tags || []).join(", ");
+      document.getElementById("group-name-patterns").value = (g.name_patterns || []).join(", ");
+      document.getElementById("group-vmid-ranges").value = (g.vmid_ranges || [])
+        .map((r) => (typeof r === "string" ? r : r.start + "-" + r.end))
+        .join(", ");
+      document.getElementById("group-vmids").value = (g.vmids || []).join(", ");
+      document.getElementById("group-source-ids").value = (g.source_ids || []).join(", ");
     }
 
     async function loadGroups() {
@@ -3067,8 +3313,7 @@
           const tr = document.createElement("tr");
           tr.innerHTML =
             "<td>" + escapeHtml(g.name) + "</td>" +
-            "<td>" + escapeHtml((g.tags || []).join(", ")) + "</td>" +
-            "<td>" + escapeHtml((g.vmids || []).join(", ")) + "</td>" +
+            "<td>" + escapeHtml(formatGroupSelectors(g)) + "</td>" +
             '<td><button type="button" class="secondary tiny btn-edit-group" data-id="' + escapeHtml(g.id) + '">Edit</button> ' +
             '<button type="button" class="danger tiny btn-del-group" data-id="' + escapeHtml(g.id) + '">Delete</button></td>';
           tbody.appendChild(tr);
@@ -3078,10 +3323,7 @@
           btn.onclick = () => {
             const g = cachedGroups.find((x) => x.id === btn.dataset.id);
             if (!g) return;
-            document.getElementById("group-edit-id").value = g.id;
-            document.getElementById("group-name").value = g.name;
-            document.getElementById("group-tags").value = (g.tags || []).join(", ");
-            document.getElementById("group-vmids").value = (g.vmids || []).join(", ");
+            fillGroupForm(g);
           };
         });
         tbody.querySelectorAll(".btn-del-group").forEach((btn) => {
@@ -3102,18 +3344,106 @@
 
     document.getElementById("btn-reset-group").onclick = resetGroupForm;
     document.getElementById("btn-save-group").onclick = async () => {
-      const body = {
-        name: document.getElementById("group-name").value.trim(),
-        tags: parseCsv(document.getElementById("group-tags").value),
-        vmids: parseCsv(document.getElementById("group-vmids").value).map((v) => Number(v)),
-        source_ids: [],
-      };
+      const body = groupBodyFromForm();
       const id = document.getElementById("group-edit-id").value;
       try {
         if (id) await api("/api/groups/" + encodeURIComponent(id), { method: "PUT", body: JSON.stringify(body) });
         else await api("/api/groups", { method: "POST", body: JSON.stringify(body) });
         resetGroupForm();
         loadGroups();
+      } catch (e) {
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    };
+
+    function syncGroupFromSelMode() {
+      const append = document.getElementById("group-from-sel-append").checked;
+      document.getElementById("group-from-sel-create-wrap").hidden = append;
+      document.getElementById("group-from-sel-create-wrap").style.display = append ? "none" : "";
+      document.getElementById("group-from-sel-append-wrap").hidden = !append;
+      document.getElementById("group-from-sel-append-wrap").style.display = append ? "" : "none";
+    }
+
+    async function openGroupFromSelectionModal() {
+      const vmids = getSelectedVmids();
+      if (!vmids.length) {
+        banner(document.getElementById("global-banner"), "err", "Select at least one VM");
+        return;
+      }
+      document.getElementById("group-from-selection-summary").textContent =
+        vmids.length + " VMID(s): " + vmids.join(", ");
+      document.getElementById("group-from-sel-create").checked = true;
+      document.getElementById("group-from-sel-name").value = "";
+      try {
+        cachedGroups = await api("/api/groups");
+      } catch (e) {
+        banner(document.getElementById("global-banner"), "err", e.message);
+        return;
+      }
+      const sel = document.getElementById("group-from-sel-existing");
+      sel.innerHTML = "";
+      for (const g of cachedGroups) {
+        const opt = document.createElement("option");
+        opt.value = g.id;
+        opt.textContent = g.name;
+        sel.appendChild(opt);
+      }
+      if (!cachedGroups.length) {
+        document.getElementById("group-from-sel-append").disabled = true;
+      } else {
+        document.getElementById("group-from-sel-append").disabled = false;
+      }
+      syncGroupFromSelMode();
+      document.getElementById("group-from-selection-modal").classList.add("show");
+    }
+
+    document.getElementById("group-from-sel-create").onchange = syncGroupFromSelMode;
+    document.getElementById("group-from-sel-append").onchange = syncGroupFromSelMode;
+    document.getElementById("btn-save-selection-group").onclick = openGroupFromSelectionModal;
+    document.getElementById("btn-group-from-sel-cancel").onclick = () => {
+      document.getElementById("group-from-selection-modal").classList.remove("show");
+    };
+    document.getElementById("btn-group-from-sel-confirm").onclick = async () => {
+      const vmids = getSelectedVmids();
+      if (!vmids.length) return;
+      try {
+        if (document.getElementById("group-from-sel-append").checked) {
+          const id = document.getElementById("group-from-sel-existing").value;
+          const g = cachedGroups.find((x) => x.id === id);
+          if (!g) throw new Error("Select an existing group");
+          const merged = Array.from(new Set([...(g.vmids || []), ...vmids])).sort((a, b) => a - b);
+          const body = {
+            name: g.name,
+            tags: g.tags || [],
+            name_patterns: g.name_patterns || [],
+            vmid_ranges: (g.vmid_ranges || []).map((r) =>
+              typeof r === "string" ? r : r.start + "-" + r.end
+            ),
+            vmids: merged,
+            source_ids: g.source_ids || [],
+          };
+          await api("/api/groups/" + encodeURIComponent(id), {
+            method: "PUT",
+            body: JSON.stringify(body),
+          });
+          banner(document.getElementById("global-banner"), "ok", "Added " + vmids.length + " VMID(s) to " + g.name);
+        } else {
+          const name = document.getElementById("group-from-sel-name").value.trim();
+          if (!name) throw new Error("Group name is required");
+          await api("/api/groups", {
+            method: "POST",
+            body: JSON.stringify({
+              name,
+              tags: [],
+              name_patterns: [],
+              vmid_ranges: [],
+              vmids,
+              source_ids: [],
+            }),
+          });
+          banner(document.getElementById("global-banner"), "ok", "Created group “" + name + "” with " + vmids.length + " VMID(s)");
+        }
+        document.getElementById("group-from-selection-modal").classList.remove("show");
       } catch (e) {
         banner(document.getElementById("global-banner"), "err", e.message);
       }

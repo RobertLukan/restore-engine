@@ -1,0 +1,12 @@
+# Example Netdata scrape entries for prometheus.yml → job netdata-pve.
+# Merge into static_configs (hosts must be reachable from the Prometheus container).
+#
+# static_configs:
+#   - targets: ["192.168.123.10:19999"]
+#     labels:
+#       role: pve
+#       env: lab
+#   - targets: ["192.168.123.11:19999"]
+#     labels:
+#       role: pve
+#       env: lab

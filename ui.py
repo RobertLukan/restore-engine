@@ -570,15 +570,21 @@ def reopen_credentials(request: Request) -> dict[str, str]:
 @router.get("/api/ui/proxmox-storages", dependencies=[Depends(require_ui_session)])
 def proxmox_storages(node: str) -> dict[str, Any]:
     cfg = load_yaml()
-    proxmox = connect_proxmox(cfg)
-    return {"node": node, "storages": list_node_storages(proxmox, node)}
+    try:
+        proxmox = connect_proxmox(cfg)
+        return {"node": node, "storages": list_node_storages(proxmox, node)}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Proxmox storages on {node}: {exc}") from exc
 
 
 @router.get("/api/ui/proxmox-storages-multi", dependencies=[Depends(require_ui_session)])
 def proxmox_storages_multi(nodes: str) -> dict[str, Any]:
     """Return VM-capable storages for each comma-separated node name."""
     cfg = load_yaml()
-    proxmox = connect_proxmox(cfg)
+    try:
+        proxmox = connect_proxmox(cfg)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Proxmox connect failed: {exc}") from exc
     by_node: dict[str, list[dict[str, Any]]] = {}
     errors: dict[str, str] = {}
     for raw in nodes.split(","):
@@ -589,7 +595,7 @@ def proxmox_storages_multi(nodes: str) -> dict[str, Any]:
             by_node[name] = list_node_storages(proxmox, name)
         except Exception as exc:
             by_node[name] = []
-            errors[name] = str(exc)
+            errors[name] = str(exc) or exc.__class__.__name__
     return {"by_node": by_node, "errors": errors}
 
 

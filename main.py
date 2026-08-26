@@ -22,6 +22,7 @@ import plans as plans_module
 from jobs import enqueue_restores, job_key
 from pbs_client import list_vm_backups
 from pbs_wire import estimate_fidx_usage_cached
+from metrics_collect import collect_infra_snapshot, monitoring_config
 from pve_client import (
     archive_path,
     connect_proxmox,
@@ -568,6 +569,20 @@ def estimate_backup_sizes(body: EstimateSizeRequest) -> dict[str, Any]:
     return {"estimates": estimates, "errors": errors}
 
 
+@api.get("/infra/metrics")
+def infra_metrics() -> dict[str, Any]:
+    """CPU/RAM/(optional) net snapshot from PVE/PBS APIs; includes Grafana embed config."""
+    cfg = load_config()
+    return collect_infra_snapshot(cfg)
+
+
+@api.get("/infra/monitoring")
+def infra_monitoring_config() -> dict[str, Any]:
+    """Grafana embed URLs and monitoring flags (no live scrape)."""
+    cfg = load_config()
+    return monitoring_config(cfg)
+
+
 class RestoreTagGroupRequest(BaseModel):
     tag: str = Field(min_length=1)
     at_or_before: str | None = None
@@ -677,6 +692,8 @@ class GroupUpsert(BaseModel):
     tags: list[str] = Field(default_factory=list)
     source_ids: list[str] = Field(default_factory=list)
     vmids: list[int] = Field(default_factory=list)
+    name_patterns: list[str] = Field(default_factory=list)
+    vmid_ranges: list[Any] = Field(default_factory=list)
 
 
 class LocationUpsert(BaseModel):

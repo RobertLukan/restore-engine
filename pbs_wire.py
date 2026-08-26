@@ -188,8 +188,10 @@ def _list_fidx_names(source: Source, backup_id: str, backup_time: int, headers: 
         "backup-id": backup_id,
         "backup-time": str(backup_time),
     }
-    if source.namespace:
-        params["namespace"] = source.namespace
+    # PBS API uses ``ns`` (same as snapshots list); ``namespace`` is rejected.
+    ns = (source.namespace or "").strip().strip("/")
+    if ns and ns.lower() != "root":
+        params["ns"] = ns
     url = f"https://{source.host}:{int(source.port)}/api2/json/admin/datastore/{source.datastore}/files"
     with httpx.Client(timeout=60.0, verify=bool(source.verify_ssl)) as client:
         resp = client.get(url, headers=headers, cookies=cookies, params=params)
@@ -288,8 +290,10 @@ def _open_reader(
         "backup-id": backup_id,
         "backup-time": str(backup_time),
     }
-    if source.namespace:
-        params["namespace"] = source.namespace
+    # Reader upgrade uses ``ns`` like the REST snapshots/files APIs.
+    ns = (source.namespace or "").strip().strip("/")
+    if ns and ns.lower() != "root":
+        params["ns"] = ns
     path_q = f"/api2/json/reader?{urllib.parse.urlencode(params)}"
     lines = [
         f"GET {path_q} HTTP/1.1",

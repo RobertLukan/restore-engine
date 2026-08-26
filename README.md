@@ -136,9 +136,12 @@ Note: Proxmox-side throttles (a `bwlimit` in `datacenter.cfg` or on the storage,
 5. **Compliance** — read-only posture across plans (readiness, assurance, schedule, report links).
 6. **Backups** — refresh list, optionally **Estimate sizes** (non-zero), select backups, **Restore selected** (ad-hoc) with isolation / overwrite options.
 7. **Restores** — watch job state and progress; stop queued jobs if needed.
-8. **Audit** — browse recent operator actions when investigating who changed what.
+8. **Infra** — Grafana embed (optional) and/or live PVE/PBS CPU/RAM snapshot.
+9. **Audit** — browse recent operator actions when investigating who changed what.
 
-DR site design (PBS sync, Cisco FI / NIC layout, Ceph size 2 vs 3, ZFS landing mirror vs RAIDZ, speed expectations): **[docs/dr-architecture.md](docs/dr-architecture.md)**.
+DR site design (PBS sync, UCS fabric failover vs bonding, NIC/VLAN layout, Ceph public vs cluster, restore path and 4-node RF3 speed, PBS FI vs Nexus LACP, Ceph size 2 vs 3, ZFS landing): **[docs/dr-architecture.md](docs/dr-architecture.md)**.
+
+Infrastructure metrics (Grafana, Netdata, PVE/PBS OpenTelemetry): **[docs/infra-metrics.md](docs/infra-metrics.md)**.
 
 ## Production checklist
 
@@ -220,13 +223,13 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
 pytest
+# optional coverage:
+pytest --cov=. --cov-report=term-missing --cov-fail-under=0
 ```
 
-The suite covers VMID allocation, the PVE archive volid format, PBS snapshot
-parsing, auth/session enforcement, `/health` (ok/degraded), `/version`, and
-recovery plan group/location CRUD plus ordered plan-run advancement. It
-runs offline against `tests/fixtures/minimal_config.yaml` and does not require a
-live PBS, Proxmox VE, or Redis.
+The suite is **offline** (FakeRedis + mocks) against `tests/fixtures/minimal_config.yaml` — no live PBS, Proxmox VE, or Redis required. It covers VMID allocation, archive volids, PBS parsing, auth, health/version, plans/jobs domain logic, worker `process_job` (mocked), hygiene/audit, and selected HTTP routes.
+
+**Feature vs test gaps:** see **[docs/gap-analysis.md](docs/gap-analysis.md)**.
 
 ## Related project
 

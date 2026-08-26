@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import fnmatch
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -130,27 +132,121 @@ def _list_entities(r: redis.Redis, cfg: dict[str, Any], *, index: str, key_fn: C
 # --- Inventory groups ---
 
 
+def _parse_int_list(raw: Any, *, label: str) -> list[int]:
+    out: list[int] = []
+    for v in raw or []:
+        try:
+            out.append(int(v))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"invalid {label}: {v!r}") from exc
+    return out
+
+
+def normalize_vmid_ranges(raw: Any) -> list[dict[str, int]]:
+    """Accept ``100-199``, ``[100, 199]``, or ``{start, end}`` entries (inclusive)."""
+    ranges: list[dict[str, int]] = []
+    for item in raw or []:
+        start: int | None = None
+        end: int | None = None
+        if isinstance(item, str):
+            text = item.strip()
+            if not text:
+                continue
+            if "-" not in text:
+                raise ValueError(f"invalid vmid range (expected start-end): {item!r}")
+            left, right = text.split("-", 1)
+            try:
+                start, end = int(left.strip()), int(right.strip())
+            except ValueError as exc:
+                raise ValueError(f"invalid vmid range: {item!r}") from exc
+        elif isinstance(item, (list, tuple)) and len(item) == 2:
+            try:
+                start, end = int(item[0]), int(item[1])
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"invalid vmid range: {item!r}") from exc
+        elif isinstance(item, dict):
+            try:
+                start = int(item.get("start"))
+                end = int(item.get("end"))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"invalid vmid range: {item!r}") from exc
+        else:
+            raise ValueError(f"invalid vmid range: {item!r}")
+        if start is None or end is None:
+            raise ValueError(f"invalid vmid range: {item!r}")
+        if start > end:
+            start, end = end, start
+        if start < 0 or end < 0:
+            raise ValueError(f"vmid range must be non-negative: {start}-{end}")
+        ranges.append({"start": start, "end": end})
+    return ranges
+
+
+def normalize_name_patterns(raw: Any) -> list[str]:
+    patterns: list[str] = []
+    for item in raw or []:
+        p = str(item).strip()
+        if not p:
+            continue
+        if p.lower().startswith("re:"):
+            body = p[3:]
+            try:
+                re.compile(body)
+            except re.error as exc:
+                raise ValueError(f"invalid name pattern regex: {p!r} ({exc})") from exc
+        patterns.append(p)
+    return patterns
+
+
+def guest_name_matches(name: str, patterns: list[str]) -> bool:
+    """Match inventory guest name: shell globs (default) or ``re:`` regex (case-insensitive)."""
+    if not patterns:
+        return False
+    text = str(name or "")
+    folded = text.casefold()
+    for raw in patterns:
+        p = str(raw).strip()
+        if not p:
+            continue
+        if p.lower().startswith("re:"):
+            try:
+                if re.search(p[3:], text, re.IGNORECASE):
+                    return True
+            except re.error:
+                continue
+        elif fnmatch.fnmatchcase(folded, p.casefold()):
+            return True
+    return False
+
+
+def vmid_in_ranges(vmid: int, ranges: list[dict[str, int]]) -> bool:
+    for r in ranges:
+        if int(r["start"]) <= vmid <= int(r["end"]):
+            return True
+    return False
+
+
 def normalize_group(payload: dict[str, Any], *, group_id: str | None = None) -> dict[str, Any]:
     name = (payload.get("name") or "").strip()
     if not name:
         raise ValueError("name is required")
     tags = [str(t).strip() for t in (payload.get("tags") or []) if str(t).strip()]
     source_ids = [str(s).strip() for s in (payload.get("source_ids") or []) if str(s).strip()]
-    vmids_raw = payload.get("vmids") or []
-    vmids: list[int] = []
-    for v in vmids_raw:
-        try:
-            vmids.append(int(v))
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"invalid vmid: {v!r}") from exc
-    if not tags and not vmids:
-        raise ValueError("group needs at least one tag or one vmid")
+    vmids = sorted(set(_parse_int_list(payload.get("vmids"), label="vmid")))
+    name_patterns = normalize_name_patterns(payload.get("name_patterns"))
+    vmid_ranges = normalize_vmid_ranges(payload.get("vmid_ranges"))
+    if not tags and not vmids and not name_patterns and not vmid_ranges:
+        raise ValueError(
+            "group needs at least one of: tags, vmids, name_patterns, or vmid_ranges"
+        )
     return {
         "id": group_id or str(uuid.uuid4()),
         "name": name,
         "tags": tags,
         "source_ids": source_ids,
         "vmids": vmids,
+        "name_patterns": name_patterns,
+        "vmid_ranges": vmid_ranges,
         "mode": "latest_per_vmid",
         "created_at": payload.get("created_at") or "",
         "updated_at": payload.get("updated_at") or "",
@@ -423,13 +519,16 @@ def resolve_group_rows(
     cutoff: str,
     tags_by_backup_id: dict[str, list[str]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Pick latest-per-vmid rows for a group at or before cutoff.
+    """Pick latest backup per VMID for group members at/before cutoff.
 
-    Matching rules:
-    - ``vmids`` only: those VMIDs (latest snapshot ≤ cutoff).
-    - ``tags`` only: VMs whose guest tags contain *all* listed tags (AND).
-    - both: intersection (listed VMIDs that also carry all tags).
-    - optional ``source_ids`` filters by backup source id/label (case-insensitive).
+    Membership is the **union** of matching selectors (after optional ``source_ids`` filter):
+
+    - ``vmids``: explicit source VMIDs
+    - ``vmid_ranges``: inclusive numeric ranges (e.g. 100–199)
+    - ``name_patterns``: guest-name globs (``web-*``) or ``re:`` regex
+    - ``tags``: guest tags contain *all* listed tags (AND); needs tag map
+
+    Legacy groups with only tags/vmids keep working.
     """
     source_filter = {s.lower() for s in (group.get("source_ids") or [])}
     candidates = [row for row in backups if row.get("timestamp", "") <= cutoff]
@@ -450,28 +549,35 @@ def resolve_group_rows(
 
     explicit_vmids = {int(v) for v in (group.get("vmids") or [])}
     wanted_tags = {t.lower() for t in (group.get("tags") or []) if str(t).strip()}
+    name_patterns = [str(p).strip() for p in (group.get("name_patterns") or []) if str(p).strip()]
+    try:
+        vmid_ranges = normalize_vmid_ranges(group.get("vmid_ranges") or [])
+    except ValueError:
+        vmid_ranges = []
     tags_by_backup_id = tags_by_backup_id or {}
 
-    if explicit_vmids and not wanted_tags:
-        selected = [best[v] for v in sorted(explicit_vmids) if v in best]
-    elif wanted_tags and not explicit_vmids:
-        selected = []
-        for vmid in sorted(best):
-            row = best[vmid]
-            row_tags = {t.lower() for t in tags_by_backup_id.get(row["backup_id"], [])}
-            if wanted_tags.issubset(row_tags):
-                selected.append(row)
-    else:
-        selected = []
-        for vmid in sorted(explicit_vmids):
-            row = best.get(vmid)
-            if not row:
-                continue
-            row_tags = {t.lower() for t in tags_by_backup_id.get(row["backup_id"], [])}
-            if wanted_tags.issubset(row_tags):
-                selected.append(row)
+    selected_ids: set[int] = set()
 
-    return selected
+    if explicit_vmids:
+        selected_ids.update(v for v in explicit_vmids if v in best)
+
+    if vmid_ranges:
+        for vmid in best:
+            if vmid_in_ranges(vmid, vmid_ranges):
+                selected_ids.add(vmid)
+
+    if name_patterns:
+        for vmid, row in best.items():
+            if guest_name_matches(str(row.get("name") or ""), name_patterns):
+                selected_ids.add(vmid)
+
+    if wanted_tags:
+        for vmid, row in best.items():
+            row_tags = {t.lower() for t in tags_by_backup_id.get(row["backup_id"], [])}
+            if wanted_tags.issubset(row_tags):
+                selected_ids.add(vmid)
+
+    return [best[v] for v in sorted(selected_ids)]
 
 
 # --- Readiness checks ---
