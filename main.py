@@ -20,6 +20,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 import ui as ui_module
 import plans as plans_module
+from client_errors import public_error_message
 from jobs import enqueue_restores, job_key
 from pbs_client import list_vm_backups
 from pbs_wire import estimate_fidx_usage_cached
@@ -601,7 +602,7 @@ def estimate_backup_sizes(body: EstimateSizeRequest) -> dict[str, Any]:
                 est["size_bytes"] = gross_by_id.get(bid)
             estimates[bid] = est
         except Exception as exc:
-            errors[bid] = str(exc) or exc.__class__.__name__
+            errors[bid] = public_error_message(exc)
 
     return {"estimates": estimates, "errors": errors}
 
@@ -982,7 +983,9 @@ def api_check_plan(plan_id: str, body: PlanCheckRequest | None = None) -> dict[s
             resolve_tags_fn=lambda c, rows, node: _resolve_tags(c, rows, node),
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Readiness check failed: {exc}") from exc
+        raise HTTPException(
+            status_code=500, detail=public_error_message(exc, prefix="Readiness check failed")
+        ) from exc
     return {"plan": updated, "check": check}
 
 
@@ -1046,7 +1049,9 @@ def api_preview_plan_members(plan_id: str, body: PlanMembersPreviewRequest) -> d
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to resolve members: {exc}") from exc
+        raise HTTPException(
+            status_code=500, detail=public_error_message(exc, prefix="Failed to resolve members")
+        ) from exc
 
     groups_out: list[dict[str, Any]] = []
     flat: list[dict[str, Any]] = []
@@ -1212,7 +1217,9 @@ def api_teardown_plan_run(run_id: str, body: PlanTeardownRequest | None = None) 
     except ValueError as exc:
         raise _http_value_error(exc) from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Teardown failed: {exc}") from exc
+        raise HTTPException(
+            status_code=502, detail=public_error_message(exc, prefix="Teardown failed")
+        ) from exc
     return plans_module.aggregate_plan_run(r, cfg, updated, job_key_fn=job_key)
 
 
@@ -1593,7 +1600,7 @@ def health() -> JSONResponse:
             config_ok = True
             config_detail = "loaded"
     except Exception as exc:
-        config_detail = f"config load failed: {exc}"
+        config_detail = public_error_message(exc, prefix="config load failed")
 
     pbs = ui_module.health_pbs_component(cfg) if config_ok else {"ok": False, "detail": "config not loaded"}
     pve = ui_module.health_proxmox_component(cfg) if config_ok else {"ok": False, "detail": "config not loaded"}
@@ -1605,7 +1612,7 @@ def health() -> JSONResponse:
         redis_ok = True
         redis_detail = "reachable"
     except Exception as exc:
-        redis_detail = str(exc)
+        redis_detail = public_error_message(exc, prefix="redis unreachable")
 
     overall = config_ok and pbs["ok"] and pve["ok"] and redis_ok
     body = {

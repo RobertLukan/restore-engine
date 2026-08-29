@@ -7,6 +7,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from client_errors import public_error_message
 from proxmoxer import ProxmoxAPI
 
 
@@ -152,7 +153,7 @@ def test_proxmox_connection(cfg: dict[str, Any]) -> tuple[bool, str]:
         connect_proxmox(cfg).version.get()
         return True, "Proxmox API reachable."
     except Exception as exc:
-        return False, str(exc)
+        return False, public_error_message(exc, prefix="Proxmox connection failed")
 
 
 def qemu_vmids_in_use_on_node(proxmox: ProxmoxAPI, node: str) -> set[int]:

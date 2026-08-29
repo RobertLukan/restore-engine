@@ -21,6 +21,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
+
+from client_errors import public_error_message, tls_client_context
 from h2.config import H2Configuration
 from h2.connection import H2Connection
 from h2.events import DataReceived, ResponseReceived, StreamEnded, StreamReset
@@ -278,10 +280,7 @@ def _open_reader(
     cookies: dict[str, str],
 ) -> _ReaderSession:
     verify = bool(source.verify_ssl)
-    ctx = ssl.create_default_context()
-    if not verify:
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
+    ctx = tls_client_context(verify=verify)
     raw = socket.create_connection((source.host, int(source.port)), timeout=30)
     sock = ctx.wrap_socket(raw, server_hostname=source.host if verify else None)
     params: dict[str, str] = {

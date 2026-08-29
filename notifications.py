@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import logging
 import smtplib
-import ssl
 from email.message import EmailMessage
 from typing import Any
 from urllib import error, request
+
+from client_errors import public_error_message, tls_client_context
 
 log = logging.getLogger("restore-notifications")
 
@@ -94,7 +95,7 @@ def send_email(
 
     try:
         if use_ssl:
-            context = ssl.create_default_context()
+            context = tls_client_context()
             with smtplib.SMTP_SSL(host, port, timeout=30, context=context) as smtp:
                 if username:
                     smtp.login(username, password)
@@ -103,7 +104,7 @@ def send_email(
             with smtplib.SMTP(host, port, timeout=30) as smtp:
                 smtp.ehlo()
                 if use_tls:
-                    context = ssl.create_default_context()
+                    context = tls_client_context()
                     smtp.starttls(context=context)
                     smtp.ehlo()
                 if username:
@@ -112,7 +113,7 @@ def send_email(
         return True, f"Sent to {', '.join(recipients)}"
     except Exception as exc:
         log.warning("SMTP send failed: %s", exc)
-        return False, str(exc)
+        return False, public_error_message(exc, prefix="SMTP send failed")
 
 
 def post_webhook(cfg: dict[str, Any], payload: dict[str, Any]) -> tuple[bool, str]:

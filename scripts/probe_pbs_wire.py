@@ -24,6 +24,8 @@ from h2.events import (
     StreamReset,
 )
 
+from client_errors import tls_client_context
+
 try:
     import yaml
 except ImportError:
@@ -141,10 +143,7 @@ def _h2_download(sock: ssl.SSLSocket, path: str, leftover: bytes = b"") -> tuple
 
 
 def login(host: str, port: int, user: str, password: str, verify: bool) -> dict[str, str]:
-    ctx = ssl.create_default_context()
-    if not verify:
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
+    ctx = tls_client_context(verify=verify)
     conn = http.client.HTTPSConnection(host, port, context=ctx, timeout=60)
     body = urllib.parse.urlencode({"username": user, "password": password})
     conn.request(
@@ -174,10 +173,7 @@ def download_fidx(
     headers: dict[str, str],
     verify: bool,
 ) -> bytes:
-    ctx = ssl.create_default_context()
-    if not verify:
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
+    ctx = tls_client_context(verify=verify)
     q = urllib.parse.urlencode(
         {
             "backup-type": "vm",
@@ -227,10 +223,7 @@ def main() -> int:
     random.seed(1)
     sample = random.sample(uniq, min(20, len(uniq)))
 
-    ctx = ssl.create_default_context()
-    if not verify:
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
+    ctx = tls_client_context(verify=verify)
     raw = socket.create_connection((host, port), timeout=60)
     sock = ctx.wrap_socket(raw, server_hostname=host if verify else None)
 

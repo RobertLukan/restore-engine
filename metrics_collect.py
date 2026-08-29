@@ -7,6 +7,8 @@ from typing import Any
 
 import httpx
 
+from client_errors import public_error_message
+
 from pbs_client import _authenticated_get
 from pve_client import connect_proxmox, list_cluster_nodes
 from sources import load_sources
@@ -95,7 +97,7 @@ def collect_pve_nodes(cfg: dict[str, Any]) -> tuple[list[dict[str, Any]], list[s
         px = connect_proxmox(cfg)
         listed = list_cluster_nodes(px)
     except Exception as exc:
-        return [], [f"pve connect: {exc}"]
+        return [], [public_error_message(exc, prefix="pve connect")]
 
     if not listed:
         # Fallback to configured default node only.
@@ -150,7 +152,7 @@ def collect_pve_nodes(cfg: dict[str, Any]) -> tuple[list[dict[str, Any]], list[s
             except Exception:
                 pass
         except Exception as exc:
-            errors.append(f"pve {name}: {exc}")
+            errors.append(public_error_message(exc, prefix=f"pve {name}"))
     return nodes_out, errors
 
 
@@ -204,7 +206,7 @@ def collect_pbs_sources(cfg: dict[str, Any]) -> tuple[list[dict[str, Any]], list
                         errors.append(f"pbs {source.source_id}: HTTP {resp.status_code}")
                 out.append(entry)
         except Exception as exc:
-            errors.append(f"pbs {source.source_id}: {exc}")
+            errors.append(public_error_message(exc, prefix=f"pbs {source.source_id}"))
             out.append(
                 {
                     "id": source.source_id,

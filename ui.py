@@ -11,6 +11,7 @@ import yaml
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from client_errors import public_error_message
 from pbs_client import list_vm_backups, probe_pbs_connection as test_pbs_connection
 from pve_client import connect_proxmox, list_cluster_nodes, list_node_storages, test_proxmox_connection
 
@@ -587,7 +588,10 @@ def proxmox_storages(node: str) -> dict[str, Any]:
         proxmox = connect_proxmox(cfg)
         return {"node": node, "storages": list_node_storages(proxmox, node)}
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Proxmox storages on {node}: {exc}") from exc
+        raise HTTPException(
+            status_code=502,
+            detail=public_error_message(exc, prefix=f"Proxmox storages on {node}"),
+        ) from exc
 
 
 @router.get("/api/ui/proxmox-storages-multi", dependencies=[Depends(require_ui_session)])
@@ -597,7 +601,9 @@ def proxmox_storages_multi(nodes: str) -> dict[str, Any]:
     try:
         proxmox = connect_proxmox(cfg)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Proxmox connect failed: {exc}") from exc
+        raise HTTPException(
+            status_code=502, detail=public_error_message(exc, prefix="Proxmox connect failed")
+        ) from exc
     by_node: dict[str, list[dict[str, Any]]] = {}
     errors: dict[str, str] = {}
     for raw in nodes.split(","):
@@ -608,7 +614,7 @@ def proxmox_storages_multi(nodes: str) -> dict[str, Any]:
             by_node[name] = list_node_storages(proxmox, name)
         except Exception as exc:
             by_node[name] = []
-            errors[name] = str(exc) or exc.__class__.__name__
+            errors[name] = public_error_message(exc)
     return {"by_node": by_node, "errors": errors}
 
 

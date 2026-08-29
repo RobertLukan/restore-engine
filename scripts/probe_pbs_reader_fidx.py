@@ -13,6 +13,8 @@ import urllib.parse
 from pathlib import Path
 
 import yaml
+
+from client_errors import tls_client_context
 from h2.config import H2Configuration
 from h2.connection import H2Connection
 from h2.events import DataReceived, ResponseReceived, StreamEnded, StreamReset
@@ -73,9 +75,7 @@ def main() -> None:
     user = pbs["user"]
     pw = pbs["password"]
     datastore = pbs["mounts"][0]["datastore"]
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
+    ctx = tls_client_context(verify=False)
     bt = 1786093566
     file_name = "drive-scsi0.img.fidx"
 

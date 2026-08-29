@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
+from client_errors import public_error_message
 
 from sources import Source, load_sources
 
@@ -94,7 +95,7 @@ def probe_pbs_source(source: Source) -> tuple[bool, str]:
                 return True, f"PBS connection successful ({mode} auth)."
             return False, f"PBS connection failed: HTTP {response.status_code} {response.text}"
     except Exception as exc:
-        return False, f"PBS connection failed: {exc}"
+        return False, f"PBS connection failed: {public_error_message(exc)}"
 
 
 def probe_all_sources(cfg: dict[str, Any]) -> tuple[bool, list[dict[str, Any]]]:
