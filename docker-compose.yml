@@ -40,7 +40,11 @@ services:
       retries: 5
 
   api:
-    build: .
+    build:
+      context: .
+      args:
+        RESTORE_ENGINE_VERSION: ${RESTORE_ENGINE_VERSION:-0.1.0}
+        RESTORE_ENGINE_GIT_REVISION: ${RESTORE_ENGINE_GIT_REVISION:-unknown}
     image: restore-engine:latest
     platform: linux/amd64
     restart: unless-stopped

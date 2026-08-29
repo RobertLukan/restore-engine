@@ -1630,7 +1630,14 @@ def health() -> JSONResponse:
 
 @app.get("/version")
 def version() -> dict[str, str]:
-    return {"name": "restore-engine", "version": "0.1.0"}
+    out = {
+        "name": "restore-engine",
+        "version": (os.environ.get("RESTORE_ENGINE_VERSION") or "0.1.0").strip(),
+    }
+    rev = (os.environ.get("RESTORE_ENGINE_GIT_REVISION") or "").strip()
+    if rev:
+        out["git_revision"] = rev
+    return out
 
 
 @app.get("/")

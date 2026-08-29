@@ -3,9 +3,14 @@
 
 FROM python:3.12-slim-bookworm
 
+ARG RESTORE_ENGINE_VERSION=0.1.0
+ARG RESTORE_ENGINE_GIT_REVISION=unknown
+
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    RESTORE_ENGINE_CONFIG=/app/config.docker.yaml
+    RESTORE_ENGINE_CONFIG=/app/config.docker.yaml \
+    RESTORE_ENGINE_VERSION=${RESTORE_ENGINE_VERSION} \
+    RESTORE_ENGINE_GIT_REVISION=${RESTORE_ENGINE_GIT_REVISION}
 
 WORKDIR /app
 
@@ -17,7 +22,7 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY main.py worker.py ui.py states.py pbs_client.py pve_client.py sources.py plans.py jobs.py progress_parse.py queue_control.py pbs_wire.py reports.py notifications.py concurrency.py audit.py job_hygiene.py metrics_collect.py ./
+COPY main.py worker.py ui.py states.py client_errors.py pbs_client.py pve_client.py sources.py plans.py jobs.py progress_parse.py queue_control.py pbs_wire.py reports.py notifications.py concurrency.py audit.py job_hygiene.py metrics_collect.py ./
 COPY static/ ./static/
 COPY config.docker.example.yaml /app/config.docker.yaml
 
