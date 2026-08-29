@@ -1,8 +1,8 @@
 # Gap analysis and test coverage
 
 Updated inventory of restore-engine product features vs automated tests (offline suite).  
-**Suite size (approx.):** 32+ test modules / **158 tests** after P0 additions.  
-**Style:** FakeRedis + mocks; no live PBS/PVE/Redis. **Coverage tooling:** `pytest-cov` (see README). **CI:** none yet.  
+**Suite size (approx.):** 32+ test modules / **174 tests**.  
+**Style:** FakeRedis + mocks; no live PBS/PVE/Redis. **Coverage tooling:** `pytest-cov` (see README). **CI:** [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs `pytest` on push/PR to `main`.  
 **Baseline coverage (this pass):** ~**73%** statements (`pytest --cov=. --cov-fail-under=0`).
 
 Manual lab evidence (utility-host restores, PBS mount, `timeout_sec`, operator-chosen UI host port) is noted separately from automated coverage.

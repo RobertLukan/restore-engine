@@ -11,7 +11,7 @@
 
 Please **do not** open a public GitHub issue for security-sensitive reports.
 
-Email the maintainer privately with:
+Use **[GitHub private vulnerability reporting](https://github.com/RobertLukan/restore-engine/security/advisories/new)** (preferred) or contact the maintainer through GitHub with:
 
 - Description and impact
 - Steps to reproduce
@@ -62,6 +62,8 @@ The Settings **Collect & download** bundle masks secrets in the UI but may inclu
 ### Secrets in git
 
 Never commit `config.yaml`, `config.docker.yaml`, `.env`, or offline transfer bundles. Example configs use placeholders only (RFC5737 documentation addresses such as `203.0.113.x`).
+
+**Offline bundles:** `restore-engine-offline*.tar` files are gitignored. If you ever built or copied a bundle that included a real `config.docker.yaml`, treat those PBS/PVE tokens and `ui.password` as exposed and **rotate them** before production use, even if the bundle was not committed to git.
 
 ## Dependency updates
 
