@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 import redis
 
+from client_errors import public_error_message
 from states import PlanAssurance, PlanRunStatus, PlanVerification, RestoreState
 
 TERMINAL_JOB_STATES = {
@@ -103,7 +104,7 @@ def summarize_member_sizes(
         except Exception as exc:
             missing += 1
             if len(estimate_errors) < 8:
-                estimate_errors.append(f"{bid}: {exc}")
+                estimate_errors.append(f"{bid}: {public_error_message(exc)}")
 
     return {
         "backup_count": len(by_id),
@@ -909,7 +910,7 @@ def run_plan_readiness(
     try:
         pbs_ok, pbs_results = probe_pbs_fn(cfg)
     except Exception as exc:
-        pbs_ok, pbs_results = False, [{"ok": False, "detail": str(exc)}]
+        pbs_ok, pbs_results = False, [{"ok": False, "detail": public_error_message(exc)}]
     if not pbs_ok:
         detail = "; ".join(
             f"{r.get('label') or r.get('source_id') or '?'}: {r.get('detail')}"
@@ -925,7 +926,7 @@ def run_plan_readiness(
     try:
         pve_ok, pve_msg = test_pve_fn(cfg)
     except Exception as exc:
-        pve_ok, pve_msg = False, str(exc)
+        pve_ok, pve_msg = False, public_error_message(exc)
     if not pve_ok:
         fail("pve.connectivity", "Proxmox VE unreachable", pve_msg)
     else:
@@ -933,7 +934,7 @@ def run_plan_readiness(
         try:
             proxmox = connect_pve_fn(cfg)
         except Exception as exc:
-            fail("pve.connect", "Failed to open Proxmox API session", str(exc))
+            fail("pve.connect", "Failed to open Proxmox API session", public_error_message(exc))
             proxmox = None
 
     # Location nodes + storage
@@ -945,7 +946,7 @@ def run_plan_readiness(
             known = {str(n.get("node") or n.get("name") or "").strip() for n in nodes_info}
             known.discard("")
         except Exception as exc:
-            fail("pve.nodes", "Failed to list cluster nodes", str(exc))
+            fail("pve.nodes", "Failed to list cluster nodes", public_error_message(exc))
             known = set()
 
         loc_nodes = list(location.get("nodes") or [])
@@ -965,7 +966,7 @@ def run_plan_readiness(
                             default_storage=str(location.get("storage") or ""),
                         )
                     except Exception as exc:
-                        fail("pve.storage_map", f"No storage mapped for node {node}", str(exc))
+                        fail("pve.storage_map", f"No storage mapped for node {node}", public_error_message(exc))
                         continue
                     meta = by_id.get(sid)
                     if not meta:
@@ -977,14 +978,14 @@ def run_plan_readiness(
                     else:
                         ok_item("pve.storage", f"{node}: {sid} usable for VM disks")
                 except Exception as exc:
-                    fail("pve.storage_list", f"Failed listing storages on {node}", str(exc))
+                    fail("pve.storage_list", f"Failed listing storages on {node}", public_error_message(exc))
 
         # Resolve members
         try:
             backups = list_backups_fn(cfg)
         except Exception as exc:
             backups = []
-            fail("pbs.backups", "Failed to list PBS backups", str(exc))
+            fail("pbs.backups", "Failed to list PBS backups", public_error_message(exc))
 
         tags_by_id: dict[str, list[str]] = {}
         need_tags = any(g.get("tags") for g in groups)
@@ -1013,7 +1014,7 @@ def run_plan_readiness(
                             "; ".join(f"{k}: {v}" for k, v in list(tag_errors.items())[:5]),
                         )
                 except Exception as exc:
-                    fail("tags.resolve", "Failed to resolve guest tags for plan groups", str(exc))
+                    fail("tags.resolve", "Failed to resolve guest tags for plan groups", public_error_message(exc))
             else:
                 warn("tags.resolve", "Tag resolution skipped (no location node)")
 
@@ -1038,7 +1039,7 @@ def run_plan_readiness(
                 in_use = set(vmids_in_use_fn(proxmox))
             except Exception as exc:
                 in_use = set()
-                fail("pve.vmids", "Failed to list cluster VMIDs in use", str(exc))
+                fail("pve.vmids", "Failed to list cluster VMIDs in use", public_error_message(exc))
 
             if mode == "dr":
                 conflicts: list[int] = []
@@ -1071,7 +1072,7 @@ def run_plan_readiness(
                         f"Normal: can allocate {len(allocated)} free VMID(s) from {location.get('vmid_start')}",
                     )
                 except Exception as exc:
-                    fail("vmid.normal", "Cannot allocate enough free VMIDs for plan members", str(exc))
+                    fail("vmid.normal", "Cannot allocate enough free VMIDs for plan members", public_error_message(exc))
 
     size_summary: dict[str, Any] | None = None
     if group_rows and any(group_rows):
@@ -1103,7 +1104,7 @@ def run_plan_readiness(
                     ),
                 )
         except Exception as exc:
-            warn("plan.sizes", "Could not compute restore size totals", str(exc))
+            warn("plan.sizes", "Could not compute restore size totals", public_error_message(exc))
             size_summary = None
 
     ok = errors == 0
@@ -1176,10 +1177,15 @@ def tick_plan_readiness(
                         "ok": False,
                         "checked_at": utc_now_iso(),
                         "cutoff": _default_cutoff(None),
-                        "summary": f"Readiness check crashed: {exc}",
+                        "summary": f"Readiness check crashed: {public_error_message(exc)}",
                         "member_count": 0,
                         "items": [
-                            _check_item("error", "check.crash", "Readiness check crashed", str(exc))
+                            _check_item(
+                                "error",
+                                "check.crash",
+                                "Readiness check crashed",
+                                public_error_message(exc),
+                            )
                         ],
                     },
                 )
