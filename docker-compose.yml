@@ -1,9 +1,8 @@
-# Offline runtime: no outbound internet required once images are present.
-# Build / pull on a connected host, then docker save | docker load on the lab machine.
+# Default app image from GitHub Container Registry (override tag or build locally).
+#   RESTORE_ENGINE_IMAGE_TAG=0.1.0 docker compose pull && docker compose up -d
+#   docker compose up --build -d    # local build instead of pull
 #
-#   docker compose build
-#   docker compose up -d
-#   open http://localhost:8001  (dashboard; login = ui.password in config)
+# Offline / air-gap: see DOCKER.md and scripts/build-offline-bundle.sh
 #
 # Override config (recommended for real secrets):
 #   cp config.docker.example.yaml config.docker.yaml
@@ -45,7 +44,7 @@ services:
       args:
         RESTORE_ENGINE_VERSION: ${RESTORE_ENGINE_VERSION:-0.1.0}
         RESTORE_ENGINE_GIT_REVISION: ${RESTORE_ENGINE_GIT_REVISION:-unknown}
-    image: restore-engine:latest
+    image: ghcr.io/robertlukan/restore-engine:${RESTORE_ENGINE_IMAGE_TAG:-0.1.0}
     platform: linux/amd64
     restart: unless-stopped
     depends_on:
@@ -76,7 +75,7 @@ services:
       - ./config.docker.yaml:/app/config.docker.yaml
 
   worker:
-    image: restore-engine:latest
+    image: ghcr.io/robertlukan/restore-engine:${RESTORE_ENGINE_IMAGE_TAG:-0.1.0}
     platform: linux/amd64
     restart: unless-stopped
     depends_on:

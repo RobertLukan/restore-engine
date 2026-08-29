@@ -23,13 +23,28 @@ For **native ARM** images when you only run on Mac ARM, comment out the `platfor
 
 ## Build (needs internet once)
 
-From this directory:
+From this directory you can **pull a release image** from GitHub Container Registry (recommended) or build locally.
+
+### Pull from GHCR (recommended)
+
+Published on each [GitHub release](https://github.com/RobertLukan/restore-engine/releases):
+
+```bash
+docker pull ghcr.io/robertlukan/restore-engine:0.1.0
+# or: docker compose pull
+```
+
+Image: **`ghcr.io/robertlukan/restore-engine`** — tags match release versions (`0.1.0`, `latest`).
+
+Set `RESTORE_ENGINE_IMAGE_TAG` in the environment or `.env` to pin a version (Compose default: `0.1.0`).
+
+### Build locally
 
 ```bash
 docker compose build
 ```
 
-That downloads base images (`python:3.12-slim-bookworm`, `redis:7-alpine`) and Python wheels, then bakes them into **restore-engine:latest**.
+That downloads base images (`python:3.12-slim-bookworm`, `redis:7-alpine`) and Python wheels, then bakes them into the app image tagged for GHCR.
 
 ## Run (no internet)
 
@@ -99,15 +114,24 @@ Compose mounts a named volume **`redis-data`** on the bundled Redis service and 
 
 ## Move to an air-gapped host
 
+GHCR and `docker compose pull` need network access. For **offline** utility hosts, use a transfer bundle instead of the registry.
+
 On a machine **with** Docker and internet:
+
+```bash
+./scripts/build-offline-bundle.sh
+# creates restore-engine-offline-full-amd64-YYYYMMDD.tar
+```
+
+Or minimal core only:
 
 ```bash
 docker compose build
 docker pull redis:7-alpine
-docker save restore-engine:latest redis:7-alpine -o restore-engine-bundle-amd64.tar
+docker save ghcr.io/robertlukan/restore-engine:0.1.0 redis:7-alpine -o restore-engine-bundle-amd64.tar
 ```
 
-Copy **`restore-engine-bundle-amd64.tar`**, this **`docker-compose.yml`**, and optionally **`config.docker.yaml`** to the offline host, then:
+Copy the **`.tar`** bundle, this **`docker-compose.yml`**, and **`config.docker.yaml`** (create from example; never commit secrets) to the offline host, then:
 
 ```bash
 docker load -i restore-engine-bundle-amd64.tar

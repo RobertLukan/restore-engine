@@ -7,6 +7,7 @@ cd "$ROOT"
 
 VERSION="${RESTORE_ENGINE_VERSION:-0.1.0}"
 GIT_REV="${RESTORE_ENGINE_GIT_REVISION:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}"
+IMAGE="ghcr.io/robertlukan/restore-engine:${VERSION}"
 STAMP="$(date +%Y%m%d)"
 OUT_NAME="restore-engine-offline-full-amd64-${STAMP}.tar"
 BUNDLE_DIR="$(mktemp -d /tmp/restore-engine-offline-full.XXXXXX)"
@@ -17,7 +18,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "Building restore-engine:${VERSION} (${GIT_REV}) for linux/amd64..."
+echo "Building ${IMAGE} (${GIT_REV}) for linux/amd64..."
 export RESTORE_ENGINE_VERSION="$VERSION"
 export RESTORE_ENGINE_GIT_REVISION="$GIT_REV"
 
@@ -29,14 +30,14 @@ if docker buildx version >/dev/null 2>&1; then
     --load \
     --build-arg "RESTORE_ENGINE_VERSION=${VERSION}" \
     --build-arg "RESTORE_ENGINE_GIT_REVISION=${GIT_REV}" \
-    -t restore-engine:latest \
+    -t "${IMAGE}" \
     .
 else
   docker build \
     --platform linux/amd64 \
     --build-arg "RESTORE_ENGINE_VERSION=${VERSION}" \
     --build-arg "RESTORE_ENGINE_GIT_REVISION=${GIT_REV}" \
-    -t restore-engine:latest \
+    -t "${IMAGE}" \
     .
 fi
 
@@ -58,9 +59,12 @@ export_image() {
 }
 
 # App image via docker save (local build)
-APP_TAR="$IMAGES_DIR/restore-engine_latest.tar"
-echo "=== save restore-engine:latest -> $(basename "$APP_TAR") ==="
-docker save restore-engine:latest -o "$APP_TAR"
+APP_TAR="$IMAGES_DIR/restore-engine_app.tar"
+SAFE_TAG="${IMAGE//\//_}"
+SAFE_TAG="${SAFE_TAG//:/_}"
+APP_TAR="$IMAGES_DIR/${SAFE_TAG}.tar"
+echo "=== save ${IMAGE} -> $(basename "$APP_TAR") ==="
+docker save "${IMAGE}" -o "$APP_TAR"
 gzip -1 -f "$APP_TAR"
 
 export_image redis:7-alpine "$IMAGES_DIR/redis_7-alpine.tar"

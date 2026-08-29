@@ -115,12 +115,18 @@ Do not publish restore-engine on **8007** in public docs — that is PBS’s usu
 
 Full guide (Apple Silicon → amd64, LXC checklist, air-gap, Redis on host): **[DOCKER.md](DOCKER.md)**.
 
+**Container image (GHCR):** [`ghcr.io/robertlukan/restore-engine`](https://github.com/RobertLukan/restore-engine/pkgs/container/restore-engine)
+
 ```bash
+git clone https://github.com/RobertLukan/restore-engine.git
+cd restore-engine
 cp config.docker.example.yaml config.docker.yaml
 # edit config.docker.yaml — keep redis.url host as "redis"
-# uncomment volume mounts under api/worker in docker-compose.yml
-docker compose up --build -d
+docker compose pull
+docker compose up -d
 ```
+
+Local build instead of pull: `docker compose up --build -d`
 
 Dashboard: http://localhost:8001
 
