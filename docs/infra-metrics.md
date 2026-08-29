@@ -41,7 +41,7 @@ Services:
 
 | Service | Port | Role |
 |---------|------|------|
-| Grafana | **3001** | Dashboards (anonymous Viewer enabled for iframe embed) |
+| Grafana | **3002** | Dashboards (anonymous Viewer enabled for iframe embed; 3002 avoids a second Grafana on 3000/3001) |
 | Prometheus | 9090 | Scrapes Netdata + OTel Collector |
 | OTel Collector | **4317/4318** | Receives PVE/PBS OpenTelemetry metrics |
 
@@ -83,7 +83,7 @@ monitoring:
   enabled: true
   api_snapshot: true
   grafana:
-    base_url: "http://<lab-host>:3001"   # must be reachable from your browser
+    base_url: "http://<lab-host>:3002"   # must be reachable from your browser
     dashboards:
       - id: infra
         title: "Infra"
@@ -99,7 +99,7 @@ Set Grafana dashboard variables **Backup/PBS iface** and **Ceph/storage iface** 
 
 1. Enable the same Compose profile on the DR restore-engine host (or point `grafana.base_url` at an existing Grafana).
 2. **Netdata optional** — if nodes already have it, add scrape targets; if not, rely on Metric Server OTel + Infra API snapshot.
-3. Change Prometheus targets and Grafana iface variables for DR NIC layout (see [dr-architecture.md](dr-architecture.md)).
+3. Change Prometheus targets and Grafana iface variables for your DR/management network layout (see [dr-overview.md](dr-overview.md)).
 4. Tighten Grafana later (disable anonymous, reverse proxy, SSO) — lab defaults favor embed convenience.
 
 ## API
@@ -111,4 +111,5 @@ Set Grafana dashboard variables **Backup/PBS iface** and **Ceph/storage iface** 
 
 - **Empty Grafana charts:** Prometheus targets, Netdata `:19999` reachability from the Prometheus container, Metric Server OTel to `:4318`.
 - **Iframe blank:** `monitoring.grafana.base_url` must be a **browser** URL (not `http://grafana:3000`). Grafana has `GF_SECURITY_ALLOW_EMBEDDING=true`.
+- **Grafana crash-loop / `._dashboards.yml`:** macOS AppleDouble junk (`._*`) in `deploy/observability/` breaks provisioning. On the host: `find deploy/observability -name '._*' -delete` then `docker compose --profile observability up -d --force-recreate grafana`.
 - **Netdata metric names differ by version:** adjust PromQL in the provisioned dashboard under `deploy/observability/grafana/dashboards/`.

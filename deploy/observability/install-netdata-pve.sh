@@ -4,7 +4,7 @@
 #
 # Usage:
 #   sudo bash install-netdata-pve.sh
-#   sudo ALLOW_FROM=192.168.123.197 bash install-netdata-pve.sh   # restrict UI/API (best-effort)
+#   sudo ALLOW_FROM=<prometheus-host-ip> bash install-netdata-pve.sh   # restrict UI/API (best-effort)
 #
 set -euo pipefail
 

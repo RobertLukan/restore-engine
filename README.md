@@ -1,8 +1,10 @@
 # Restore Engine
 
+[![CI](https://github.com/RobertLukan/restore-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/RobertLukan/restore-engine/actions/workflows/ci.yml)
+
 Proxmox Backup Server → Proxmox VE restore orchestrator (API/UI + worker + Redis queue).
 
-Designed to mirror the operator experience of [migration-engine](../migration-engine): dark dashboard, multi-select backup table, bulk enqueue, and a restores progress tab.
+Dark dashboard for operators: multi-select backup table, bulk enqueue, recovery plans, drills, and a restores progress tab. UI patterns are similar to the separate [migration-engine](https://github.com/RobertLukan/migration-engine) project (VMware → Proxmox).
 
 ## Features
 
@@ -99,6 +101,16 @@ python worker.py
 
 Open http://localhost:8001 and sign in with `ui.password` from `config.yaml`.
 
+## Ports
+
+| Port | Service |
+|------|---------|
+| **8001** | restore-engine UI (local dev and Docker Compose default) |
+| **8006** | Proxmox VE API (`proxmox.port` in config) |
+| **8007** | Proxmox Backup Server API (`pbs_servers[].port` in config) |
+
+Do not publish restore-engine on **8007** in public docs — that is PBS’s usual API port. You may remap the Compose host port locally (see [DOCKER.md](DOCKER.md)).
+
 ## Docker Compose
 
 Full guide (Apple Silicon → amd64, LXC checklist, air-gap, Redis on host): **[DOCKER.md](DOCKER.md)**.
@@ -110,7 +122,7 @@ cp config.docker.example.yaml config.docker.yaml
 docker compose up --build -d
 ```
 
-Dashboard: http://localhost:8001 (migration-engine typically uses 8000 on the same host).
+Dashboard: http://localhost:8001
 
 ## Performance tuning
 
@@ -120,7 +132,7 @@ The **Settings** tab has a *Restore performance* section; the **Restores** tab m
 - **Pause / Resume** — pause stops claiming new jobs and plan group enqueue; running restores finish or fail on their own. Resume continues the queue.
 - **Stop pending** — pause + cancel all PENDING jobs; in-flight keeps going (use per-job Stop to abort a running restore).
 - Per-job **progress % / speed / ETA** from PVE task logs (best-effort). **Speed (gross)** follows PVE progress and includes sparse/zero regions. **Est. network** scales the PBS snapshot size (sum of archive sizes) by restore progress — an approximation of wire throughput, not a measured NIC counter.
-- Backup list shows **Size (gross)** from PBS; use **Estimate sizes** for an on-demand **non-zero** logical estimate from `.fidx` (better proxy for restore effort — zeros are fast). See [docs/dr-architecture.md](docs/dr-architecture.md).
+- Backup list shows **Size (gross)** from PBS; use **Estimate sizes** for an on-demand **non-zero** logical estimate from `.fidx` (better proxy for restore effort — zeros are fast). See [docs/dr-overview.md](docs/dr-overview.md).
 - **Default bandwidth limit** and **Live restore by default** in Settings pre-fill restore dialogs.
 
 Per restore batch, the **Restore selected** dialog also lets you set a **bandwidth limit** (passed to Proxmox as `bwlimit`), toggle **live restore**, and **multi-select Proxmox nodes** with a **storage dropdown per node**. Jobs load-balance across nodes; VMIDs are cluster-wide unique.
@@ -139,7 +151,7 @@ Note: Proxmox-side throttles (a `bwlimit` in `datacenter.cfg` or on the storage,
 8. **Infra** — Grafana embed (optional) and/or live PVE/PBS CPU/RAM snapshot.
 9. **Audit** — browse recent operator actions when investigating who changed what.
 
-DR site design (PBS sync, UCS fabric failover vs bonding, NIC/VLAN layout, Ceph public vs cluster, restore path and 4-node RF3 speed, PBS FI vs Nexus LACP, Ceph size 2 vs 3, ZFS landing): **[docs/dr-architecture.md](docs/dr-architecture.md)**.
+DR workflow and safety defaults: **[docs/dr-overview.md](docs/dr-overview.md)** (generic). Site-specific topology belongs in your internal runbooks.
 
 Infrastructure metrics (Grafana, Netdata, PVE/PBS OpenTelemetry): **[docs/infra-metrics.md](docs/infra-metrics.md)**.
 
@@ -148,7 +160,7 @@ Infrastructure metrics (Grafana, Netdata, PVE/PBS OpenTelemetry): **[docs/infra-
 Lab defaults favor convenience. For anything beyond a closed lab:
 
 1. **TLS** — put a reverse proxy (Caddy/nginx) in front of `:8001` with HTTPS and secure cookies; do not expose plain HTTP on a shared network.
-2. **`ui.password` / `ui.session_secret`** — strong unique values; never leave example secrets.
+2. **`ui.password` / `ui.session_secret`** — strong unique values; the API **refuses to start** if a password is set but the session secret is missing, shorter than 32 characters, or the dev placeholder.
 3. **`worker.require_verified_to_run: true`** (or `plans.require_verified_to_run`) — block production Runs until readiness is VERIFIED (drills/Assure can still use `allow_unverified` where intended).
 4. **Secrets** — keep `config.docker.yaml` out of git; prefer API tokens over passwords; treat SMTP password and PBS/PVE tokens as sensitive.
 5. **Redis** — Compose Redis is unauthenticated on the internal Docker network only; do not publish Redis ports to the host in production.
@@ -231,6 +243,8 @@ The suite is **offline** (FakeRedis + mocks) against `tests/fixtures/minimal_con
 
 **Feature vs test gaps:** see **[docs/gap-analysis.md](docs/gap-analysis.md)**.
 
+Contributing and security: **[CONTRIBUTING.md](CONTRIBUTING.md)**, **[SECURITY.md](SECURITY.md)**.
+
 ## Related project
 
-- [migration-engine](../migration-engine) — VMware → Proxmox migration orchestrator (UI pattern source)
+- [migration-engine](https://github.com/RobertLukan/migration-engine) — VMware → Proxmox migration orchestrator

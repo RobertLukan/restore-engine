@@ -10,3 +10,5 @@ config.yaml
 config.docker.yaml
 tests
 .pytest_cache
+.DS_Store
+._*

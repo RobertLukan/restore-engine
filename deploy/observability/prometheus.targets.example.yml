@@ -2,11 +2,11 @@
 # Merge into static_configs (hosts must be reachable from the Prometheus container).
 #
 # static_configs:
-#   - targets: ["192.168.123.10:19999"]
+#   - targets: ["203.0.113.10:19999"]
 #     labels:
 #       role: pve
 #       env: lab
-#   - targets: ["192.168.123.11:19999"]
+#   - targets: ["203.0.113.11:19999"]
 #     labels:
 #       role: pve
 #       env: lab

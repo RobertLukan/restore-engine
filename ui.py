@@ -157,9 +157,14 @@ def mask_proxmox(p: dict[str, Any]) -> dict[str, Any]:
 
 
 def view_worker(w: dict[str, Any]) -> dict[str, Any]:
+    try:
+        task_timeout = float(w.get("task_timeout_sec", 0) or 0)
+    except (TypeError, ValueError):
+        task_timeout = 0.0
     return {
         "max_concurrent_restores": int(w.get("max_concurrent_restores", 2) or 2),
         "task_poll_interval_sec": int(w.get("task_poll_interval_sec", 3) or 3),
+        "task_timeout_sec": task_timeout,
     }
 
 
@@ -202,6 +207,7 @@ class ProxmoxPartial(BaseModel):
 class WorkerPartial(BaseModel):
     max_concurrent_restores: int | None = None
     task_poll_interval_sec: int | None = None
+    task_timeout_sec: float | None = None
 
 
 class EmailNotifyPartial(BaseModel):
@@ -417,6 +423,10 @@ def put_credentials(body: CredentialsPut) -> dict[str, str]:
         _merge_partial(wk, body.worker, set())
         if "max_concurrent_restores" in wk:
             wk["max_concurrent_restores"] = max(1, int(wk["max_concurrent_restores"]))
+        if "task_poll_interval_sec" in wk:
+            wk["task_poll_interval_sec"] = max(1, int(wk["task_poll_interval_sec"]))
+        if "task_timeout_sec" in wk:
+            wk["task_timeout_sec"] = max(0.0, float(wk["task_timeout_sec"]))
     if body.notifications:
         ncfg = cfg.setdefault("notifications", {})
         if body.notifications.email:
@@ -465,6 +475,9 @@ def patch_worker(body: WorkerPartial) -> dict[str, Any]:
         wk["max_concurrent_restores"] = max(1, int(wk["max_concurrent_restores"]))
     if "task_poll_interval_sec" in wk:
         wk["task_poll_interval_sec"] = max(1, int(wk["task_poll_interval_sec"]))
+    if "task_timeout_sec" in wk:
+        # 0 = unlimited; clamp negatives to 0
+        wk["task_timeout_sec"] = max(0.0, float(wk["task_timeout_sec"]))
     save_yaml(cfg)
     return {"ok": True, "worker": view_worker(wk)}
 

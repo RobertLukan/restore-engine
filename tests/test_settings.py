@@ -118,7 +118,7 @@ def test_put_proxmox_blank_password_preserves_existing(
     tmp_cfg = tmp_path / "config.yaml"
     shutil.copy(ui_module.CONFIG_PATH, tmp_cfg)
     cfg = yaml.safe_load(tmp_cfg.read_text())
-    cfg["proxmox"]["user"] = "flaskapp@pve"
+    cfg["proxmox"]["user"] = "svc@pve"
     cfg["proxmox"]["password"] = "keep-me"
     cfg["proxmox"]["api_token_id"] = ""
     cfg["proxmox"]["api_token_secret"] = ""
@@ -129,8 +129,8 @@ def test_put_proxmox_blank_password_preserves_existing(
         "/api/ui/credentials",
         json={
             "proxmox": {
-                "host": "203.0.113.10",
-                "user": "flaskapp@pve",
+                "host": "203.0.113.20",
+                "user": "svc@pve",
                 "password": "",  # blank UI field must not wipe
                 "api_token_id": "",
                 "api_token_secret": "",
@@ -140,7 +140,7 @@ def test_put_proxmox_blank_password_preserves_existing(
     assert r.status_code == 200
     saved = yaml.safe_load(tmp_cfg.read_text())
     assert saved["proxmox"]["password"] == "keep-me"
-    assert saved["proxmox"]["host"] == "203.0.113.10"
+    assert saved["proxmox"]["host"] == "203.0.113.20"
 
 
 def test_put_worker_clamps_to_minimum_one(

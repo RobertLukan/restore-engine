@@ -23,6 +23,21 @@ def test_parse_tags_absent() -> None:
     assert parse_tags("name: web01\ncores: 4\n") == []
 
 
+def test_parse_tags_ignores_vmgenid_bleed() -> None:
+    """Whitespace split used to turn ``vmgenid: <uuid>`` into fake tags."""
+    cfg = (
+        "name: web01\n"
+        "tags: prod;app vmgenid: 8b57f0a1-5b26-4760-8d87-7b6567bfb5c2\n"
+        "cores: 4\n"
+    )
+    assert parse_tags(cfg) == ["prod", "app"]
+
+
+def test_parse_tags_ignores_vmgenid_only_line_noise() -> None:
+    cfg = "tags: vmgenid: 8b57f0a1-5b26-4760-8d87-7b6567bfb5c2\n"
+    assert parse_tags(cfg) == []
+
+
 def test_normalize_cutoff(main_module: Any) -> None:
     n = main_module.normalize_cutoff
     assert n("") == "9999-12-31T23:59:59Z"

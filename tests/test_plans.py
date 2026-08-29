@@ -348,11 +348,15 @@ def test_normalize_group_name_patterns_and_ranges() -> None:
             "name": "web",
             "name_patterns": ["web-*", "re:^db-"],
             "vmid_ranges": ["100-110", {"start": 200, "end": 205}],
+            "exclude_vmids": [105],
+            "exclude_name_patterns": ["web-test*", "staging"],
         }
     )
     assert g["name_patterns"] == ["web-*", "re:^db-"]
     assert g["vmid_ranges"] == [{"start": 100, "end": 110}, {"start": 200, "end": 205}]
     assert g["vmids"] == []
+    assert g["exclude_vmids"] == [105]
+    assert g["exclude_name_patterns"] == ["web-test*", "staging"]
 
 
 def test_resolve_group_rows_tags_and_vmids() -> None:
@@ -453,6 +457,51 @@ def test_resolve_group_rows_name_patterns_and_ranges() -> None:
     }
     rows2 = plans.resolve_group_rows(regex_group, backups, cutoff="2026-12-31T23:59:59Z")
     assert [r["vmid"] for r in rows2] == [150]
+
+
+def test_resolve_group_rows_exclusions() -> None:
+    backups = [
+        {
+            "backup_id": "a",
+            "vmid": 101,
+            "name": "web-front",
+            "timestamp": "2026-02-01T00:00:00Z",
+            "source_id": "main",
+        },
+        {
+            "backup_id": "b",
+            "vmid": 102,
+            "name": "web-test",
+            "timestamp": "2026-02-01T00:00:00Z",
+            "source_id": "main",
+        },
+        {
+            "backup_id": "c",
+            "vmid": 150,
+            "name": "db-primary",
+            "timestamp": "2026-02-01T00:00:00Z",
+            "source_id": "main",
+        },
+        {
+            "backup_id": "d",
+            "vmid": 151,
+            "name": "staging",
+            "timestamp": "2026-02-01T00:00:00Z",
+            "source_id": "main",
+        },
+    ]
+    group = {
+        "name": "range-minus",
+        "tags": [],
+        "vmids": [],
+        "name_patterns": [],
+        "vmid_ranges": [{"start": 100, "end": 199}],
+        "exclude_vmids": [150],
+        "exclude_name_patterns": ["web-test*", "staging"],
+        "source_ids": [],
+    }
+    rows = plans.resolve_group_rows(group, backups, cutoff="2026-12-31T23:59:59Z")
+    assert [r["vmid"] for r in rows] == [101]
 
 
 def test_advance_plan_run_enqueues_second_group() -> None:

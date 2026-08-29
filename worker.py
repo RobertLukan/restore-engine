@@ -103,6 +103,14 @@ def mark_cancelled(r: redis.Redis, cfg: dict[str, Any], job_id: str) -> None:
     append_log(r, cfg, job_id, "INFO", "CANCELLED", "Job cancelled by operator")
 
 
+def task_timeout_sec(cfg: dict[str, Any]) -> float:
+    """Max seconds to wait for a PVE restore/start task. ``<= 0`` = no limit."""
+    try:
+        return float((cfg.get("worker") or {}).get("task_timeout_sec", 0) or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def process_job(r: redis.Redis, cfg: dict[str, Any], job_id: str) -> None:
     key = redis_job_key(cfg, job_id)
     data = r.hgetall(key)
@@ -208,6 +216,7 @@ def process_job(r: redis.Redis, cfg: dict[str, Any], job_id: str) -> None:
     append_log(r, cfg, job_id, "INFO", "RESTORING", f"PVE task started: {upid}")
 
     poll = float((cfg.get("worker") or {}).get("task_poll_interval_sec", 3))
+    task_timeout = task_timeout_sec(cfg)
     tick_state: dict[str, Any] = {
         "last_tick": time.time(),
         "prev_bytes": None,
@@ -257,6 +266,7 @@ def process_job(r: redis.Redis, cfg: dict[str, Any], job_id: str) -> None:
             node,
             upid,
             poll_interval_sec=poll,
+            timeout_sec=task_timeout,
             should_cancel=lambda: cancel_requested(r, cfg, job_id),
             on_tick=on_tick,
         )
@@ -264,6 +274,8 @@ def process_job(r: redis.Redis, cfg: dict[str, Any], job_id: str) -> None:
         mark_cancelled(r, cfg, job_id)
         append_log(r, cfg, job_id, "INFO", "CANCELLED", f"PVE restore task {upid} stopped")
         return
+    except TimeoutError as exc:
+        raise RuntimeError(str(exc)) from exc
 
     # Ownership stamp so teardown/overwrite never touches foreign cluster guests.
     # Fail the job if the stamp cannot be applied — unmarked VMs break reclaim/teardown.
@@ -363,12 +375,15 @@ def process_job(r: redis.Redis, cfg: dict[str, Any], job_id: str) -> None:
                         node,
                         start_upid,
                         poll_interval_sec=poll,
+                        timeout_sec=task_timeout,
                         should_cancel=lambda: cancel_requested(r, cfg, job_id),
                     )
                 except TaskCancelled:
                     mark_cancelled(r, cfg, job_id)
                     append_log(r, cfg, job_id, "INFO", "CANCELLED", "VM start cancelled")
                     return
+                except TimeoutError as exc:
+                    raise RuntimeError(str(exc)) from exc
             r.hset(key, mapping={"powered_off": "0", "updated_at": utc_now_iso()})
 
         if qga_wait_sec > 0:

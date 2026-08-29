@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -44,7 +45,43 @@ CONFIG_PATH = (
 )
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
+_DEFAULT_SESSION_SECRET = "dev-insecure-session-secret-change-me"
+_MIN_SESSION_SECRET_LEN = 32
+
 ui_module.CONFIG_PATH = CONFIG_PATH
+
+
+def validate_session_secret(cfg: dict[str, Any]) -> None:
+    """Refuse startup when UI auth is enabled but session signing is weak."""
+    ui = cfg.get("ui") or {}
+    password = str(ui.get("password") or "").strip()
+    if not password:
+        return
+    secret = str(ui.get("session_secret") or "").strip()
+    if not secret:
+        raise RuntimeError(
+            "ui.session_secret is required when ui.password is set "
+            f"(minimum {_MIN_SESSION_SECRET_LEN} characters)"
+        )
+    if len(secret) < _MIN_SESSION_SECRET_LEN:
+        raise RuntimeError(
+            f"ui.session_secret must be at least {_MIN_SESSION_SECRET_LEN} characters"
+        )
+    if secret == _DEFAULT_SESSION_SECRET:
+        raise RuntimeError(
+            "ui.session_secret must not use the default dev placeholder; set a unique random value"
+        )
+
+
+def load_session_secret(cfg: dict[str, Any]) -> str:
+    """Return session signing key; dev-only fallback when ui.password is unset."""
+    ui = cfg.get("ui") or {}
+    secret = str(ui.get("session_secret") or "").strip()
+    if secret:
+        return secret
+    if str(ui.get("password") or "").strip():
+        raise RuntimeError("ui.session_secret is required when ui.password is set")
+    return _DEFAULT_SESSION_SECRET
 
 
 def load_config() -> dict[str, Any]:
@@ -694,6 +731,8 @@ class GroupUpsert(BaseModel):
     vmids: list[int] = Field(default_factory=list)
     name_patterns: list[str] = Field(default_factory=list)
     vmid_ranges: list[Any] = Field(default_factory=list)
+    exclude_vmids: list[int] = Field(default_factory=list)
+    exclude_name_patterns: list[str] = Field(default_factory=list)
 
 
 class LocationUpsert(BaseModel):
@@ -767,6 +806,11 @@ class PlanTeardownRequest(BaseModel):
 
 class PlanCheckRequest(BaseModel):
     at_or_before: str | None = None
+
+
+class PlanMembersPreviewRequest(BaseModel):
+    at_or_before: str | None = None
+    location_id: str | None = None
 
 
 def _http_value_error(exc: ValueError) -> HTTPException:
@@ -969,6 +1013,66 @@ def _resolve_plan_group_rows(
         plans_module.resolve_group_rows(group, backups, cutoff=cutoff, tags_by_backup_id=tags_by_id)
         for group in groups
     ]
+
+
+def _member_preview_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "vmid": int(row.get("vmid") or 0),
+        "name": str(row.get("name") or ""),
+        "backup_id": str(row.get("backup_id") or ""),
+        "timestamp": str(row.get("timestamp") or ""),
+        "size_bytes": int(row.get("size_bytes") or 0) if row.get("size_bytes") is not None else None,
+        "source_id": str(row.get("source_id") or row.get("server_id") or ""),
+    }
+
+
+@api.post("/plans/{plan_id}/members")
+def api_preview_plan_members(plan_id: str, body: PlanMembersPreviewRequest) -> dict[str, Any]:
+    """Resolve which VMs a plan run would restore (same membership as /run)."""
+    cfg = load_config()
+    r = redis_client()
+    plan = plans_module.get_plan(r, cfg, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    location_id = (body.location_id or plan.get("location_id") or "").strip()
+    location = plans_module.get_location(r, cfg, location_id) if location_id else None
+    if not location:
+        raise HTTPException(status_code=400, detail=f"Unknown location_id: {location_id or '(empty)'}")
+
+    cutoff = normalize_cutoff(body.at_or_before)
+    try:
+        group_rows = _resolve_plan_group_rows(cfg, plan, cutoff=cutoff, node=location["node"])
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to resolve members: {exc}") from exc
+
+    groups_out: list[dict[str, Any]] = []
+    flat: list[dict[str, Any]] = []
+    for gid, rows in zip(plan.get("group_ids") or [], group_rows, strict=False):
+        group = plans_module.get_group(r, cfg, gid) or {}
+        members = [_member_preview_row(row) for row in rows]
+        groups_out.append(
+            {
+                "group_id": gid,
+                "group_name": str(group.get("name") or gid),
+                "members": members,
+                "member_count": len(members),
+            }
+        )
+        flat.extend(members)
+
+    return {
+        "plan_id": plan_id,
+        "plan_name": plan.get("name") or "",
+        "location_id": location.get("id") or location_id,
+        "location_name": location.get("name") or "",
+        "cutoff": cutoff,
+        "member_count": len(flat),
+        "groups": groups_out,
+        "members": flat,
+    }
 
 
 @api.post("/plans/{plan_id}/run")
@@ -1458,7 +1562,12 @@ def get_job_log(job_id: str, limit: int = 200) -> list[dict[str, Any]]:
 
 app = FastAPI(title="Restore Engine")
 cfg_boot = load_config()
-session_secret = (cfg_boot.get("ui") or {}).get("session_secret") or "dev-insecure-session-secret-change-me"
+try:
+    validate_session_secret(cfg_boot)
+except RuntimeError as exc:
+    print(f"restore-engine: {exc}", file=sys.stderr)
+    raise SystemExit(1) from exc
+session_secret = load_session_secret(cfg_boot)
 app.add_middleware(SessionMiddleware, secret_key=session_secret)
 app.include_router(ui_router)
 app.include_router(api)

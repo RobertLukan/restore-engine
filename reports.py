@@ -17,6 +17,36 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _format_bytes(n: int | float | None) -> str:
+    from plans import _format_bytes as fmt
+
+    return fmt(n)
+
+
+def _check_size_lines(check: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Return (markdown bullets, html <li> fragments) for size_summary if present."""
+    ss = check.get("size_summary")
+    if not isinstance(ss, dict):
+        return [], []
+    gross = _format_bytes(ss.get("gross_bytes"))
+    est_n = int(ss.get("nonzero_estimated_count") or 0)
+    miss_n = int(ss.get("nonzero_missing_count") or 0)
+    nz = ss.get("nonzero_bytes")
+    if est_n > 0 and nz is not None:
+        net = f"~{_format_bytes(int(nz))} approx net ({est_n}/{est_n + miss_n} estimated)"
+    else:
+        net = "approx net unavailable"
+    md = [
+        f"- **Size (gross):** {gross}",
+        f"- **Size (approx net):** {net}",
+    ]
+    html_lis = [
+        f"<li>Size (gross): {html.escape(gross)}</li>",
+        f"<li>Size (approx net): {html.escape(net)}</li>",
+    ]
+    return md, html_lis
+
+
 def _redis_cfg(cfg: dict[str, Any]) -> dict[str, Any]:
     return cfg.get("redis") or {}
 
@@ -97,6 +127,7 @@ def render_check_report(*, plan: dict[str, Any], check: dict[str, Any]) -> dict[
     title = f"Readiness check — {name}"
     ok = bool(check.get("ok"))
     status = "PASSED" if ok else "FAILED"
+    size_md, size_html = _check_size_lines(check)
     lines = [
         f"# {title}",
         "",
@@ -106,6 +137,7 @@ def render_check_report(*, plan: dict[str, Any], check: dict[str, Any]) -> dict[
         f"- **Checked at:** {check.get('checked_at') or '—'}",
         f"- **Cutoff:** `{check.get('cutoff') or '—'}`",
         f"- **Members resolved:** {check.get('member_count', 0)}",
+        *size_md,
         f"- **Summary:** {_md_escape(str(check.get('summary') or ''))}",
         "",
         "## Check items",
@@ -142,6 +174,7 @@ def render_check_report(*, plan: dict[str, Any], check: dict[str, Any]) -> dict[
         f"<li>Checked at: {html.escape(str(check.get('checked_at') or '—'))}</li>"
         f"<li>Cutoff: <code>{html.escape(str(check.get('cutoff') or '—'))}</code></li>"
         f"<li>Members resolved: {int(check.get('member_count') or 0)}</li>"
+        f"{''.join(size_html)}"
         f"<li>Summary: {html.escape(str(check.get('summary') or ''))}</li>"
         "</ul>"
         "<h2>Check items</h2>"
@@ -387,6 +420,7 @@ def save_check_report(
             "checked_at": check.get("checked_at"),
             "member_count": check.get("member_count", 0),
             "summary": check.get("summary"),
+            "size_summary": check.get("size_summary"),
         },
     )
 

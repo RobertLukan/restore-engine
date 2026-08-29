@@ -1,5 +1,9 @@
+# Copy to config.docker.yaml (gitignored) and edit before use. Never commit real secrets.
+# Docker Compose mounts config.docker.yaml over the image default at /app/config.docker.yaml.
+
 ui:
   password: "change-me-dashboard"
+  # Required when password is set; API refuses startup if missing, <32 chars, or dev placeholder.
   session_secret: "change-me-use-a-long-random-string-at-least-32-chars"
 
 pbs_servers:
@@ -42,6 +46,9 @@ redis:
 
 worker:
   task_poll_interval_sec: 3
+  # Max seconds to wait for a PVE restore/start task. 0 = no limit (required for
+  # multi-TiB restores that run longer than a few hours). Previous default was 7200.
+  task_timeout_sec: 0
   max_concurrent_restores: 2
   plan_check_interval_sec: 86400
   report_retain: 20
@@ -60,8 +67,8 @@ monitoring:
   enabled: true
   api_snapshot: true
   grafana:
-    # Browser-reachable URL (not docker DNS). Lab example:
-    # base_url: "http://192.168.123.197:3001"
+    # Browser-reachable URL (not docker DNS). Example:
+    # base_url: "http://<utility-host>:3002"
     base_url: ""
     dashboards:
       - id: infra

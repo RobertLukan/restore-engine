@@ -148,6 +148,17 @@ def test_plans_check_run_cancel(
 
     monkeypatch.setattr(main_module.plans_module, "start_plan_run", fake_start)
 
+    preview = c.post(
+        f"/api/plans/{plan_id}/members",
+        json={},
+    )
+    assert preview.status_code == 200, preview.text
+    prev = preview.json()
+    assert prev["member_count"] == 1
+    assert prev["members"][0]["vmid"] == 109
+    assert prev["members"][0]["name"] == "vm-109"
+    assert prev["groups"][0]["member_count"] == 1
+
     run_res = c.post(
         f"/api/plans/{plan_id}/run",
         json={"allow_unverified": True, "drill": True},

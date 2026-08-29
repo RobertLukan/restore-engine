@@ -1,6 +1,16 @@
 # Docker (isolated / air-gapped testing)
 
-Stack: **Redis**, **FastAPI UI + API**, **restore worker**. All three talk only on the internal Docker network except port **8006** published for the browser (host → container `8000`).
+Stack: **Redis**, **FastAPI UI + API**, **restore worker**. All three talk only on the internal Docker network except port **8001** published for the browser (host → container `8000`).
+
+## Ports (do not confuse)
+
+| Port | Service |
+|------|---------|
+| **8001** | restore-engine dashboard (Compose `ports:` default) |
+| **8006** | Proxmox VE API (`proxmox.port` in config) |
+| **8007** | Proxmox Backup Server API (`pbs_servers[].port` in config) |
+
+Change the **left** side of `ports:` in `docker-compose.yml` if another host port suits your site (e.g. `8007:8000` locally). Do not use **8007** as the public default — that is PBS’s usual API port.
 
 ## Apple Silicon (M1/M2/M3) → Intel / AMD64 servers
 
@@ -27,10 +37,10 @@ That downloads base images (`python:3.12-slim-bookworm`, `redis:7-alpine`) and P
 docker compose up -d
 ```
 
-Open **http://localhost:8006**. Log in with `ui.password` from the config file inside the image (default baked from `config.docker.example.yaml`: change it for anything beyond a throwaway lab).
+Open **http://localhost:8001**. Log in with `ui.password` from the config file inside the image (default baked from `config.docker.example.yaml`: change it for anything beyond a throwaway lab).
 
-Health: **GET http://localhost:8006/health** (checks Redis and config).  
-Version: **GET http://localhost:8006/version**.
+Health: **GET http://localhost:8001/health** (checks Redis and config).
+Version: **GET http://localhost:8001/version**.
 
 ## Use your own config (secrets, PBS / Proxmox IPs)
 
@@ -51,10 +61,10 @@ Same pattern as migration-engine on a Docker-capable LXC:
 2. `cp config.docker.example.yaml config.docker.yaml` and edit secrets / PBS / PVE.
 3. Uncomment config volume mounts in `docker-compose.yml`.
 4. `docker compose up --build -d`
-5. Confirm: `curl -sS http://127.0.0.1:8006/version` and open the UI on **:8006**.
+5. Confirm: `curl -sS http://127.0.0.1:8001/version` and open the UI on **:8001**.
 6. Sign in with `ui.password`; Settings → verify PBS and Proxmox.
 
-Port **8006** is the published host port (maps to container 8000). Change the left side of `ports:` in `docker-compose.yml` if you need another host port.
+Port **8001** is the default published host port (maps to container 8000). Change the left side of `ports:` in `docker-compose.yml` if you need another host port on your utility box.
 
 ## Optional observability (Grafana)
 
@@ -62,7 +72,7 @@ Port **8006** is the published host port (maps to container 8000). Change the le
 docker compose --profile observability up -d
 ```
 
-- Grafana: **http://localhost:3001** (anonymous Viewer for iframe embed; admin password via `GRAFANA_ADMIN_PASSWORD`)
+- Grafana: **http://localhost:3002** (anonymous Viewer for iframe embed; admin password via `GRAFANA_ADMIN_PASSWORD`; host 3002 avoids clashing with another Grafana on 3000/3001)
 - Prometheus: **http://localhost:9090**
 - OTel Collector: host ports **4317/4318** for PVE/PBS Metric Server
 
@@ -120,7 +130,7 @@ docker compose up -d
 
 - **PBS and Proxmox VE** need reachability from the **worker** (and usually the **api**) container to those networks.
 - **`config.yaml`** in the repo is **not** copied into the image (`.dockerignore`) to avoid leaking credentials; the image ships **`config.docker.example.yaml`** as `/app/config.docker.yaml`.
-- **TLS:** Compose publishes plain HTTP on **8006**. For production, terminate TLS at a reverse proxy; do not rely on lab HTTP.
+- **TLS:** Compose publishes plain HTTP on **8001**. For production, terminate TLS at a reverse proxy; do not rely on lab HTTP.
 - **Secrets:** mount a host `config.docker.yaml` (gitignored). Prefer strong `ui.session_secret`, API tokens, and `worker.require_verified_to_run: true` outside the lab.
 - **Redis:** default Compose Redis has **no password** and is reachable only on the Docker network — do not add a host `ports:` mapping for Redis in production.
 - Product status: plans / readiness / reports / drills / assurance / compliance / notifications are implemented; see README production checklist.

@@ -54,6 +54,18 @@ def monitoring_config(cfg: dict[str, Any]) -> dict[str, Any]:
                             "embed_url": base + (path if path.startswith("/") else "/" + path),
                         }
                     )
+        # base_url alone is enough: default to the provisioned Restore infra dashboard.
+        if base and not dashboards:
+            path = "/d/restore-infra/restore-infra?orgId=1&kiosk&theme=dark"
+            dashboards.append(
+                {
+                    "id": "infra",
+                    "title": "Infra",
+                    "uid": "restore-infra",
+                    "path": path,
+                    "embed_url": base + path,
+                }
+            )
         out["grafana"] = {
             "base_url": base,
             "dashboards": dashboards,

@@ -38,6 +38,83 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _format_bytes(n: int | float | None) -> str:
+    """Human-readable binary size for readiness summaries."""
+    try:
+        v = float(n or 0)
+    except (TypeError, ValueError):
+        return "—"
+    if v <= 0:
+        return "0 B"
+    units = ("B", "KiB", "MiB", "GiB", "TiB", "PiB")
+    i = 0
+    while v >= 1024 and i < len(units) - 1:
+        v /= 1024.0
+        i += 1
+    if i == 0:
+        return f"{int(v)} {units[i]}"
+    return f"{v:.1f} {units[i]}"
+
+
+def summarize_member_sizes(
+    r: redis.Redis,
+    cfg: dict[str, Any],
+    group_rows: list[list[dict[str, Any]]],
+    *,
+    estimate_size_fn: Callable[[str], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Sum gross (PBS archive) and approx net (fidx non-zero) for resolved members.
+
+    Dedupes by ``backup_id``. Estimate failures are non-fatal and counted as missing.
+    """
+    by_id: dict[str, dict[str, Any]] = {}
+    for rows in group_rows:
+        for row in rows:
+            bid = str(row.get("backup_id") or "").strip()
+            if bid and bid not in by_id:
+                by_id[bid] = row
+
+    gross = 0
+    for row in by_id.values():
+        try:
+            gross += max(0, int(row.get("size_bytes") or 0))
+        except (TypeError, ValueError):
+            pass
+
+    if estimate_size_fn is None:
+        from pbs_wire import estimate_fidx_usage_cached
+
+        def estimate_size_fn(backup_id: str) -> dict[str, Any]:
+            return estimate_fidx_usage_cached(r, cfg, backup_id)
+
+    nonzero = 0
+    estimated = 0
+    missing = 0
+    estimate_errors: list[str] = []
+    for bid in by_id:
+        try:
+            est = estimate_size_fn(bid)
+            nz = est.get("nonzero_bytes") if isinstance(est, dict) else None
+            if nz is None:
+                missing += 1
+                continue
+            nonzero += max(0, int(nz))
+            estimated += 1
+        except Exception as exc:
+            missing += 1
+            if len(estimate_errors) < 8:
+                estimate_errors.append(f"{bid}: {exc}")
+
+    return {
+        "backup_count": len(by_id),
+        "gross_bytes": gross,
+        "nonzero_bytes": nonzero if estimated > 0 else None,
+        "nonzero_estimated_count": estimated,
+        "nonzero_missing_count": missing,
+        "estimate_errors": estimate_errors,
+    }
+
+
 def _redis_cfg(cfg: dict[str, Any]) -> dict[str, Any]:
     return cfg.get("redis") or {}
 
@@ -235,6 +312,8 @@ def normalize_group(payload: dict[str, Any], *, group_id: str | None = None) -> 
     vmids = sorted(set(_parse_int_list(payload.get("vmids"), label="vmid")))
     name_patterns = normalize_name_patterns(payload.get("name_patterns"))
     vmid_ranges = normalize_vmid_ranges(payload.get("vmid_ranges"))
+    exclude_vmids = sorted(set(_parse_int_list(payload.get("exclude_vmids"), label="exclude_vmid")))
+    exclude_name_patterns = normalize_name_patterns(payload.get("exclude_name_patterns"))
     if not tags and not vmids and not name_patterns and not vmid_ranges:
         raise ValueError(
             "group needs at least one of: tags, vmids, name_patterns, or vmid_ranges"
@@ -247,6 +326,8 @@ def normalize_group(payload: dict[str, Any], *, group_id: str | None = None) -> 
         "vmids": vmids,
         "name_patterns": name_patterns,
         "vmid_ranges": vmid_ranges,
+        "exclude_vmids": exclude_vmids,
+        "exclude_name_patterns": exclude_name_patterns,
         "mode": "latest_per_vmid",
         "created_at": payload.get("created_at") or "",
         "updated_at": payload.get("updated_at") or "",
@@ -528,6 +609,11 @@ def resolve_group_rows(
     - ``name_patterns``: guest-name globs (``web-*``) or ``re:`` regex
     - ``tags``: guest tags contain *all* listed tags (AND); needs tag map
 
+    Then subtract exclusions (applied after the union):
+
+    - ``exclude_vmids``: drop these VMIDs
+    - ``exclude_name_patterns``: drop guests whose name matches (exact, glob, or ``re:``)
+
     Legacy groups with only tags/vmids keep working.
     """
     source_filter = {s.lower() for s in (group.get("source_ids") or [])}
@@ -576,6 +662,25 @@ def resolve_group_rows(
             row_tags = {t.lower() for t in tags_by_backup_id.get(row["backup_id"], [])}
             if wanted_tags.issubset(row_tags):
                 selected_ids.add(vmid)
+
+    exclude_vmids = {int(v) for v in (group.get("exclude_vmids") or [])}
+    exclude_name_patterns = [
+        str(p).strip() for p in (group.get("exclude_name_patterns") or []) if str(p).strip()
+    ]
+    if exclude_vmids or exclude_name_patterns:
+        kept: set[int] = set()
+        for vmid in selected_ids:
+            if vmid in exclude_vmids:
+                continue
+            row = best.get(vmid)
+            if row is None:
+                continue
+            if exclude_name_patterns and guest_name_matches(
+                str(row.get("name") or ""), exclude_name_patterns
+            ):
+                continue
+            kept.add(vmid)
+        selected_ids = kept
 
     return [best[v] for v in sorted(selected_ids)]
 
@@ -734,11 +839,13 @@ def run_plan_readiness(
     list_storages_fn: Callable[[Any, str], list[dict[str, Any]]] | None = None,
     vmids_in_use_fn: Callable[[Any], set[int]] | None = None,
     resolve_tags_fn: Callable[..., tuple[dict[str, list[str]], dict[str, str]]] | None = None,
+    estimate_size_fn: Callable[[str], dict[str, Any]] | None = None,
     persist: bool = True,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Run fail-closed readiness checks. Returns ``(plan, check)``.
 
     When ``persist`` is True (default), updates plan verification / last_check_*.
+    Also totals gross PBS size and approx net (fidx non-zero) for resolved members.
     """
     from pbs_client import list_vm_backups, probe_all_sources
     from pve_client import (
@@ -966,6 +1073,39 @@ def run_plan_readiness(
                 except Exception as exc:
                     fail("vmid.normal", "Cannot allocate enough free VMIDs for plan members", str(exc))
 
+    size_summary: dict[str, Any] | None = None
+    if group_rows and any(group_rows):
+        try:
+            size_summary = summarize_member_sizes(
+                r, cfg, group_rows, estimate_size_fn=estimate_size_fn
+            )
+            gross_s = _format_bytes(size_summary.get("gross_bytes"))
+            est_n = int(size_summary.get("nonzero_estimated_count") or 0)
+            miss_n = int(size_summary.get("nonzero_missing_count") or 0)
+            total_n = est_n + miss_n
+            nz = size_summary.get("nonzero_bytes")
+            if est_n > 0 and nz is not None:
+                net_s = _format_bytes(int(nz))
+                msg = f"Restore size: {gross_s} gross, ~{net_s} approx net"
+                detail = f"{est_n}/{total_n} backup(s) estimated via fidx non-zero chunks"
+                errs = size_summary.get("estimate_errors") or []
+                if miss_n:
+                    warn("plan.sizes", msg, detail + (f"; missing: {'; '.join(errs)}" if errs else ""))
+                else:
+                    ok_item("plan.sizes", msg, detail)
+            else:
+                warn(
+                    "plan.sizes",
+                    f"Restore size: {gross_s} gross; approx net unavailable",
+                    (
+                        "; ".join(size_summary.get("estimate_errors") or [])
+                        or "fidx estimate failed for all members"
+                    ),
+                )
+        except Exception as exc:
+            warn("plan.sizes", "Could not compute restore size totals", str(exc))
+            size_summary = None
+
     ok = errors == 0
     if ok and member_count == 0 and location and groups:
         # Groups existed but resolved nothing and we may have already recorded errors.
@@ -973,10 +1113,19 @@ def run_plan_readiness(
             fail("plan.empty", "Plan resolved to zero backups")
     ok = errors == 0
 
+    size_hint = ""
+    if size_summary:
+        gross_s = _format_bytes(size_summary.get("gross_bytes"))
+        nz = size_summary.get("nonzero_bytes")
+        if nz is not None and int(size_summary.get("nonzero_estimated_count") or 0) > 0:
+            size_hint = f" · {gross_s} gross · ~{_format_bytes(int(nz))} approx net"
+        else:
+            size_hint = f" · {gross_s} gross"
+
     summary = (
-        f"Readiness OK ({member_count} VM(s))"
+        f"Readiness OK ({member_count} VM(s){size_hint})"
         if ok
-        else f"Readiness FAILED ({errors} error(s), {member_count} VM(s) resolved)"
+        else f"Readiness FAILED ({errors} error(s), {member_count} VM(s) resolved{size_hint})"
     )
     check: dict[str, Any] = {
         "ok": ok,
@@ -986,6 +1135,8 @@ def run_plan_readiness(
         "member_count": member_count,
         "items": items,
     }
+    if size_summary is not None:
+        check["size_summary"] = size_summary
     if persist:
         plan = apply_check_result(r, cfg, plan, check)
     return plan, check

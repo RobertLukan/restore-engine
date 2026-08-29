@@ -36,6 +36,16 @@ def test_monitoring_config_grafana_embed_urls() -> None:
     )
 
 
+def test_monitoring_config_defaults_dashboard_when_only_base_url() -> None:
+    mon = monitoring_config(
+        {"monitoring": {"grafana": {"base_url": "http://utility:3002"}}}
+    )
+    assert mon["grafana"]["base_url"] == "http://utility:3002"
+    assert mon["grafana"]["dashboards"][0]["embed_url"] == (
+        "http://utility:3002/d/restore-infra/restore-infra?orgId=1&kiosk&theme=dark"
+    )
+
+
 def test_monitoring_config_defaults_without_section() -> None:
     mon = monitoring_config({})
     assert mon["api_snapshot"] is True

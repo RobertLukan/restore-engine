@@ -14,7 +14,20 @@ class TaskCancelled(RuntimeError):
     """Raised when a running PVE task is cancelled at the operator's request."""
 
 
-_TAGS_LINE_RE = re.compile(r"^tags:\s*(.+?)\s*$", re.MULTILINE)
+_TAGS_LINE_RE = re.compile(r"^tags:\s*(.*)$", re.MULTILINE | re.IGNORECASE)
+# PVE config keys that must never be treated as guest tags (bleed from next line / bad splits).
+_TAG_BLEED_KEY_RE = re.compile(
+    r"\s+(?:vmgenid|uuid|name|cores|memory|ostype|boot|scsihw|meta|description|parent|"
+    r"digest|lock|hookscript|agent|balloon|bios|bootdisk|cicustom|cipassword|citype|"
+    r"hotplug|hugepages|ivshmem|keyboard|kvm|localtime|machine|numa|onboot|protection|"
+    r"reboot|searchdomain|serial|shares|smbios|sockets|startdate|startup|tablet|tdf|"
+    r"template|vcpus|vga|vmstate|watchdog|cpu|efidisk|tpmstate|cloudinit)\s*:",
+    re.IGNORECASE,
+)
+_TAG_LOOKS_LIKE_CONFIG_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]+:$")
+_TAG_UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 
 
 def extract_vm_config(proxmox: ProxmoxAPI, node: str, volid: str) -> str:
@@ -32,20 +45,68 @@ def extract_vm_config(proxmox: ProxmoxAPI, node: str, volid: str) -> str:
     return str(result or "")
 
 
+def _normalize_config_newlines(config_text: str) -> str:
+    return (config_text or "").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _sanitize_tag_token(tag: str) -> str | None:
+    """Return a cleaned tag, or None if this token is not a real guest tag."""
+    tag = (tag or "").strip()
+    if not tag:
+        return None
+    # Reject config-key bleed fragments: "vmgenid:" or bare UUIDs from vmgenid lines.
+    if _TAG_LOOKS_LIKE_CONFIG_KEY_RE.match(tag):
+        return None
+    if tag.lower().startswith("vmgenid:"):
+        return None
+    if _TAG_UUID_RE.match(tag):
+        return None
+    return tag
+
+
 def parse_tags(config_text: str) -> list[str]:
-    """Parse the ``tags:`` line from a guest config (PVE separates tags with ';')."""
-    match = _TAGS_LINE_RE.search(config_text or "")
+    """Parse the ``tags:`` line from a guest config (PVE separates tags with ';').
+
+    Does **not** split on whitespace (that pulled in the next config key, e.g.
+    ``vmgenid: <uuid>``, when extractconfig lines were joined or malformed).
+    """
+    text = _normalize_config_newlines(config_text)
+    match = _TAGS_LINE_RE.search(text)
     if not match:
         return []
-    parts = re.split(r"[;,\s]+", match.group(1).strip())
+    raw = match.group(1).strip()
+    # If the next PVE key bled onto the tags line, cut it off.
+    bleed = _TAG_BLEED_KEY_RE.search(" " + raw)
+    if bleed:
+        raw = raw[: max(0, bleed.start() - 1)].strip()
+    # Official separator is ';'; also accept commas. Never split on spaces.
+    parts = re.split(r"[;,]+", raw)
     seen: set[str] = set()
     out: list[str] = []
     for part in parts:
-        tag = part.strip()
-        if tag and tag.lower() not in seen:
-            seen.add(tag.lower())
+        tag = _sanitize_tag_token(part)
+        if tag is None:
+            continue
+        key = tag.lower()
+        if key not in seen:
+            seen.add(key)
             out.append(tag)
     return out
+
+
+def extract_vm_config(proxmox: ProxmoxAPI, node: str, volid: str) -> str:
+    """Return the stored guest config for a PBS backup volid via PVE extractconfig.
+
+    Works through PVE (which holds the storage's decryption key), so it also
+    covers encrypted datastores. The guest ``tags`` live in this config, not in
+    the PBS snapshot listing.
+    """
+    result: Any = proxmox.nodes(node).vzdump.extractconfig.get(volume=volid)
+    if isinstance(result, str):
+        return result
+    if isinstance(result, dict):
+        return str(result.get("data") or "")
+    return str(result or "")
 
 
 def connect_proxmox(cfg: dict[str, Any]) -> ProxmoxAPI:
@@ -365,9 +426,21 @@ def _qemu_tags_from_config(cfg: dict[str, Any]) -> list[str]:
     if raw is None:
         return []
     if isinstance(raw, list):
-        return [str(t).strip() for t in raw if str(t).strip()]
-    # PVE stores tags as semicolon-separated string.
-    return [t for t in str(raw).replace(",", ";").split(";") if t.strip()]
+        parts = [str(t) for t in raw]
+    else:
+        # PVE stores tags as semicolon-separated string.
+        parts = str(raw).replace(",", ";").split(";")
+    seen: set[str] = set()
+    out: list[str] = []
+    for part in parts:
+        tag = _sanitize_tag_token(part)
+        if tag is None:
+            continue
+        key = tag.lower()
+        if key not in seen:
+            seen.add(key)
+            out.append(tag)
+    return out
 
 
 def qemu_is_managed_by_tool(proxmox: ProxmoxAPI, node: str, vmid: int) -> bool:
@@ -772,18 +845,25 @@ def wait_for_task(
     upid: str,
     *,
     poll_interval_sec: float = 3.0,
-    timeout_sec: float = 7200.0,
+    timeout_sec: float = 0.0,
     should_cancel: Callable[[], bool] | None = None,
     on_tick: Callable[[dict[str, Any], list[str]], None] | None = None,
 ) -> dict[str, Any]:
     """Poll until the PVE task stops.
 
+    ``timeout_sec`` <= 0 means wait indefinitely (until stopped or cancelled).
+    Large restores (multi-TiB) often need far more than a few hours.
+
     ``on_tick(status, new_log_lines)`` is invoked on each poll while running
     (and once more with final status when stopped, with any remaining log lines).
     """
-    deadline = time.time() + timeout_sec
+    try:
+        timeout = float(timeout_sec)
+    except (TypeError, ValueError):
+        timeout = 0.0
+    deadline = None if timeout <= 0 else time.time() + timeout
     log_offset = 0
-    while time.time() < deadline:
+    while deadline is None or time.time() < deadline:
         if should_cancel is not None and should_cancel():
             stop_task(proxmox, node, upid)
             raise TaskCancelled(f"PVE task {upid} cancelled by operator")
@@ -804,7 +884,7 @@ def wait_for_task(
                 raise RuntimeError(_explain_pve_task_failure(exitstatus))
             return status
         time.sleep(poll_interval_sec)
-    raise TimeoutError(f"PVE task {upid} did not finish within {timeout_sec:.0f}s")
+    raise TimeoutError(f"PVE task {upid} did not finish within {timeout:.0f}s")
 
 
 def _explain_pve_task_failure(exitstatus: str) -> str:

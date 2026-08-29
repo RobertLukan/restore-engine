@@ -3,7 +3,7 @@
 #
 #   docker compose build
 #   docker compose up -d
-#   open http://localhost:8006  (dashboard; login = ui.password in config)
+#   open http://localhost:8001  (dashboard; login = ui.password in config)
 #
 # Override config (recommended for real secrets):
 #   cp config.docker.example.yaml config.docker.yaml
@@ -17,9 +17,10 @@
 #
 # Optional observability (Grafana + Prometheus + OTel Collector):
 #   docker compose --profile observability up -d
-#   Grafana http://localhost:3001  (admin / see GRAFANA_ADMIN_PASSWORD)
+#   Grafana http://localhost:3002  (admin / see GRAFANA_ADMIN_PASSWORD)
 #   Point PVE/PBS Metric Server OpenTelemetry at <host>:4318
 #   See docs/infra-metrics.md
+# Host ports avoid clashing with a typical second Grafana (:3000/:3001) on the same box.
 
 services:
   # In-container Redis only (not published to the host by default). Safe alongside a
@@ -48,7 +49,7 @@ services:
         condition: service_healthy
     networks: [restore]
     ports:
-      - "8006:8000"
+      - "8001:8000"
     environment:
       RESTORE_ENGINE_CONFIG: /app/config.docker.yaml
     command: >
@@ -146,7 +147,7 @@ services:
       - ./deploy/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     ports:
-      - "3001:3000"
+      - "3002:3000"
 
 networks:
   restore:

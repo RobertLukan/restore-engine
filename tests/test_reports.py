@@ -15,13 +15,23 @@ def test_render_check_and_run_reports() -> None:
         "ok": True,
         "checked_at": "2026-08-07T12:00:00+00:00",
         "cutoff": "9999-12-31T23:59:59Z",
-        "summary": "Readiness OK (1 VM(s))",
+        "summary": "Readiness OK (1 VM(s) · 1.0 KiB gross · ~400 B approx net)",
         "member_count": 1,
+        "size_summary": {
+            "gross_bytes": 1024,
+            "nonzero_bytes": 400,
+            "nonzero_estimated_count": 1,
+            "nonzero_missing_count": 0,
+            "backup_count": 1,
+        },
         "items": [{"level": "ok", "code": "pbs.connectivity", "message": "PBS ok"}],
     }
     rendered = reports.render_check_report(plan=plan, check=check)
     assert "PASSED" in rendered["markdown"]
+    assert "Size (gross)" in rendered["markdown"]
+    assert "approx net" in rendered["markdown"]
     assert "Readiness OK" in rendered["html"]
+    assert "Size (gross)" in rendered["html"]
 
     run = {
         "id": "r1",

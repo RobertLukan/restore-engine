@@ -17,10 +17,10 @@ scrape_configs:
     params:
       format: [prometheus]
     scrape_interval: 10s
-    # Lab PVE (guestos-lab). See prometheus.targets.example.yml for more nodes.
-    static_configs:
-      - targets: ["203.0.113.10:19999"]
-        labels:
-          role: pve
-          env: lab
-          instance: "pve"
+    # Add your PVE Netdata endpoints (host:19999). Example RFC5737 placeholders:
+    # static_configs:
+    #   - targets: ["203.0.113.10:19999"]
+    #     labels:
+    #       role: pve
+    #       instance: "pve1"
+    static_configs: []

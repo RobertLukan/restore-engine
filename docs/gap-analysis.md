@@ -5,7 +5,7 @@ Updated inventory of restore-engine product features vs automated tests (offline
 **Style:** FakeRedis + mocks; no live PBS/PVE/Redis. **Coverage tooling:** `pytest-cov` (see README). **CI:** none yet.  
 **Baseline coverage (this pass):** ~**73%** statements (`pytest --cov=. --cov-fail-under=0`).
 
-Manual lab evidence (utility-host restores, PBS mount, `timeout_sec`, port 8006) is noted separately from automated coverage.
+Manual lab evidence (utility-host restores, PBS mount, `timeout_sec`, operator-chosen UI host port) is noted separately from automated coverage.
 
 ---
 

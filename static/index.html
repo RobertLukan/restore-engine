@@ -459,6 +459,7 @@
           <p class="hint">
             Building blocks for recovery plans. Membership is the <strong>union</strong> of:
             explicit VMIDs, VMID ranges, name patterns (globs or <code>re:</code> regex), and/or tags (AND).
+            Then optional <strong>exclusions</strong> remove VMIDs or names (exact, <code>name*</code> glob, or <code>re:</code>).
             Optional PBS <code>source_ids</code> limits which backup sources are considered.
             Tip: on Backups, select VMs → <strong>Save selection as group…</strong>.
           </p>
@@ -478,6 +479,16 @@
           </div>
           <label>VMIDs (comma-separated, optional)</label>
           <input id="group-vmids" placeholder="100, 101" />
+          <div class="row">
+            <div>
+              <label>Exclude VMIDs (comma-separated, optional)</label>
+              <input id="group-exclude-vmids" placeholder="105, 110" />
+            </div>
+            <div>
+              <label>Exclude names / patterns (optional)</label>
+              <input id="group-exclude-names" placeholder="testvm, staging-*, re:^tmp-" />
+            </div>
+          </div>
           <label>PBS source IDs (comma-separated, optional)</label>
           <input id="group-source-ids" placeholder="main" />
           <input type="hidden" id="group-edit-id" value="" />
@@ -1068,7 +1079,7 @@
   </div>
 
   <div id="planrun-modal" class="modal-backdrop">
-    <div class="modal">
+    <div class="modal modal-wide">
       <h3>Run recovery plan</h3>
       <p class="hint" id="planrun-summary"></p>
       <p class="banner info" id="planrun-unverified-warn" hidden style="display:none;">
@@ -1083,6 +1094,24 @@
       <input id="planrun-cutoff" type="datetime-local" />
       <label for="planrun-location">Location override (optional)</label>
       <select id="planrun-location"><option value="">Use plan default</option></select>
+
+      <div id="planrun-members-wrap" style="margin:0.75rem 0;">
+        <p class="hint" id="planrun-members-status" style="margin:0 0 0.35rem;">Resolving VMs…</p>
+        <div id="planrun-members-list" class="job-log-box" style="max-height:12rem; padding:0; overflow:auto;">
+          <table class="vm-table" style="margin:0;">
+            <thead>
+              <tr>
+                <th>Group</th>
+                <th>VMID</th>
+                <th>Name</th>
+                <th>Backup</th>
+                <th>Size</th>
+              </tr>
+            </thead>
+            <tbody id="planrun-members-tbody"></tbody>
+          </table>
+        </div>
+      </div>
 
       <div id="planrun-dr-block" hidden style="display:none; margin:0.75rem 0; padding:0.75rem 0; border-top:1px solid var(--border); border-bottom:1px solid var(--border);">
         <p class="hint" style="margin-top:0;"><strong>DR location</strong> — keeps source VMIDs, MACs, and UUIDs from each backup.</p>
@@ -1144,6 +1173,7 @@
     <div class="modal modal-wide">
       <h3 id="plancheck-title">Plan readiness</h3>
       <p class="hint" id="plancheck-summary"></p>
+      <p class="hint" id="plancheck-sizes" style="margin-top:-0.35rem;"></p>
       <ul id="plancheck-items" style="margin:0.5rem 0 1rem; padding-left:1.25rem; font-size:0.875rem;"></ul>
       <input type="hidden" id="plancheck-report-id" value="" />
       <div class="actions">
@@ -3161,7 +3191,11 @@
         statusEl.textContent =
           "Snapshot " + (data.ts || "") +
           (errs.length ? " · " + errs.length + " error(s): " + errs[0] : "") +
-          (grafana.base_url ? " · Grafana configured" : " · set monitoring.grafana.base_url for embed");
+          (dashes.length && dashes[0].embed_url
+            ? " · Grafana embed"
+            : (grafana.base_url
+              ? " · Grafana base_url set but no dashboard URL"
+              : " · set monitoring.grafana.base_url for embed"));
       } catch (e) {
         statusEl.textContent = "";
         banner(document.getElementById("global-banner"), "err", e.message);
@@ -3264,6 +3298,10 @@
       }
       if ((g.name_patterns || []).length) bits.push("names " + g.name_patterns.join(", "));
       if ((g.tags || []).length) bits.push("tags " + g.tags.join(", "));
+      if ((g.exclude_vmids || []).length) bits.push("exclude VMIDs " + g.exclude_vmids.join(", "));
+      if ((g.exclude_name_patterns || []).length) {
+        bits.push("exclude names " + g.exclude_name_patterns.join(", "));
+      }
       if ((g.source_ids || []).length) bits.push("sources " + g.source_ids.join(", "));
       return bits.join(" · ") || "(empty)";
     }
@@ -3277,6 +3315,10 @@
         vmids: parseCsv(document.getElementById("group-vmids").value)
           .map((v) => Number(v))
           .filter((n) => Number.isFinite(n)),
+        exclude_vmids: parseCsv(document.getElementById("group-exclude-vmids").value)
+          .map((v) => Number(v))
+          .filter((n) => Number.isFinite(n)),
+        exclude_name_patterns: parseCsv(document.getElementById("group-exclude-names").value),
         source_ids: parseCsv(document.getElementById("group-source-ids").value),
       };
     }
@@ -3288,6 +3330,8 @@
       document.getElementById("group-name-patterns").value = "";
       document.getElementById("group-vmid-ranges").value = "";
       document.getElementById("group-vmids").value = "";
+      document.getElementById("group-exclude-vmids").value = "";
+      document.getElementById("group-exclude-names").value = "";
       document.getElementById("group-source-ids").value = "";
     }
 
@@ -3300,6 +3344,8 @@
         .map((r) => (typeof r === "string" ? r : r.start + "-" + r.end))
         .join(", ");
       document.getElementById("group-vmids").value = (g.vmids || []).join(", ");
+      document.getElementById("group-exclude-vmids").value = (g.exclude_vmids || []).join(", ");
+      document.getElementById("group-exclude-names").value = (g.exclude_name_patterns || []).join(", ");
       document.getElementById("group-source-ids").value = (g.source_ids || []).join(", ");
     }
 
@@ -3420,6 +3466,8 @@
               typeof r === "string" ? r : r.start + "-" + r.end
             ),
             vmids: merged,
+            exclude_vmids: g.exclude_vmids || [],
+            exclude_name_patterns: g.exclude_name_patterns || [],
             source_ids: g.source_ids || [],
           };
           await api("/api/groups/" + encodeURIComponent(id), {
@@ -4197,6 +4245,27 @@
       document.getElementById("plancheck-title").textContent = "Readiness: " + planName;
       const summary = document.getElementById("plancheck-summary");
       summary.textContent = check.summary || (check.ok ? "OK" : "Failed");
+      const sizesEl = document.getElementById("plancheck-sizes");
+      const ss = check.size_summary || {};
+      if (ss && (ss.gross_bytes != null || ss.nonzero_bytes != null)) {
+        const gross = ss.gross_bytes ? formatBytes(ss.gross_bytes) : "—";
+        const estN = Number(ss.nonzero_estimated_count || 0);
+        const missN = Number(ss.nonzero_missing_count || 0);
+        let net = "—";
+        if (estN > 0 && ss.nonzero_bytes != null) {
+          net = "~" + (formatBytes(ss.nonzero_bytes) || "0 B") +
+            " (" + estN + "/" + (estN + missN) + " estimated)";
+        } else if (missN > 0) {
+          net = "unavailable";
+        }
+        sizesEl.textContent =
+          "Size to restore — gross: " + gross + " · approx net: " + net +
+          " (gross = PBS archive sum; approx net = non-zero fidx chunks)";
+        sizesEl.hidden = false;
+      } else {
+        sizesEl.textContent = "";
+        sizesEl.hidden = true;
+      }
       const ul = document.getElementById("plancheck-items");
       ul.innerHTML = "";
       for (const item of (check.items || [])) {
@@ -4396,12 +4465,74 @@
       }
       syncPlanRunDrUi();
       document.getElementById("planrun-modal").classList.add("show");
+      refreshPlanRunMembers();
+    }
+
+    let planRunMembersSeq = 0;
+    let planRunMembersTimer = null;
+
+    function schedulePlanRunMembersRefresh() {
+      if (planRunMembersTimer) clearTimeout(planRunMembersTimer);
+      planRunMembersTimer = setTimeout(() => {
+        planRunMembersTimer = null;
+        refreshPlanRunMembers();
+      }, 250);
+    }
+
+    async function refreshPlanRunMembers() {
+      const planId = document.getElementById("planrun-plan-id").value;
+      const status = document.getElementById("planrun-members-status");
+      const tbody = document.getElementById("planrun-members-tbody");
+      if (!planId || !status || !tbody) return;
+      const seq = ++planRunMembersSeq;
+      status.textContent = "Resolving VMs…";
+      tbody.innerHTML = "";
+      const locSel = document.getElementById("planrun-location");
+      const body = {
+        at_or_before: document.getElementById("planrun-cutoff").value || null,
+        location_id: (locSel && locSel.value) || null,
+      };
+      try {
+        const res = await api("/api/plans/" + encodeURIComponent(planId) + "/members", {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        if (seq !== planRunMembersSeq) return;
+        const groups = res.groups || [];
+        let rows = 0;
+        for (const g of groups) {
+          for (const m of (g.members || [])) {
+            rows += 1;
+            const tr = document.createElement("tr");
+            const ts = String(m.timestamp || "").replace("T", " ").replace("Z", "");
+            const size = m.size_bytes ? formatBytes(m.size_bytes) : "—";
+            tr.innerHTML =
+              "<td>" + escapeHtml(g.group_name || g.group_id || "") + "</td>" +
+              "<td>" + escapeHtml(String(m.vmid ?? "")) + "</td>" +
+              "<td>" + escapeHtml(m.name || "—") + "</td>" +
+              "<td>" + escapeHtml(ts || "—") + "</td>" +
+              "<td>" + escapeHtml(size) + "</td>";
+            tbody.appendChild(tr);
+          }
+        }
+        const n = Number(res.member_count || rows);
+        status.textContent = n
+          ? n + " VM(s) will be restored (order = groups, then VMID)"
+          : "No VMs resolve at this point in time";
+      } catch (e) {
+        if (seq !== planRunMembersSeq) return;
+        status.textContent = "Could not list VMs: " + (e.message || e);
+        tbody.innerHTML = "";
+      }
     }
 
     document.getElementById("planrun-location").onchange = () => {
       syncPlanRunDrUi();
       applyPlanRunGuestFromLocation();
+      schedulePlanRunMembersRefresh();
     };
+    document.getElementById("planrun-cutoff").addEventListener("change", schedulePlanRunMembersRefresh);
+    document.getElementById("planrun-cutoff").addEventListener("input", schedulePlanRunMembersRefresh);
     const planrunOw = document.getElementById("planrun-overwrite");
     if (planrunOw) planrunOw.addEventListener("change", syncPlanRunDrUi);
     document.querySelectorAll('input[name="planrun-kind"]').forEach((el) => {
