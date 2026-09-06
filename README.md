@@ -6,6 +6,28 @@ Proxmox Backup Server → Proxmox VE restore orchestrator (API/UI + worker + Red
 
 Dark dashboard for operators: multi-select backup table, bulk enqueue, recovery plans, drills, and a restores progress tab. UI patterns are similar to the separate [migration-engine](https://github.com/RobertLukan/migration-engine) project (VMware → Proxmox).
 
+## UI
+
+Lab screenshots with private fields blurred (names, IDs, form values). More in [`docs/screenshots/ui/`](docs/screenshots/ui/).
+
+<p align="center">
+  <img src="docs/screenshots/ui/01-restores.png" alt="Restores queue and job detail" width="900" />
+  <br />
+  <em>Restores — queue health, job list, and selected-job detail</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/ui/04-plans.png" alt="Recovery plans split view" width="900" />
+  <br />
+  <em>Plans — card list, readiness summary, and ordered groups</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/ui/06-help.png" alt="In-app Help getting started" width="900" />
+  <br />
+  <em>Help — Location → Group → Plan getting-started flow</em>
+</p>
+
 ## Features
 
 - Configure **multiple PBS servers** and Proxmox VE in the UI
