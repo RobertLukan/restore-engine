@@ -26,24 +26,52 @@
       line-height: 1.5;
     }
     header {
-      padding: 1rem 1.5rem;
+      padding: 0.85rem 1.5rem;
       border-bottom: 1px solid var(--border);
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 1rem;
       flex-wrap: wrap;
+      background: rgba(26, 35, 50, 0.92);
+      backdrop-filter: blur(8px);
+      position: sticky;
+      top: 0;
+      z-index: 40;
     }
-    h1 { font-size: 1.125rem; font-weight: 600; margin: 0; }
-    main { max-width: 64rem; margin: 0 auto; padding: 1.5rem; }
+    nav.actions {
+      gap: 0.35rem;
+    }
+    nav.actions button.nav {
+      border-radius: 7px;
+      padding: 0.4rem 0.7rem;
+      font-size: 0.8rem;
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--muted);
+    }
+    nav.actions button.nav:hover {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.04);
+      border-color: var(--border);
+    }
+    nav.actions button.nav.active {
+      outline: none;
+      color: #fff;
+      background: rgba(61, 139, 253, 0.22);
+      border-color: rgba(61, 139, 253, 0.55);
+    }
+    h1 { font-size: 1.125rem; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
+    main { max-width: 76rem; margin: 0 auto; padding: 1.35rem 1.5rem 2rem; }
     .card {
       background: var(--panel);
       border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 1.25rem;
-      margin-bottom: 1.25rem;
+      border-radius: 12px;
+      padding: 1.2rem 1.25rem;
+      margin-bottom: 1.15rem;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
     }
-    .card h2 { margin: 0 0 1rem; font-size: 1rem; font-weight: 600; }
+    .card h2 { margin: 0 0 0.35rem; font-size: 1.05rem; font-weight: 650; letter-spacing: -0.01em; }
     label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.25rem; }
     input, select, textarea {
       width: 100%;
@@ -146,14 +174,20 @@
       overflow: auto;
     }
     .inline { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
-    nav.actions button.nav.active { outline: 2px solid var(--accent); outline-offset: 2px; }
     table.vm-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
     table.vm-table th, table.vm-table td {
       text-align: left;
-      padding: 0.5rem 0.6rem;
+      padding: 0.55rem 0.7rem;
       border-bottom: 1px solid var(--border);
     }
-    table.vm-table th { color: var(--muted); font-weight: 500; }
+    table.vm-table th {
+      color: var(--muted);
+      font-weight: 650;
+      font-size: 0.72rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      background: rgba(13, 18, 24, 0.45);
+    }
     table.vm-table select.snapshot-select {
       width: auto;
       min-width: 14rem;
@@ -304,6 +338,747 @@
       font-size: 0.8rem;
     }
     button.tiny { padding: 0.3rem 0.6rem; font-size: 0.78rem; }
+
+    /* Shared view chrome (non-Plans / Restores tabs) */
+    .view-header { margin-bottom: 1rem; }
+    .view-header h2 {
+      margin: 0 0 0.25rem;
+      font-size: 1.35rem;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+    }
+    .view-header .subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.875rem;
+      max-width: 52rem;
+      line-height: 1.45;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      margin-bottom: 1.15rem;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+    }
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      padding: 0.9rem 1.1rem;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent);
+    }
+    .panel-head h3 {
+      margin: 0;
+      font-size: 0.95rem;
+      font-weight: 650;
+    }
+    .panel-head .panel-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      align-items: center;
+    }
+    .panel-body { padding: 1.05rem 1.1rem 1.2rem; }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+      align-items: center;
+      margin-bottom: 0.85rem;
+    }
+    .toolbar-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem 1rem;
+      align-items: center;
+      margin-bottom: 0.85rem;
+    }
+    .table-wrap {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: auto;
+      background: #121a24;
+    }
+    .table-wrap .vm-table { margin: 0; }
+    .table-wrap .vm-table tr:last-child td { border-bottom: none; }
+    .section-label {
+      font-size: 0.78rem;
+      font-weight: 650;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin: 1.15rem 0 0.55rem;
+    }
+    .section-label:first-child { margin-top: 0; }
+    details.hint-details {
+      margin: 0 0 0.85rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(13, 18, 24, 0.35);
+      padding: 0.55rem 0.75rem;
+    }
+    details.hint-details > summary {
+      cursor: pointer;
+      color: #9ec5ff;
+      font-size: 0.8rem;
+      font-weight: 550;
+      list-style: none;
+    }
+    details.hint-details > summary::-webkit-details-marker { display: none; }
+    details.hint-details[open] > summary { margin-bottom: 0.45rem; }
+    details.hint-details .hint { margin: 0; line-height: 1.45; }
+    .tag-pill {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 0.12rem 0.45rem;
+      margin: 0.08rem 0.15rem 0.08rem 0;
+      border-radius: 999px;
+      background: rgba(61, 139, 253, 0.14);
+      color: #9ec5ff;
+      border: 1px solid rgba(61, 139, 253, 0.35);
+    }
+    .form-panel {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.95rem 1rem;
+      margin-bottom: 1rem;
+      background: #121a24;
+    }
+    .stat-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+      margin-bottom: 0.85rem;
+    }
+    .stat-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.35rem 0.65rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: #121a24;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .stat-chip strong { color: var(--text); font-weight: 650; }
+    a.btn {
+      display: inline-flex;
+      align-items: center;
+      text-decoration: none;
+      cursor: pointer;
+      border: none;
+      border-radius: 6px;
+      padding: 0.5rem 1rem;
+      font-weight: 500;
+      font-size: 0.875rem;
+      background: var(--border);
+      color: var(--text);
+    }
+    a.btn.tiny { padding: 0.3rem 0.6rem; font-size: 0.78rem; }
+
+    /* Plans tab — mockup-style split list + detail (dark) */
+    .plans-header { margin-bottom: 1rem; } /* alias kept briefly; prefer .view-header */
+    #plans-list,
+    #groups-list,
+    #locations-list,
+    #assurance-list,
+    .entity-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.7rem;
+      overflow-y: auto;
+      max-height: min(62vh, 36rem);
+      flex: 1;
+    }
+    .plans-groups-wrap {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: auto;
+      background: #121a24;
+    }
+    .plans-groups-wrap .vm-table { margin: 0; }
+    .plans-groups-wrap .vm-table tr:last-child td { border-bottom: none; }
+
+    /* App shell + sidebar */
+    .app-shell {
+      display: flex;
+      min-height: calc(100vh - 2.5rem);
+      align-items: stretch;
+    }
+    .app-sidebar {
+      width: 220px;
+      flex-shrink: 0;
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      position: sticky;
+      top: 0;
+      align-self: flex-start;
+      height: 100vh;
+      z-index: 50;
+      transition: width 0.18s ease;
+    }
+    .app-sidebar.collapsed { width: 64px; }
+    .app-sidebar-brand {
+      padding: 1rem 1rem 0.85rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .app-sidebar-brand strong {
+      display: block;
+      font-size: 0.95rem;
+      letter-spacing: -0.01em;
+    }
+    .app-sidebar-brand span {
+      display: block;
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-top: 0.15rem;
+    }
+    .app-sidebar.collapsed .app-sidebar-brand span,
+    .app-sidebar.collapsed .sidebar-section-label,
+    .app-sidebar.collapsed .nav-label,
+    .app-sidebar.collapsed .sidebar-collapse-label {
+      display: none;
+    }
+    .app-sidebar-nav {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.65rem 0.55rem 0.85rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+    .sidebar-section-label {
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 0.7rem 0.55rem 0.3rem;
+    }
+    .app-sidebar-nav button.nav {
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+      width: 100%;
+      text-align: left;
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--muted);
+      border-radius: 8px;
+      padding: 0.45rem 0.55rem;
+      font-size: 0.84rem;
+      font-weight: 550;
+    }
+    .app-sidebar-nav button.nav:hover {
+      color: var(--text);
+      background: rgba(255,255,255,0.04);
+      border-color: var(--border);
+    }
+    .app-sidebar-nav button.nav.active {
+      color: #fff;
+      background: rgba(61, 139, 253, 0.22);
+      border-color: rgba(61, 139, 253, 0.55);
+      outline: none;
+    }
+    .nav-ico {
+      width: 1.1rem;
+      text-align: center;
+      flex-shrink: 0;
+      opacity: 0.9;
+      font-size: 0.85rem;
+    }
+    .app-sidebar-foot {
+      border-top: 1px solid var(--border);
+      padding: 0.65rem 0.55rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .app-main {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .app-topbar {
+      display: none;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.65rem 1rem;
+      border-bottom: 1px solid var(--border);
+      background: rgba(26, 35, 50, 0.92);
+    }
+    .app-topbar h1 { font-size: 1rem; margin: 0; }
+    #app-screen > header.app-legacy-header { display: none; }
+    #app-screen main {
+      max-width: 76rem;
+      width: 100%;
+      margin: 0 auto;
+      padding: 1.35rem 1.5rem 2rem;
+      flex: 1;
+    }
+    .sidebar-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 45;
+    }
+    .sidebar-backdrop.show { display: block; }
+    @media (max-width: 900px) {
+      .app-sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        transform: translateX(-105%);
+        box-shadow: 8px 0 24px rgba(0,0,0,0.35);
+      }
+      .app-sidebar.open { transform: translateX(0); }
+      .app-sidebar.collapsed { width: 220px; }
+      .app-topbar { display: flex; }
+    }
+
+    /* Restores progress redesign */
+    .jobs-layout {
+      display: grid;
+      grid-template-columns: 1fr minmax(16rem, 34%);
+      gap: 1rem;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      .jobs-layout { grid-template-columns: 1fr; }
+    }
+    .job-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) auto minmax(7rem, 1fr) minmax(5rem, 0.7fr) auto;
+      gap: 0.65rem 0.85rem;
+      align-items: center;
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      background: #121a24;
+    }
+    .job-row:last-child { border-bottom: none; }
+    .job-row:hover { background: rgba(61, 139, 253, 0.06); }
+    .job-row.selected {
+      background: rgba(61, 139, 253, 0.12);
+      box-shadow: inset 3px 0 0 var(--accent);
+    }
+    .job-row-name { font-weight: 650; color: #9ec5ff; }
+    .job-row-meta { font-size: 0.75rem; color: var(--muted); margin-top: 0.15rem; }
+    .job-row .progress-wrap { height: 8px; min-width: 5rem; }
+    .job-row-actions { display: flex; gap: 0.35rem; flex-wrap: wrap; justify-content: flex-end; }
+    #jobs-stat-chips { margin-bottom: 0.85rem; }
+    .jobs-detail-empty {
+      color: var(--muted);
+      padding: 2rem 1rem;
+      text-align: center;
+    }
+    .jobs-detail-kv {
+      display: grid;
+      grid-template-columns: 7rem 1fr;
+      gap: 0.35rem 0.65rem;
+      font-size: 0.82rem;
+      margin-bottom: 0.85rem;
+    }
+    .jobs-detail-kv dt { color: var(--muted); margin: 0; }
+    .jobs-detail-kv dd { margin: 0; word-break: break-word; }
+
+    /* Help page */
+    .help-steps {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      counter-reset: helpstep;
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+    }
+    .help-steps li {
+      counter-increment: helpstep;
+      display: grid;
+      grid-template-columns: 2rem 1fr auto;
+      gap: 0.75rem;
+      align-items: start;
+      padding: 0.85rem 0.95rem;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #121a24;
+    }
+    .help-steps li::before {
+      content: counter(helpstep);
+      width: 1.75rem;
+      height: 1.75rem;
+      border-radius: 50%;
+      background: rgba(61, 139, 253, 0.2);
+      color: #9ec5ff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.85rem;
+    }
+    .help-steps h4 { margin: 0 0 0.2rem; font-size: 0.95rem; }
+    .help-steps p { margin: 0; font-size: 0.84rem; color: var(--muted); line-height: 1.45; }
+    .help-glossary {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+      gap: 0.75rem;
+    }
+    .help-glossary article {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.85rem 0.95rem;
+      background: #121a24;
+    }
+    .help-glossary h4 { margin: 0 0 0.35rem; font-size: 0.9rem; color: #9ec5ff; }
+    .help-glossary p { margin: 0; font-size: 0.82rem; color: var(--muted); line-height: 1.45; }
+    .help-callout {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.85rem 1rem;
+      background: rgba(61, 139, 253, 0.08);
+      margin-bottom: 0.75rem;
+    }
+    .help-callout strong { color: var(--text); }
+    .help-callout p { margin: 0.35rem 0 0; font-size: 0.84rem; color: var(--muted); }
+
+    main.plans-wide { max-width: 76rem; }
+    .plans-layout {
+      display: grid;
+      grid-template-columns: minmax(17rem, 38%) 1fr;
+      gap: 1rem;
+      align-items: stretch;
+      min-height: 28rem;
+    }
+    @media (max-width: 900px) {
+      .plans-layout { grid-template-columns: 1fr; }
+    }
+    .plans-list-panel, .plans-detail-panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      min-height: 28rem;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+    }
+    .plans-panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.9rem 1rem;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent);
+    }
+    .plans-panel-head h3 {
+      margin: 0;
+      font-size: 0.95rem;
+      font-weight: 650;
+    }
+    .plans-panel-head .btn-create-plan {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      white-space: nowrap;
+    }
+    .plans-list-body {
+      padding: 0.85rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+      flex: 1;
+      min-height: 0;
+      background: rgba(13, 18, 24, 0.45);
+    }
+    .plans-list-foot {
+      font-size: 0.75rem;
+      color: var(--muted);
+      padding-top: 0.15rem;
+    }
+    .plan-card {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.95rem 1rem;
+      background: #121a24;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.15s;
+    }
+    .plan-card:hover {
+      border-color: #3d5270;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.28);
+    }
+    .plan-card.selected {
+      border-color: var(--accent);
+      background: rgba(61, 139, 253, 0.12);
+      box-shadow: 0 0 0 1px rgba(61, 139, 253, 0.35);
+    }
+    .plan-card-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.55rem;
+      margin-bottom: 0.45rem;
+    }
+    .plan-card-name {
+      font-weight: 650;
+      color: #9ec5ff;
+      font-size: 0.98rem;
+      line-height: 1.3;
+      word-break: break-word;
+    }
+    .plan-card-meta {
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.55;
+      margin-bottom: 0.75rem;
+    }
+    .plan-card-meta .meta-row {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .plan-card-meta svg {
+      width: 12px;
+      height: 12px;
+      flex-shrink: 0;
+      opacity: 0.85;
+    }
+    .plan-card-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 0.4rem;
+      padding-top: 0.7rem;
+      border-top: 1px solid rgba(45, 58, 77, 0.85);
+    }
+    .plan-card-actions .btn-run-plan {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+    .plan-card-actions .btn-run-plan svg {
+      width: 10px;
+      height: 10px;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.28rem;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      padding: 0.18rem 0.5rem;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      text-transform: uppercase;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .badge svg { width: 11px; height: 11px; }
+    .badge-verified { background: rgba(62, 207, 142, 0.12); border-color: #2d6a4a; color: #a8e6c1; }
+    .badge-failed { background: rgba(244, 113, 116, 0.12); border-color: #6a2d35; color: #ffc9c9; }
+    .badge-warn { background: rgba(255, 193, 7, 0.1); border-color: #6a552d; color: #ffe6a8; }
+    .badge-muted { background: #1e2a3a; border-color: var(--border); color: var(--muted); }
+    .plans-detail-inner { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    .plans-detail-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      padding: 1rem 1.1rem 0.85rem;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent);
+    }
+    .plans-detail-kicker {
+      margin: 0 0 0.15rem;
+      font-size: 0.7rem;
+      font-weight: 650;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .plans-detail-head h3 { margin: 0; font-size: 1.2rem; font-weight: 700; letter-spacing: -0.02em; }
+    .plans-detail-head-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 0; }
+    .plans-subtabs {
+      display: flex;
+      gap: 0.15rem;
+      border-bottom: 1px solid var(--border);
+      padding: 0 1rem;
+      background: rgba(13, 18, 24, 0.25);
+    }
+    .plans-subtabs button {
+      background: transparent;
+      color: var(--muted);
+      border-radius: 0;
+      border-bottom: 2px solid transparent;
+      padding: 0.7rem 1rem;
+      margin-bottom: -1px;
+      font-weight: 550;
+    }
+    .plans-subtabs button:hover { color: var(--text); }
+    .plans-subtabs button.active {
+      color: #9ec5ff;
+      border-bottom-color: var(--accent);
+      font-weight: 650;
+    }
+    .plans-tab-body {
+      padding: 1.05rem 1.1rem 1.2rem;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .plans-summary-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(12rem, 1.05fr);
+      gap: 1rem;
+      margin-bottom: 1.15rem;
+    }
+    @media (max-width: 640px) {
+      .plans-summary-grid { grid-template-columns: 1fr; }
+    }
+    .plans-kv {
+      display: grid;
+      grid-template-columns: 7.25rem 1fr;
+      gap: 0.45rem 0.75rem;
+      font-size: 0.85rem;
+      align-content: start;
+      padding: 0.85rem 0.95rem;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #121a24;
+    }
+    .plans-kv dt { color: var(--muted); margin: 0; }
+    .plans-kv dd { margin: 0; }
+    .readiness-box {
+      background: #121a24;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem 1.05rem;
+      font-size: 0.85rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.85rem;
+      min-height: 100%;
+    }
+    .readiness-box.ok {
+      border-color: #2d6a4a;
+      background: linear-gradient(145deg, rgba(62, 207, 142, 0.1), #121a24 55%);
+    }
+    .readiness-box.warn {
+      border-color: #6a552d;
+      background: linear-gradient(145deg, rgba(255, 193, 7, 0.08), #121a24 55%);
+    }
+    .readiness-box.err {
+      border-color: #6a2d35;
+      background: linear-gradient(145deg, rgba(244, 113, 116, 0.1), #121a24 55%);
+    }
+    .readiness-icon {
+      width: 2.6rem;
+      height: 2.6rem;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      background: #1e2a3a;
+      color: var(--muted);
+    }
+    .readiness-box.ok .readiness-icon {
+      background: var(--ok);
+      color: #0b1a12;
+      box-shadow: 0 4px 14px rgba(62, 207, 142, 0.35);
+    }
+    .readiness-box.warn .readiness-icon {
+      background: #d4a017;
+      color: #1a1405;
+      box-shadow: 0 4px 14px rgba(212, 160, 23, 0.3);
+    }
+    .readiness-box.err .readiness-icon {
+      background: var(--danger);
+      color: #1a0a0a;
+      box-shadow: 0 4px 14px rgba(244, 113, 116, 0.3);
+    }
+    .readiness-icon svg { width: 1.25rem; height: 1.25rem; }
+    .readiness-copy { min-width: 0; }
+    .readiness-label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 0.15rem;
+    }
+    .readiness-box.ok .readiness-label { color: #7dcea0; }
+    .readiness-box.warn .readiness-label { color: #e6c07b; }
+    .readiness-box.err .readiness-label { color: #f5a8aa; }
+    .readiness-box .rb-title {
+      font-weight: 700;
+      font-size: 1.1rem;
+      letter-spacing: -0.02em;
+      margin-bottom: 0.2rem;
+    }
+    .readiness-stats {
+      margin: 0.55rem 0 0;
+      padding: 0;
+      list-style: none;
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+    .plans-section-label {
+      font-size: 0.78rem;
+      font-weight: 650;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin: 0 0 0.45rem;
+    }
+    .ordered-groups-table { margin: 0; }
+    .ordered-groups-table th {
+      background: rgba(26, 35, 50, 0.9);
+      font-size: 0.7rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .group-ready {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-weight: 600;
+      font-size: 0.82rem;
+    }
+    .group-ready svg { width: 13px; height: 13px; }
+    .group-ready.ok { color: #a8e6c1; }
+    .group-ready.warn { color: #ffe6a8; }
+    .group-ready.err { color: #ffc9c9; }
+    .group-ready.muted { color: var(--muted); }
+    .plans-empty-detail {
+      color: var(--muted);
+      padding: 3rem 1.25rem;
+      text-align: center;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.35rem;
+    }
+    .plans-empty-detail strong { color: #b8c7db; font-weight: 600; }
+    .modal.modal-plan-edit { max-width: 32rem; }
+    .modal.modal-entity-edit { max-width: 40rem; }
   </style>
 </head>
 <body>
@@ -329,557 +1104,731 @@
   </div>
 
   <div id="app-screen" class="hidden">
-    <header>
-      <h1>Restore orchestrator</h1>
-      <nav class="actions">
-        <button type="button" class="secondary nav active" id="nav-backups">Backups</button>
-        <button type="button" class="secondary nav" id="nav-plans">Plans</button>
-        <button type="button" class="secondary nav" id="nav-assurance">Assurance</button>
-        <button type="button" class="secondary nav" id="nav-compliance">Compliance</button>
-        <button type="button" class="secondary nav" id="nav-groups">Groups</button>
-        <button type="button" class="secondary nav" id="nav-locations">Locations</button>
-        <button type="button" class="secondary nav" id="nav-jobs">Restores</button>
-        <button type="button" class="secondary nav" id="nav-infra">Infra</button>
-        <button type="button" class="secondary nav" id="nav-audit">Audit</button>
-        <button type="button" class="secondary nav" id="nav-credentials">Settings</button>
-        <button type="button" class="secondary" id="btn-logout">Sign out</button>
-      </nav>
-    </header>
-    <main>
+    <div class="app-shell">
+      <div id="sidebar-backdrop" class="sidebar-backdrop" aria-hidden="true"></div>
+      <aside id="app-sidebar" class="app-sidebar" aria-label="Main navigation">
+        <div class="app-sidebar-brand">
+          <strong>Restore orchestrator</strong>
+          <span>Proxmox restore</span>
+        </div>
+        <nav class="app-sidebar-nav">
+          <div class="sidebar-section-label">Operate</div>
+          <button type="button" class="nav active" id="nav-backups" title="Backups"><span class="nav-ico">▣</span><span class="nav-label">Backups</span></button>
+          <button type="button" class="nav" id="nav-jobs" title="Restores"><span class="nav-ico">▶</span><span class="nav-label">Restores</span></button>
+          <div class="sidebar-section-label">Recovery</div>
+          <button type="button" class="nav" id="nav-locations" title="Locations"><span class="nav-ico">⌖</span><span class="nav-label">Locations</span></button>
+          <button type="button" class="nav" id="nav-groups" title="Groups"><span class="nav-ico">⧉</span><span class="nav-label">Groups</span></button>
+          <button type="button" class="nav" id="nav-plans" title="Plans"><span class="nav-ico">☰</span><span class="nav-label">Plans</span></button>
+          <div class="sidebar-section-label">Prove</div>
+          <button type="button" class="nav" id="nav-assurance" title="Assurance"><span class="nav-ico">✓</span><span class="nav-label">Assurance</span></button>
+          <button type="button" class="nav" id="nav-compliance" title="Compliance"><span class="nav-ico">▤</span><span class="nav-label">Compliance</span></button>
+          <div class="sidebar-section-label">Observe</div>
+          <button type="button" class="nav" id="nav-infra" title="Infra"><span class="nav-ico">◎</span><span class="nav-label">Infra</span></button>
+          <button type="button" class="nav" id="nav-audit" title="Audit"><span class="nav-ico">⌁</span><span class="nav-label">Audit</span></button>
+          <div class="sidebar-section-label">System</div>
+          <button type="button" class="nav" id="nav-credentials" title="Settings"><span class="nav-ico">⚙</span><span class="nav-label">Settings</span></button>
+          <button type="button" class="nav" id="nav-help" title="Help"><span class="nav-ico">?</span><span class="nav-label">Help</span></button>
+        </nav>
+        <div class="app-sidebar-foot">
+          <button type="button" class="secondary tiny" id="btn-sidebar-collapse" title="Collapse sidebar"><span class="sidebar-collapse-label">Collapse</span><span class="nav-ico" aria-hidden="true">«</span></button>
+          <button type="button" class="secondary tiny" id="btn-logout">Sign out</button>
+        </div>
+      </aside>
+      <div class="app-main">
+        <div class="app-topbar">
+          <button type="button" class="secondary tiny" id="btn-sidebar-open" aria-label="Open menu">Menu</button>
+          <h1>Restore orchestrator</h1>
+        </div>
+        <main>
       <div id="global-banner" class="banner info"></div>
 
       <div id="view-backups">
-        <div class="card">
-          <h2>VM backups available to restore</h2>
-          <p class="hint">
-            Backups are listed from your configured Proxmox Backup Server datastore.
-            One row per VM (latest snapshot selected by default); use the Timestamp dropdown to pick an older backup.
-            Select one or more VMs, then <strong>Restore selected</strong> — Select all never queues multiple snapshots of the same VM.
-            Tags are <strong>not</strong> loaded automatically (PVE <code>extractconfig</code> per snapshot is expensive on large estates).
-            Use <strong>Load tags</strong> when you need tag filter / restore-by-tag (results are Redis-cached afterward).
-            <strong>Size (gross)</strong> is the PBS archive sum; use <strong>Estimate sizes</strong> for a chunk-level
-            non-zero estimate (better proxy for restore effort — zeros restore quickly).
-          </p>
-          <div class="actions" style="margin-bottom: 0.75rem;">
-            <button type="button" class="secondary" id="btn-refresh-backups">Refresh list</button>
-            <button type="button" class="secondary" id="btn-load-tags" title="Calls PVE extractconfig for each snapshot (slow on large inventories)">Load tags</button>
-            <button type="button" class="secondary" id="btn-estimate-sizes" title="Download .fidx indexes and count non-zero chunks (cached)">Estimate sizes</button>
-            <button type="button" class="secondary" id="btn-select-all">Select all</button>
-            <button type="button" class="secondary" id="btn-clear-selection">Clear selection</button>
-            <button type="button" class="primary" id="btn-open-restore-modal" disabled>Restore selected…</button>
-            <button type="button" class="secondary" id="btn-save-selection-group" disabled>Save selection as group…</button>
-            <button type="button" class="primary" id="btn-open-taggroup-modal">Restore by tag group…</button>
+        <div class="view-header">
+          <h2>Backups</h2>
+          <p class="subtitle">Browse PBS snapshots, filter by tag, and restore one or more VMs.</p>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <h3>VM backups</h3>
+            <div class="panel-actions">
+              <button type="button" class="secondary tiny" id="btn-refresh-backups">Refresh</button>
+              <button type="button" class="secondary tiny" id="btn-load-tags" title="Calls PVE extractconfig for each snapshot (slow on large inventories)">Load tags</button>
+              <button type="button" class="secondary tiny" id="btn-estimate-sizes" title="Download .fidx indexes and count non-zero chunks (cached)">Estimate sizes</button>
+              <button type="button" class="primary tiny" id="btn-open-restore-modal" disabled>Restore selected…</button>
+            </div>
           </div>
-          <div class="inline" style="gap:0.5rem;">
-            <label style="margin:0">Filter by tag</label>
-            <select id="backup-tag-filter" style="width:auto; min-width:12rem; margin:0"><option value="">All tags</option></select>
-            <button type="button" class="secondary btn tiny" id="btn-select-tag">Select filtered</button>
+          <div class="panel-body">
+            <details class="hint-details">
+              <summary>How backup listing works</summary>
+              <p class="hint">
+                One row per VM (latest snapshot selected by default); use the Timestamp dropdown for older backups.
+                Select all never queues multiple snapshots of the same VM.
+                Tags are <strong>not</strong> loaded automatically — use <strong>Load tags</strong> when you need filtering (Redis-cached afterward).
+                <strong>Size (gross)</strong> is the PBS archive sum; <strong>Estimate sizes</strong> adds a chunk-level non-zero estimate.
+              </p>
+            </details>
+            <div class="toolbar">
+              <button type="button" class="secondary tiny" id="btn-select-all">Select all</button>
+              <button type="button" class="secondary tiny" id="btn-clear-selection">Clear selection</button>
+              <button type="button" class="secondary tiny" id="btn-save-selection-group" disabled>Save selection as group…</button>
+              <button type="button" class="secondary tiny" id="btn-open-taggroup-modal">Restore by tag group…</button>
+            </div>
+            <div class="toolbar-meta">
+              <div class="inline" style="gap:0.5rem; margin:0;">
+                <label style="margin:0">Filter by tag</label>
+                <select id="backup-tag-filter" style="width:auto; min-width:12rem; margin:0"><option value="">All tags</option></select>
+                <button type="button" class="secondary tiny" id="btn-select-tag">Select filtered</button>
+              </div>
+              <div id="backup-list-status" class="hint" style="margin:0;"></div>
+            </div>
+            <div class="table-wrap">
+              <table class="vm-table" id="backup-table" hidden>
+                <thead>
+                  <tr>
+                    <th style="width:2.5rem;"><input type="checkbox" id="backup-select-all" title="Select all" /></th>
+                    <th>Name</th>
+                    <th>Source VMID</th>
+                    <th>Source (PBS)</th>
+                    <th>Tags</th>
+                    <th title="PBS snapshot size = sum of archive sizes (gross)">Size (gross)</th>
+                    <th>Timestamp / snapshot</th>
+                  </tr>
+                </thead>
+                <tbody id="backup-tbody"></tbody>
+              </table>
+            </div>
+            <p class="empty-state hidden" id="backup-empty">No backups returned.</p>
+            <p class="hint" style="margin-top:1rem; margin-bottom:0;">
+              <a href="#" id="link-setup-again">Run connection setup again</a>
+            </p>
           </div>
-          <div id="backup-list-status" class="hint"></div>
-          <div style="overflow-x: auto;">
-            <table class="vm-table" id="backup-table" hidden>
-              <thead>
-                <tr>
-                  <th style="width:2.5rem;"><input type="checkbox" id="backup-select-all" title="Select all" /></th>
-                  <th>Name</th>
-                  <th>Source VMID</th>
-                  <th>Source (PBS)</th>
-                  <th>Tags</th>
-                  <th title="PBS snapshot size = sum of archive sizes (gross)">Size (gross)</th>
-                  <th>Timestamp / snapshot</th>
-                </tr>
-              </thead>
-              <tbody id="backup-tbody"></tbody>
-            </table>
-          </div>
-          <p class="empty-state hidden" id="backup-empty">No backups returned.</p>
-          <p class="hint" style="margin-top:1rem;">
-            <a href="#" id="link-setup-again">Run connection setup again</a>
-          </p>
         </div>
       </div>
 
       <div id="view-jobs" class="hidden">
-        <div class="card">
-          <h2>Restore progress</h2>
-          <p class="hint">
-            Concurrency changes apply within ~1s without restarting the worker. Pause stops new claims;
-            in-flight jobs keep running until they finish or fail. Stop pending cancels queued jobs only.
-            Live restore progress is the PVE restore task (data stream), not guest boot readiness.
-            Live jobs report <code>transferred X of Y (P%)</code> (QEMU block-job); normal jobs use PBS
-            <code>progress/zeroes</code>. Est. wire ≈ virtual × fidx sparsity × compression (live) or
-            (read − zeroes) × compression (normal).
-          </p>
-          <div id="jobs-control-strip" class="jobs-control-strip">
-            <div class="row" style="align-items:end;">
-              <div>
-                <label for="jobs-max-concurrent">Max concurrent restores</label>
-                <input id="jobs-max-concurrent" type="number" min="1" step="1" value="2" />
-              </div>
-              <div class="actions" style="margin:0;">
-                <button type="button" class="secondary" id="btn-apply-concurrency">Apply</button>
-                <button type="button" class="secondary" id="btn-queue-pause">Pause</button>
-                <button type="button" class="secondary" id="btn-queue-resume">Resume</button>
-                <button type="button" class="danger" id="btn-queue-stop">Stop pending</button>
-                <button type="button" class="secondary" id="btn-refresh-jobs">Refresh now</button>
+        <div class="view-header">
+          <h2>Restores</h2>
+          <p class="subtitle">Watch queue health and per-VM restore progress. Pause stops new claims; in-flight jobs keep running.</p>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Restore queue</h3>
+            <div class="panel-actions">
+              <button type="button" class="secondary tiny" id="btn-refresh-jobs">Refresh</button>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div id="jobs-stat-chips" class="stat-chips"></div>
+            <div class="toolbar">
+              <label for="jobs-max-concurrent" style="margin:0;">Max concurrent</label>
+              <input id="jobs-max-concurrent" type="number" min="1" step="1" value="2" style="width:5rem; margin:0;" />
+              <button type="button" class="secondary tiny" id="btn-apply-concurrency">Apply</button>
+              <button type="button" class="secondary tiny" id="btn-queue-pause">Pause</button>
+              <button type="button" class="secondary tiny" id="btn-queue-resume">Resume</button>
+              <button type="button" class="danger tiny" id="btn-queue-stop">Stop pending</button>
+            </div>
+            <div id="jobs-pause-banner" class="banner hidden" style="margin-bottom:0.75rem;"></div>
+            <details class="hint-details">
+              <summary>How progress is measured</summary>
+              <p class="hint">
+                Live restore progress is the PVE restore task (data stream), not guest boot readiness.
+                Live jobs report <code>transferred X of Y (P%)</code>; normal jobs use PBS <code>progress/zeroes</code>.
+                Est. wire ≈ virtual × fidx sparsity × compression (live) or (read − zeroes) × compression (normal).
+              </p>
+            </details>
+          </div>
+        </div>
+        <div class="jobs-layout">
+          <div class="panel" style="margin-bottom:0;">
+            <div class="panel-head">
+              <h3>Jobs</h3>
+              <span id="jobs-list-status" class="hint" style="margin:0;"></span>
+            </div>
+            <div id="jobs-list" class="entity-list" style="max-height:min(70vh,42rem); padding:0; gap:0; background:#121a24;"></div>
+            <p class="empty-state hidden" id="jobs-empty" style="padding:1rem 1.1rem;">No restore jobs yet.</p>
+            <table class="vm-table hidden" id="jobs-table" hidden><tbody id="jobs-tbody"></tbody></table>
+          </div>
+          <div class="panel" style="margin-bottom:0;">
+            <div class="panel-head"><h3>Job details</h3></div>
+            <div class="panel-body">
+              <div id="jobs-detail-empty" class="jobs-detail-empty">Select a restore to inspect progress details.</div>
+              <div id="jobs-detail" class="hidden">
+                <h3 id="jobs-detail-title" style="margin:0 0 0.35rem; font-size:1.05rem;">—</h3>
+                <div id="jobs-detail-badge" style="margin-bottom:0.75rem;"></div>
+                <dl class="jobs-detail-kv" id="jobs-detail-kv"></dl>
+                <div class="actions">
+                  <button type="button" class="secondary tiny" id="btn-jobs-open-modal">Full details &amp; log</button>
+                  <button type="button" class="secondary tiny" id="btn-jobs-detail-stop" hidden>Stop</button>
+                </div>
               </div>
             </div>
-            <div id="jobs-stats-line" class="hint" style="margin-top:0.5rem;"></div>
-            <div id="jobs-pause-banner" class="banner hidden" style="margin-top:0.5rem;"></div>
           </div>
-          <div id="jobs-list-status" class="hint" style="margin-top:0.75rem;"></div>
-          <div style="overflow-x: auto;">
-            <table class="vm-table" id="jobs-table" hidden>
-              <thead>
-                <tr>
-                  <th>VM name</th>
-                  <th>Source (PBS)</th>
-                  <th>Source VMID</th>
-                  <th>Target VMID</th>
-                  <th>Node</th>
-                  <th>State</th>
-                  <th>Progress</th>
-                  <th title="PVE progress rate including sparse/zero regions">Speed (gross)</th>
-                  <th title="Estimated NIC throughput: (read − zeroes) × sampled PBS chunk compression">Est. wire</th>
-                  <th>ETA / Duration</th>
-                  <th>Updated</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody id="jobs-tbody"></tbody>
-            </table>
-          </div>
-          <p class="empty-state hidden" id="jobs-empty">No restore jobs yet.</p>
         </div>
       </div>
 
       <div id="view-groups" class="hidden">
-        <div class="card">
-          <h2>Inventory groups</h2>
-          <p class="hint">
-            Building blocks for recovery plans. Membership is the <strong>union</strong> of:
-            explicit VMIDs, VMID ranges, name patterns (globs or <code>re:</code> regex), and/or tags (AND).
-            Then optional <strong>exclusions</strong> remove VMIDs or names (exact, <code>name*</code> glob, or <code>re:</code>).
-            Optional PBS <code>source_ids</code> limits which backup sources are considered.
-            Tip: on Backups, select VMs → <strong>Save selection as group…</strong>.
-          </p>
-          <div class="row">
-            <div><label>Name</label><input id="group-name" placeholder="Tier-1 apps" /></div>
-            <div><label>Tags (comma-separated, AND)</label><input id="group-tags" placeholder="prod, app" /></div>
-          </div>
-          <div class="row">
-            <div>
-              <label>Name patterns (comma-separated)</label>
-              <input id="group-name-patterns" placeholder="web-*, db-*, re:^sql-" />
+        <div class="view-header">
+          <h2>Groups</h2>
+          <p class="subtitle">Inventory selectors that feed recovery plans — VMIDs, ranges, name patterns, and tags.</p>
+        </div>
+        <div class="plans-layout">
+          <div class="plans-list-panel">
+            <div class="plans-panel-head">
+              <h3>Inventory groups</h3>
+              <button type="button" class="primary tiny" id="btn-create-group">+ Create group</button>
             </div>
-            <div>
-              <label>VMID ranges (comma-separated)</label>
-              <input id="group-vmid-ranges" placeholder="100-199, 500-520" />
-            </div>
-          </div>
-          <label>VMIDs (comma-separated, optional)</label>
-          <input id="group-vmids" placeholder="100, 101" />
-          <div class="row">
-            <div>
-              <label>Exclude VMIDs (comma-separated, optional)</label>
-              <input id="group-exclude-vmids" placeholder="105, 110" />
-            </div>
-            <div>
-              <label>Exclude names / patterns (optional)</label>
-              <input id="group-exclude-names" placeholder="testvm, staging-*, re:^tmp-" />
+            <div class="plans-list-body">
+              <details class="hint-details" style="margin-bottom:0.65rem;">
+                <summary>How group membership works</summary>
+                <p class="hint">
+                  Membership is the <strong>union</strong> of explicit VMIDs, VMID ranges, name patterns (globs or <code>re:</code> regex), and/or tags (AND).
+                  Optional exclusions remove VMIDs or names. Tip: on Backups, select VMs → <strong>Save selection as group…</strong>.
+                </p>
+              </details>
+              <div id="groups-list"></div>
+              <p class="empty-state hidden" id="groups-empty">No groups yet. Create one to get started. <button type="button" class="secondary tiny help-goto" data-view="help">Open Help</button></p>
+              <div class="plans-list-foot" id="groups-status"></div>
             </div>
           </div>
-          <label>PBS source IDs (comma-separated, optional)</label>
-          <input id="group-source-ids" placeholder="main" />
-          <input type="hidden" id="group-edit-id" value="" />
-          <div class="actions">
-            <button type="button" class="primary" id="btn-save-group">Save group</button>
-            <button type="button" class="secondary" id="btn-reset-group">Clear form</button>
+          <div class="plans-detail-panel">
+            <div id="groups-detail-empty" class="plans-empty-detail">
+              <strong>No group selected</strong>
+              <span>Select a group to see its selectors. New here? <button type="button" class="secondary tiny help-goto" data-view="help">Open Help</button></span>
+            </div>
+            <div id="groups-detail" class="hidden plans-detail-inner">
+              <div class="plans-detail-head">
+                <div>
+                  <p class="plans-detail-kicker">Group details</p>
+                  <h3 id="groups-detail-name">—</h3>
+                </div>
+                <div class="plans-detail-head-actions">
+                  <button type="button" class="secondary tiny" id="btn-detail-edit-group">Edit group</button>
+                  <button type="button" class="danger tiny" id="btn-detail-del-group">Delete</button>
+                </div>
+              </div>
+              <div class="plans-tab-body">
+                <dl class="plans-kv" id="groups-detail-kv"></dl>
+              </div>
+            </div>
           </div>
-          <div id="groups-status" class="hint" style="margin-top:0.75rem;"></div>
-          <table class="vm-table" id="groups-table" style="margin-top:1rem;">
-            <thead><tr><th>Name</th><th>Selectors</th><th></th></tr></thead>
-            <tbody id="groups-tbody"></tbody>
-          </table>
         </div>
       </div>
 
       <div id="view-locations" class="hidden">
-        <div class="card">
-          <h2>Recovery locations</h2>
-          <p class="hint">Named restore targets (nodes, storage, VMID start, defaults). Select multiple nodes to load-balance restores.</p>
-          <div class="row">
-            <div><label>Name</label><input id="loc-name" placeholder="Primary DR" /></div>
-            <div>
-              <label for="loc-nodes">Nodes (Ctrl/Cmd multi-select)</label>
-              <select id="loc-nodes" multiple size="4"></select>
+        <div class="view-header">
+          <h2>Locations</h2>
+          <p class="subtitle">Named restore targets — nodes, storage, VMID start, network isolation, and guest defaults.</p>
+        </div>
+        <div class="plans-layout">
+          <div class="plans-list-panel">
+            <div class="plans-panel-head">
+              <h3>Recovery locations</h3>
+              <button type="button" class="primary tiny" id="btn-create-location">+ Create location</button>
+            </div>
+            <div class="plans-list-body">
+              <details class="hint-details" style="margin-bottom:0.65rem;">
+                <summary>Location tips</summary>
+                <p class="hint">
+                  Select multiple nodes to load-balance restores. Storage is chosen per node.
+                  Default guest behavior applies on plan runs unless the Run dialog overrides them.
+                </p>
+              </details>
+              <div id="locations-list"></div>
+              <p class="empty-state hidden" id="locations-empty">No locations yet. Create one to get started. <button type="button" class="secondary tiny help-goto" data-view="help">Open Help</button></p>
+              <div class="plans-list-foot" id="locations-status"></div>
             </div>
           </div>
-          <div class="row">
-            <div><label>Extra nodes (comma-separated, optional)</label><input id="loc-nodes-extra" placeholder="pve3, pve4" /></div>
-            <div><label>VMID start</label><input id="loc-vmid-start" type="number" min="100" value="100" /></div>
-          </div>
-          <label>Storage per node</label>
-          <div id="loc-storage-by-node" class="storage-by-node-panel">
-            <p class="hint">Select nodes above to choose storage for each (e.g. mirrored ZFS on fast nodes).</p>
-          </div>
-          <div class="row">
-            <div><label>Bandwidth limit (KiB/s)</label><input id="loc-bwlimit" type="number" min="0" value="0" /></div>
-            <div>
-              <label>Restore mode</label>
-              <select id="loc-restore-mode">
-                <option value="normal">Normal (new VMID, unique MAC/UUID)</option>
-                <option value="dr">DR (keep VMID, MAC, UUID)</option>
-              </select>
+          <div class="plans-detail-panel">
+            <div id="locations-detail-empty" class="plans-empty-detail">
+              <strong>No location selected</strong>
+              <span>Select a location to see its restore target settings. New here? <button type="button" class="secondary tiny help-goto" data-view="help">Open Help</button></span>
+            </div>
+            <div id="locations-detail" class="hidden plans-detail-inner">
+              <div class="plans-detail-head">
+                <div>
+                  <p class="plans-detail-kicker">Location details</p>
+                  <h3 id="locations-detail-name">—</h3>
+                </div>
+                <div class="plans-detail-head-actions">
+                  <button type="button" class="secondary tiny" id="btn-detail-edit-location">Edit location</button>
+                  <button type="button" class="danger tiny" id="btn-detail-del-location">Delete</button>
+                </div>
+              </div>
+              <div class="plans-tab-body">
+                <dl class="plans-kv" id="locations-detail-kv"></dl>
+              </div>
             </div>
           </div>
-          <p class="hint" id="loc-mode-dr-hint" hidden style="display:none;">
-            DR locations keep VMID/MAC/UUID from each backup. Overwrite only reclaims guests
-            previously restored by this tool — foreign VMs/LXCs are never deleted.
-          </p>
-          <div class="row">
-            <div>
-              <label for="loc-network-mode">Network isolation</label>
-              <select id="loc-network-mode">
-                <option value="none">None (do not power on on shared L2)</option>
-                <option value="unlink">Unlink NICs (link_down)</option>
-                <option value="remap">Remap to lab bridge</option>
-              </select>
-            </div>
-            <div>
-              <label for="loc-lab-bridge">Lab bridge (for remap)</label>
-              <input id="loc-lab-bridge" placeholder="vmbr99" />
-            </div>
-          </div>
-          <label class="check"><input type="checkbox" id="loc-isolated" /> Mark location isolated (safe to power on without NIC rewrite)</label>
-          <label for="loc-http-check">HTTP check URL after QGA (optional)</label>
-          <input id="loc-http-check" placeholder="http://10.0.0.5/health" />
-          <p class="hint" style="margin:1rem 0 0.35rem;"><strong>Default guest behavior</strong></p>
-          <p class="hint" style="margin-top:0;">
-            Applied automatically on plan runs unless the Run dialog overrides them.
-            Live restore is location-only (drills that stay powered-off skip live restore).
-          </p>
-          <div class="inline" style="align-items:flex-end; padding-bottom:0.75rem;">
-            <input type="checkbox" id="loc-live" />
-            <label for="loc-live" style="margin:0">Live restore (default)</label>
-          </div>
-          <label class="check"><input type="checkbox" id="loc-power-on" /> Power on after restore (default)</label>
-          <label class="check"><input type="checkbox" id="loc-qga" /> Wait for QEMU guest agent (default; uses timeout below)</label>
-          <label for="loc-qga-sec">QGA timeout (seconds, 0 = off)</label>
-          <input id="loc-qga-sec" type="number" min="0" max="3600" step="10" value="0" />
-          <input type="hidden" id="loc-edit-id" value="" />
-          <div class="actions">
-            <button type="button" class="primary" id="btn-save-location">Save location</button>
-            <button type="button" class="secondary" id="btn-reset-location">Clear form</button>
-          </div>
-          <div id="locations-status" class="hint" style="margin-top:0.75rem;"></div>
-          <table class="vm-table" id="locations-table" style="margin-top:1rem;">
-            <thead><tr><th>Name</th><th>Nodes</th><th>Storage</th><th>Mode</th><th>Net</th><th>VMID start</th><th></th></tr></thead>
-            <tbody id="locations-tbody"></tbody>
-          </table>
         </div>
       </div>
 
       <div id="view-plans" class="hidden">
-        <div class="card">
-          <h2>Recovery plans</h2>
-          <p class="hint">
-            Ordered inventory groups restored to a location for <strong>recovery or DR</strong>.
-            Recoverability proof lives on the <strong>Assurance</strong> tab.
-          </p>
-          <div class="row">
-            <div><label>Name</label><input id="plan-name" placeholder="App stack restore" /></div>
-            <div><label>Location</label><select id="plan-location"></select></div>
-          </div>
-          <label>Groups (order = restore order; Ctrl/Cmd-click multi-select)</label>
-          <select id="plan-groups" multiple size="5" style="height:auto; min-height:6rem;"></select>
-          <div class="inline">
-            <input type="checkbox" id="plan-halt" checked />
-            <label for="plan-halt" style="margin:0">Halt on group failure</label>
-            <input type="checkbox" id="plan-enabled" checked style="margin-left:1rem;" />
-            <label for="plan-enabled" style="margin:0">Enabled</label>
-          </div>
-          <div class="inline" style="margin-top:0.5rem;">
-            <input type="checkbox" id="plan-schedule" />
-            <label for="plan-schedule" style="margin:0">Schedule automatic runs</label>
-            <input type="checkbox" id="plan-schedule-drill" checked style="margin-left:1rem;" />
-            <label for="plan-schedule-drill" style="margin:0">Scheduled as drill + teardown</label>
-          </div>
-          <label for="plan-schedule-hours">Schedule interval (hours, 0 = off)</label>
-          <input id="plan-schedule-hours" type="number" min="0" step="1" value="0" />
-          <p class="hint">Scheduled drills feed Assurance when a policy is enabled on the Assurance tab.</p>
-          <input type="hidden" id="plan-edit-id" value="" />
-          <div class="actions">
-            <button type="button" class="primary" id="btn-save-plan">Save plan</button>
-            <button type="button" class="secondary" id="btn-reset-plan">Clear form</button>
-          </div>
-          <div id="plans-status" class="hint" style="margin-top:0.75rem;"></div>
-          <table class="vm-table" id="plans-table" style="margin-top:1rem;">
-            <thead><tr><th>Name</th><th>Groups</th><th>Location</th><th>State</th><th>Assurance</th><th></th></tr></thead>
-            <tbody id="plans-tbody"></tbody>
-          </table>
+        <div class="view-header">
+          <h2>Plans</h2>
+          <p class="subtitle">Define, verify, and run recovery plans. Assurance drills live on the Assurance tab.</p>
         </div>
-        <div class="card">
-          <h2>Plan runs</h2>
-          <p class="hint">Recent plan executions. Refresh while a run is active to watch group progress.</p>
-          <div class="actions" style="margin-bottom:0.75rem;">
-            <button type="button" class="secondary" id="btn-refresh-plan-runs">Refresh runs</button>
+        <div class="plans-layout">
+          <div class="plans-list-panel">
+            <div class="plans-panel-head">
+              <h3>Recovery plans</h3>
+              <button type="button" class="primary tiny btn-create-plan" id="btn-create-plan">+ Create plan</button>
+            </div>
+            <div class="plans-list-body">
+              <div id="plans-list"></div>
+              <p class="empty-state hidden" id="plans-empty">No plans yet. Create one to get started. <button type="button" class="secondary tiny help-goto" data-view="help">Open Help</button></p>
+              <div class="plans-list-foot" id="plans-status"></div>
+            </div>
           </div>
-          <table class="vm-table" id="plan-runs-table">
-            <thead><tr><th>Plan</th><th>Status</th><th>Jobs</th><th>Started</th><th>Finished</th><th></th></tr></thead>
-            <tbody id="plan-runs-tbody"></tbody>
-          </table>
-          <div id="plan-run-detail" class="hint" style="margin-top:0.75rem;"></div>
-        </div>
-        <div class="card">
-          <h2>Reports</h2>
-          <p class="hint">Downloadable readiness and run reports (last N retained). Markdown or HTML.</p>
-          <div class="actions" style="margin-bottom:0.75rem;">
-            <button type="button" class="secondary" id="btn-refresh-reports">Refresh reports</button>
+          <div class="plans-detail-panel">
+            <div id="plans-detail-empty" class="plans-empty-detail">
+              <strong>No plan selected</strong>
+              <span>Select a plan to see summary and history. New here? <button type="button" class="secondary tiny help-goto" data-view="help">Open Help</button></span>
+            </div>
+            <div id="plans-detail" class="hidden plans-detail-inner">
+              <div class="plans-detail-head">
+                <div>
+                  <p class="plans-detail-kicker">Plan details</p>
+                  <h3 id="plans-detail-name">—</h3>
+                  <div id="plans-detail-badge-wrap" style="margin-top:0.4rem;"></div>
+                </div>
+                <div class="plans-detail-head-actions">
+                  <button type="button" class="secondary tiny" id="btn-detail-edit-plan">Edit plan</button>
+                  <button type="button" class="danger tiny" id="btn-detail-del-plan">Delete</button>
+                </div>
+              </div>
+              <div class="plans-subtabs">
+                <button type="button" class="active" id="plans-tab-summary" data-tab="summary">Summary</button>
+                <button type="button" id="plans-tab-history" data-tab="history">History</button>
+              </div>
+              <div id="plans-panel-summary" class="plans-tab-body">
+                <div class="plans-summary-grid">
+                  <dl class="plans-kv" id="plans-detail-kv"></dl>
+                  <div id="plans-readiness-box" class="readiness-box"></div>
+                </div>
+                <div class="plans-section-label">Ordered groups</div>
+                <p class="hint" style="margin:0 0 0.55rem;">Groups are executed in order from top to bottom.</p>
+                <div class="plans-groups-wrap" style="overflow-x:auto;">
+                  <table class="vm-table ordered-groups-table" id="plans-groups-table">
+                    <thead><tr><th>#</th><th>Group</th><th>VMs</th><th>Readiness</th></tr></thead>
+                    <tbody id="plans-groups-tbody"></tbody>
+                  </table>
+                </div>
+              </div>
+              <div id="plans-panel-history" class="hidden plans-tab-body">
+                <div class="plans-section-label">Plan runs</div>
+                <p class="hint" style="margin:0 0 0.55rem;">Recent executions. Refresh while a run is active.</p>
+                <div class="actions" style="margin-bottom:0.75rem;">
+                  <button type="button" class="secondary" id="btn-refresh-plan-runs">Refresh runs</button>
+                </div>
+                <div class="plans-groups-wrap" style="overflow-x:auto; margin-bottom:1.15rem;">
+                  <table class="vm-table" id="plan-runs-table">
+                    <thead><tr><th>Plan</th><th>Status</th><th>Jobs</th><th>Started</th><th>Finished</th><th></th></tr></thead>
+                    <tbody id="plan-runs-tbody"></tbody>
+                  </table>
+                </div>
+                <div id="plan-run-detail" class="hint" style="margin-top:0.25rem;"></div>
+                <div class="plans-section-label" style="margin-top:0.85rem;">Reports</div>
+                <p class="hint" style="margin:0 0 0.55rem;">Downloadable readiness and run reports (last N retained).</p>
+                <div class="actions" style="margin-bottom:0.75rem;">
+                  <button type="button" class="secondary" id="btn-refresh-reports">Refresh reports</button>
+                </div>
+                <div class="plans-groups-wrap" style="overflow-x:auto;">
+                  <table class="vm-table" id="reports-table">
+                    <thead><tr><th>When</th><th>Kind</th><th>Plan</th><th>Title</th><th></th></tr></thead>
+                    <tbody id="reports-tbody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           </div>
-          <table class="vm-table" id="reports-table">
-            <thead><tr><th>When</th><th>Kind</th><th>Plan</th><th>Title</th><th></th></tr></thead>
-            <tbody id="reports-tbody"></tbody>
-          </table>
         </div>
       </div>
 
       <div id="view-assurance" class="hidden">
-        <div class="card">
-          <h2>Restoration assurance</h2>
-          <p class="hint">
-            This tab <strong>proves recoverability</strong> with drills (restore → optional boot/checks → teardown).
-            It does <strong>not</strong> perform production DR failback — use <strong>Plans → Run</strong> for that.
-          </p>
-          <div id="assurance-counts" class="hint" style="margin-bottom:0.5rem;"></div>
-          <div class="actions" style="margin-bottom:0.75rem;">
-            <button type="button" class="secondary" id="btn-refresh-assurance">Refresh</button>
-          </div>
-          <div id="assurance-strip" class="hint">Loading…</div>
+        <div class="view-header">
+          <h2>Assurance</h2>
+          <p class="subtitle">Prove recoverability with drills. Production failback stays on Plans → Run.</p>
         </div>
-        <div class="card">
-          <h2>Assurance policy</h2>
-          <p class="hint">Choose a recovery plan and set what a successful assurance drill must prove.</p>
-          <label for="assurance-plan-select">Plan</label>
-          <select id="assurance-plan-select"></select>
-          <div class="inline" style="margin-top:0.75rem;">
-            <input type="checkbox" id="assurance-enabled" />
-            <label for="assurance-enabled" style="margin:0">Enable assurance for this plan</label>
+        <div id="assurance-counts" class="stat-chips"></div>
+        <div class="plans-layout">
+          <div class="plans-list-panel">
+            <div class="plans-panel-head">
+              <h3>Assured plans</h3>
+              <div class="panel-actions">
+                <button type="button" class="secondary tiny" id="btn-refresh-assurance">Refresh</button>
+                <button type="button" class="primary tiny" id="btn-configure-assurance">Configure policy</button>
+              </div>
+            </div>
+            <div class="plans-list-body">
+              <div id="assurance-list"></div>
+              <p class="empty-state hidden" id="assurance-empty">No plans yet. Create a recovery plan on the Plans tab, then configure a policy here.</p>
+              <div class="plans-list-foot" id="assurance-status"></div>
+            </div>
           </div>
-          <div class="inline" style="margin-top:0.5rem;">
-            <input type="checkbox" id="assurance-require-qga" />
-            <label for="assurance-require-qga" style="margin:0">Require QGA</label>
-            <input type="checkbox" id="assurance-require-http" style="margin-left:1rem;" />
-            <label for="assurance-require-http" style="margin:0">Require HTTP check</label>
+          <div class="plans-detail-panel">
+            <div id="assurance-detail-empty" class="plans-empty-detail">
+              <strong>No plan selected</strong>
+              <span>Select a plan to see assurance policy and drill history.</span>
+            </div>
+            <div id="assurance-detail" class="hidden plans-detail-inner">
+              <div class="plans-detail-head">
+                <div>
+                  <p class="plans-detail-kicker">Assurance details</p>
+                  <h3 id="assurance-detail-name">—</h3>
+                  <div id="assurance-detail-badge-wrap" style="margin-top:0.4rem;"></div>
+                </div>
+                <div class="plans-detail-head-actions">
+                  <button type="button" class="secondary tiny" id="btn-detail-edit-assurance">Edit policy</button>
+                  <button type="button" class="secondary tiny" id="btn-detail-assurance-check">Check</button>
+                  <button type="button" class="primary tiny" id="btn-detail-assurance-run">Assure now</button>
+                </div>
+              </div>
+              <div class="plans-subtabs">
+                <button type="button" class="active" id="assurance-tab-summary" data-tab="summary">Summary</button>
+                <button type="button" id="assurance-tab-history" data-tab="history">History</button>
+              </div>
+              <div id="assurance-panel-summary" class="plans-tab-body">
+                <div class="plans-summary-grid">
+                  <dl class="plans-kv" id="assurance-detail-kv"></dl>
+                  <div id="assurance-readiness-box" class="readiness-box"></div>
+                </div>
+                <div id="assurance-policy-status" class="hint" style="margin:0;"></div>
+              </div>
+              <div id="assurance-panel-history" class="hidden plans-tab-body">
+                <div class="plans-section-label">Recent drills</div>
+                <p class="hint" style="margin:0 0 0.55rem;">Drill runs for this plan (and recent drills overall).</p>
+                <div class="actions" style="margin-bottom:0.75rem;">
+                  <button type="button" class="secondary tiny" id="btn-refresh-assurance-runs">Refresh</button>
+                </div>
+                <div class="table-wrap">
+                  <table class="vm-table" id="assurance-runs-table">
+                    <thead><tr><th>Plan</th><th>Status</th><th>RTO</th><th>Teardown</th><th>Started</th><th>Finished</th><th></th></tr></thead>
+                    <tbody id="assurance-runs-tbody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           </div>
-          <label for="assurance-max-rto">Max RTO (seconds, 0 = no limit)</label>
-          <input id="assurance-max-rto" type="number" min="0" step="60" value="0" />
-          <p class="hint">HTTP checks use the location’s HTTP check URL. Isolation/remap is configured on Locations.</p>
-          <p class="hint" id="assurance-readiness-hint" style="margin-top:0.25rem;"></p>
-          <div class="actions">
-            <button type="button" class="primary" id="btn-save-assurance-policy">Save policy</button>
-            <button type="button" class="secondary" id="btn-assurance-check">Check readiness</button>
-            <button type="button" class="secondary" id="btn-assurance-run-now">Assure now</button>
-          </div>
-          <div id="assurance-policy-status" class="hint" style="margin-top:0.75rem;"></div>
-        </div>
-        <div class="card">
-          <h2>Recent assurance drills</h2>
-          <p class="hint">Drill plan runs only (recovery runs stay on the Plans tab).</p>
-          <div class="actions" style="margin-bottom:0.75rem;">
-            <button type="button" class="secondary" id="btn-refresh-assurance-runs">Refresh</button>
-          </div>
-          <table class="vm-table" id="assurance-runs-table">
-            <thead><tr><th>Plan</th><th>Status</th><th>RTO</th><th>Teardown</th><th>Started</th><th>Finished</th><th></th></tr></thead>
-            <tbody id="assurance-runs-tbody"></tbody>
-          </table>
         </div>
       </div>
 
       <div id="view-compliance" class="hidden">
-        <div class="card">
-          <h2>Compliance posture</h2>
-          <p class="hint">
-            Read-only rollup of readiness and assurance evidence across plans.
-            Run drills on <strong>Assurance</strong>; production failback on <strong>Plans → Run</strong>.
-          </p>
-          <div id="compliance-counts" class="hint" style="margin-bottom:0.5rem;"></div>
-          <div class="actions" style="margin-bottom:0.75rem;">
-            <button type="button" class="secondary" id="btn-refresh-compliance">Refresh</button>
+        <div class="view-header">
+          <h2>Compliance</h2>
+          <p class="subtitle">Read-only rollup of readiness and assurance evidence across plans.</p>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Compliance posture</h3>
+            <div class="panel-actions">
+              <button type="button" class="secondary tiny" id="btn-refresh-compliance">Refresh</button>
+            </div>
           </div>
-          <div style="overflow-x:auto;">
-            <table class="vm-table" id="compliance-table">
-              <thead>
-                <tr>
-                  <th>Plan</th>
-                  <th>Readiness</th>
-                  <th>Assurance</th>
-                  <th>Last DR RTO</th>
-                  <th>Last drill RTO</th>
-                  <th>Schedule</th>
-                  <th>Risks</th>
-                  <th>Evidence</th>
-                </tr>
-              </thead>
-              <tbody id="compliance-tbody"></tbody>
-            </table>
+          <div class="panel-body">
+            <div id="compliance-counts" class="stat-chips"></div>
+            <div class="table-wrap">
+              <table class="vm-table" id="compliance-table">
+                <thead>
+                  <tr>
+                    <th>Plan</th>
+                    <th>Readiness</th>
+                    <th>Assurance</th>
+                    <th>Last DR RTO</th>
+                    <th>Last drill RTO</th>
+                    <th>Schedule</th>
+                    <th>Risks</th>
+                    <th>Evidence</th>
+                  </tr>
+                </thead>
+                <tbody id="compliance-tbody"></tbody>
+              </table>
+            </div>
+            <p class="empty-state hidden" id="compliance-empty">No plans yet.</p>
           </div>
-          <p class="empty-state hidden" id="compliance-empty">No plans yet.</p>
         </div>
       </div>
 
       <div id="view-infra" class="hidden">
-        <div class="card">
-          <h2>Infrastructure metrics</h2>
-          <p class="hint">
-            Grafana (optional Compose profile <code>observability</code>) for Netdata per-NIC charts and PVE/PBS OpenTelemetry.
-            Without Grafana, a live API snapshot of CPU/RAM from PVE/PBS is shown below.
-            See <code>docs/infra-metrics.md</code>.
-          </p>
-          <div class="actions" style="margin-bottom:0.75rem;">
-            <button type="button" class="secondary" id="btn-refresh-infra">Refresh snapshot</button>
-            <a class="secondary btn" id="link-open-grafana" href="#" target="_blank" rel="noopener" hidden>Open Grafana</a>
+        <div class="view-header">
+          <h2>Infra</h2>
+          <p class="subtitle">Live PVE/PBS snapshot, plus optional Grafana when the observability profile is enabled.</p>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Infrastructure metrics</h3>
+            <div class="panel-actions">
+              <button type="button" class="secondary tiny" id="btn-refresh-infra">Refresh snapshot</button>
+              <a class="btn tiny" id="link-open-grafana" href="#" target="_blank" rel="noopener" hidden>Open Grafana</a>
+            </div>
           </div>
-          <div id="infra-grafana-wrap" class="hidden" style="margin-bottom:1rem;">
-            <iframe id="infra-grafana-frame" title="Grafana infra dashboard" style="width:100%; min-height:70vh; border:1px solid var(--border); border-radius:6px; background:#111;"></iframe>
+          <div class="panel-body">
+            <details class="hint-details">
+              <summary>About infra metrics</summary>
+              <p class="hint">
+                Grafana (optional Compose profile <code>observability</code>) for Netdata per-NIC charts and PVE/PBS OpenTelemetry.
+                Without Grafana, a live API snapshot of CPU/RAM from PVE/PBS is shown below.
+                See <code>docs/infra-metrics.md</code>.
+              </p>
+            </details>
+            <div id="infra-grafana-wrap" class="hidden" style="margin-bottom:1rem;">
+              <iframe id="infra-grafana-frame" title="Grafana infra dashboard" style="width:100%; min-height:70vh; border:1px solid var(--border); border-radius:10px; background:#111;"></iframe>
+            </div>
+            <div id="infra-snapshot-status" class="hint" style="margin-top:0;"></div>
+            <div id="infra-snapshot" style="display:grid; gap:0.75rem; margin-top:0.75rem;"></div>
           </div>
-          <div id="infra-snapshot-status" class="hint"></div>
-          <div id="infra-snapshot" style="display:grid; gap:0.75rem; margin-top:0.75rem;"></div>
         </div>
       </div>
 
       <div id="view-audit" class="hidden">
-        <div class="card">
-          <h2>Audit log</h2>
-          <p class="hint">Recent operator actions (API tokens and UI). Read-only; retained in Redis.</p>
-          <div class="actions" style="margin-bottom:0.75rem;">
-            <button type="button" class="secondary" id="btn-refresh-audit">Refresh</button>
+        <div class="view-header">
+          <h2>Audit</h2>
+          <p class="subtitle">Recent operator actions from the UI and API tokens. Read-only; retained in Redis.</p>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Audit log</h3>
+            <div class="panel-actions">
+              <button type="button" class="secondary tiny" id="btn-refresh-audit">Refresh</button>
+            </div>
           </div>
-          <div style="overflow-x:auto;">
-            <table class="vm-table" id="audit-table">
-              <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Detail</th></tr></thead>
-              <tbody id="audit-tbody"></tbody>
-            </table>
+          <div class="panel-body">
+            <div class="table-wrap">
+              <table class="vm-table" id="audit-table">
+                <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Detail</th></tr></thead>
+                <tbody id="audit-tbody"></tbody>
+              </table>
+            </div>
+            <p class="empty-state hidden" id="audit-empty">No audit entries.</p>
           </div>
-          <p class="empty-state hidden" id="audit-empty">No audit entries.</p>
         </div>
       </div>
 
       <div id="view-credentials" class="hidden">
-        <div class="card">
-          <h2>Connection settings</h2>
-          <p class="hint">PBS servers are used to list backups. Proxmox VE is the restore target.</p>
-          <h3 style="font-size:0.95rem; margin:1rem 0 0.5rem;">Proxmox Backup Servers</h3>
-          <p class="hint">
-            Add one entry per server. Each server can have several datastores/namespaces; each maps to the
-            PVE storage ID that references it (the storage must already exist on Proxmox VE).
-          </p>
-          <div id="pbs-servers"></div>
-          <div class="actions" style="margin-bottom:0.5rem;">
-            <button type="button" class="secondary" id="btn-add-pbs-server">+ Add PBS server</button>
-          </div>
-
-          <h3 style="font-size:0.95rem; margin:1rem 0 0.5rem;">Proxmox VE</h3>
-          <div class="row">
-            <div><label>Host</label><input id="pve-host" /></div>
-            <div><label>Port</label><input id="pve-port" type="number" /></div>
-          </div>
-          <label>API token ID (optional if using password)</label><input id="pve-token-id" placeholder="root@pam!restore" />
-          <label>API token secret</label><input id="pve-token-secret" type="password" />
-          <div class="row">
-            <div><label>User (optional if using token)</label><input id="pve-user" placeholder="root@pam" /></div>
-            <div><label>Password</label><input id="pve-password" type="password" /></div>
-          </div>
-          <p class="hint">Auth: API token preferred when both are set; otherwise username/password.</p>
-          <label>Default node</label><input id="pve-node" />
-          <label>Default target storage</label><input id="pve-storage" placeholder="local-lvm" />
-          <div class="inline"><input type="checkbox" id="pve-verify-ssl" /><label style="margin:0">Verify TLS</label></div>
-
-          <h3 style="font-size:0.95rem; margin:1rem 0 0.5rem;">Restore performance</h3>
-          <p class="hint">
-            Tune restore throughput. Concurrency applies to the worker (takes effect within a few seconds, no restart needed).
-            Bandwidth and live restore here are defaults that pre-fill the restore dialog.
-          </p>
-          <div class="row">
-            <div>
-              <label>Max concurrent restores</label>
-              <input id="worker-max-concurrent" type="number" min="1" step="1" />
-            </div>
-            <div>
-              <label>Default bandwidth limit (KiB/s, 0 = unlimited)</label>
-              <input id="pve-restore-bwlimit" type="number" min="0" step="1024" />
+        <div class="view-header">
+          <h2>Settings</h2>
+          <p class="subtitle">PBS inventory sources, Proxmox VE target, restore defaults, and notifications.</p>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Connection settings</h3>
+            <div class="panel-actions">
+              <button type="button" class="secondary tiny" id="btn-test-pve">Test Proxmox</button>
+              <button type="button" class="secondary tiny" id="btn-test-email">Test email</button>
+              <button type="button" class="primary tiny" id="btn-save-credentials">Save settings</button>
             </div>
           </div>
-          <div class="inline">
-            <input type="checkbox" id="pve-live-restore-default" />
-            <label for="pve-live-restore-default" style="margin:0">Live restore by default</label>
-          </div>
+          <div class="panel-body">
+            <div class="section-label">Proxmox Backup Servers</div>
+            <p class="hint">
+              Add one entry per server. Each server can have several datastores/namespaces; each maps to the
+              PVE storage ID that references it (the storage must already exist on Proxmox VE).
+            </p>
+            <div id="pbs-servers"></div>
+            <div class="actions" style="margin-bottom:0.85rem;">
+              <button type="button" class="secondary" id="btn-add-pbs-server">+ Add PBS server</button>
+            </div>
 
-          <h3 style="font-size:0.95rem; margin:1rem 0 0.5rem;">Email notifications</h3>
-          <p class="hint">SMTP alerts for failed readiness checks and finished plan/drill runs. Send is best-effort and never fails a restore.</p>
-          <div class="inline">
-            <input type="checkbox" id="notify-email-enabled" />
-            <label for="notify-email-enabled" style="margin:0">Enable email</label>
-          </div>
-          <div class="row">
-            <div><label>SMTP host</label><input id="notify-smtp-host" placeholder="smtp.example.com" /></div>
-            <div><label>Port</label><input id="notify-smtp-port" type="number" value="587" /></div>
-          </div>
-          <div class="inline">
-            <input type="checkbox" id="notify-smtp-tls" checked />
-            <label for="notify-smtp-tls" style="margin:0">STARTTLS</label>
-            <input type="checkbox" id="notify-smtp-ssl" style="margin-left:1rem;" />
-            <label for="notify-smtp-ssl" style="margin:0">SSL (e.g. port 465)</label>
-          </div>
-          <div class="row">
-            <div><label>Username</label><input id="notify-smtp-user" /></div>
-            <div><label>Password</label><input id="notify-smtp-password" type="password" /></div>
-          </div>
-          <label>From</label><input id="notify-smtp-from" placeholder="restore-engine@example.com" />
-          <label>To (comma-separated)</label><input id="notify-smtp-to" placeholder="ops@example.com" />
-          <div class="inline" style="margin-top:0.5rem;">
-            <input type="checkbox" id="notify-ev-check" checked />
-            <label for="notify-ev-check" style="margin:0">On readiness fail</label>
-            <input type="checkbox" id="notify-ev-run" checked style="margin-left:1rem;" />
-            <label for="notify-ev-run" style="margin:0">On plan/drill finish</label>
-            <input type="checkbox" id="notify-ev-job" style="margin-left:1rem;" />
-            <label for="notify-ev-job" style="margin:0">On ad-hoc job fail</label>
-          </div>
-          <h3 style="font-size:0.95rem; margin:1rem 0 0.5rem;">Webhook (optional)</h3>
-          <div class="inline">
-            <input type="checkbox" id="notify-webhook-enabled" />
-            <label for="notify-webhook-enabled" style="margin:0">Enable webhook</label>
-          </div>
-          <label>URL</label><input id="notify-webhook-url" placeholder="https://hooks.example.com/..." />
-          <label>Shared secret (optional header)</label><input id="notify-webhook-secret" type="password" />
+            <div class="section-label">Proxmox VE</div>
+            <div class="form-panel">
+              <div class="row">
+                <div><label>Host</label><input id="pve-host" /></div>
+                <div><label>Port</label><input id="pve-port" type="number" /></div>
+              </div>
+              <label>API token ID (optional if using password)</label><input id="pve-token-id" placeholder="root@pam!restore" />
+              <label>API token secret</label><input id="pve-token-secret" type="password" />
+              <div class="row">
+                <div><label>User (optional if using token)</label><input id="pve-user" placeholder="root@pam" /></div>
+                <div><label>Password</label><input id="pve-password" type="password" /></div>
+              </div>
+              <p class="hint">Auth: API token preferred when both are set; otherwise username/password.</p>
+              <label>Default node</label><input id="pve-node" />
+              <label>Default target storage</label><input id="pve-storage" placeholder="local-lvm" />
+              <div class="inline"><input type="checkbox" id="pve-verify-ssl" /><label style="margin:0">Verify TLS</label></div>
+            </div>
 
-          <div class="actions">
-            <button type="button" class="secondary" id="btn-test-pve">Test Proxmox</button>
-            <button type="button" class="secondary" id="btn-test-email">Test email</button>
-            <button type="button" class="primary" id="btn-save-credentials">Save settings</button>
-            <button type="button" class="primary" id="btn-continue-backups">Continue to backup list</button>
+            <div class="section-label">Restore performance</div>
+            <div class="form-panel">
+              <p class="hint" style="margin-top:0;">
+                Concurrency applies to the worker within a few seconds. Bandwidth and live restore pre-fill the restore dialog.
+              </p>
+              <div class="row">
+                <div>
+                  <label>Max concurrent restores</label>
+                  <input id="worker-max-concurrent" type="number" min="1" step="1" />
+                </div>
+                <div>
+                  <label>Default bandwidth limit (KiB/s, 0 = unlimited)</label>
+                  <input id="pve-restore-bwlimit" type="number" min="0" step="1024" />
+                </div>
+              </div>
+              <div class="inline" style="margin-bottom:0;">
+                <input type="checkbox" id="pve-live-restore-default" />
+                <label for="pve-live-restore-default" style="margin:0">Live restore by default</label>
+              </div>
+            </div>
+
+            <div class="section-label">Email notifications</div>
+            <div class="form-panel">
+              <p class="hint" style="margin-top:0;">SMTP alerts for failed readiness checks and finished plan/drill runs. Best-effort; never fails a restore.</p>
+              <div class="inline">
+                <input type="checkbox" id="notify-email-enabled" />
+                <label for="notify-email-enabled" style="margin:0">Enable email</label>
+              </div>
+              <div class="row">
+                <div><label>SMTP host</label><input id="notify-smtp-host" placeholder="smtp.example.com" /></div>
+                <div><label>Port</label><input id="notify-smtp-port" type="number" value="587" /></div>
+              </div>
+              <div class="inline">
+                <input type="checkbox" id="notify-smtp-tls" checked />
+                <label for="notify-smtp-tls" style="margin:0">STARTTLS</label>
+                <input type="checkbox" id="notify-smtp-ssl" style="margin-left:1rem;" />
+                <label for="notify-smtp-ssl" style="margin:0">SSL (e.g. port 465)</label>
+              </div>
+              <div class="row">
+                <div><label>Username</label><input id="notify-smtp-user" /></div>
+                <div><label>Password</label><input id="notify-smtp-password" type="password" /></div>
+              </div>
+              <label>From</label><input id="notify-smtp-from" placeholder="restore-engine@example.com" />
+              <label>To (comma-separated)</label><input id="notify-smtp-to" placeholder="ops@example.com" />
+              <div class="inline" style="margin-top:0.5rem; margin-bottom:0;">
+                <input type="checkbox" id="notify-ev-check" checked />
+                <label for="notify-ev-check" style="margin:0">On readiness fail</label>
+                <input type="checkbox" id="notify-ev-run" checked style="margin-left:1rem;" />
+                <label for="notify-ev-run" style="margin:0">On plan/drill finish</label>
+                <input type="checkbox" id="notify-ev-job" style="margin-left:1rem;" />
+                <label for="notify-ev-job" style="margin:0">On ad-hoc job fail</label>
+              </div>
+            </div>
+
+            <div class="section-label">Webhook (optional)</div>
+            <div class="form-panel" style="margin-bottom:0.85rem;">
+              <div class="inline">
+                <input type="checkbox" id="notify-webhook-enabled" />
+                <label for="notify-webhook-enabled" style="margin:0">Enable webhook</label>
+              </div>
+              <label>URL</label><input id="notify-webhook-url" placeholder="https://hooks.example.com/..." />
+              <label>Shared secret (optional header)</label><input id="notify-webhook-secret" type="password" style="margin-bottom:0;" />
+            </div>
+
+            <div class="actions">
+              <button type="button" class="primary" id="btn-continue-backups">Continue to backup list</button>
+            </div>
           </div>
         </div>
-        <div class="card" id="diagnostics-card">
-          <h2>Diagnostics / debug traces</h2>
-          <p class="hint">
-            Export a debug bundle for troubleshooting. Secrets stay masked. Includes health, queue,
-            recent jobs + logs, plan runs, audit, and recent browser/API errors from this session.
-          </p>
-          <label for="diag-note">What were you doing? (optional)</label>
-          <input id="diag-note" placeholder="e.g. Assure now on plan X failed after QGA wait" />
-          <div class="actions" style="margin-bottom:0.75rem;">
-            <button type="button" class="primary" id="btn-diag-collect">Collect &amp; download</button>
-            <button type="button" class="secondary" id="btn-diag-copy" disabled>Try copy</button>
-            <button type="button" class="secondary" id="btn-diag-download" disabled>Download again</button>
-            <button type="button" class="secondary" id="btn-diag-select" disabled>Select all</button>
+        <div class="panel" id="diagnostics-card">
+          <div class="panel-head">
+            <h3>Diagnostics</h3>
+            <div class="panel-actions">
+              <button type="button" class="primary tiny" id="btn-diag-collect">Collect &amp; download</button>
+              <button type="button" class="secondary tiny" id="btn-diag-copy" disabled>Try copy</button>
+              <button type="button" class="secondary tiny" id="btn-diag-download" disabled>Download again</button>
+              <button type="button" class="secondary tiny" id="btn-diag-select" disabled>Select all</button>
+            </div>
           </div>
-          <div id="diag-status" class="hint">No bundle yet. Use Collect &amp; download to save a JSON trace file.</div>
-          <label for="diag-bundle">Debug bundle (JSON)</label>
-          <textarea id="diag-bundle" class="diag-bundle" readonly spellcheck="false" placeholder="Click Collect & download…"></textarea>
+          <div class="panel-body">
+            <p class="hint" style="margin-top:0;">
+              Export a debug bundle for troubleshooting. Secrets stay masked. Includes health, queue,
+              recent jobs + logs, plan runs, audit, and recent browser/API errors from this session.
+            </p>
+            <label for="diag-note">What were you doing? (optional)</label>
+            <input id="diag-note" placeholder="e.g. Assure now on plan X failed after QGA wait" />
+            <div id="diag-status" class="hint">No bundle yet. Use Collect &amp; download to save a JSON trace file.</div>
+            <label for="diag-bundle">Debug bundle (JSON)</label>
+            <textarea id="diag-bundle" class="diag-bundle" readonly spellcheck="false" placeholder="Click Collect & download…"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <div id="view-help" class="hidden">
+        <div class="view-header">
+          <h2>Help</h2>
+          <p class="subtitle">How restore-engine fits together — start with a location, then groups, then a plan.</p>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h3>Getting started</h3></div>
+          <div class="panel-body">
+            <ol class="help-steps">
+              <li>
+                <div>
+                  <h4>Connect PBS and PVE</h4>
+                  <p>In Settings, add your Proxmox Backup Server(s) and Proxmox VE target. Test the connection before listing backups.</p>
+                </div>
+                <button type="button" class="secondary tiny help-goto" data-view="credentials">Open Settings</button>
+              </li>
+              <li>
+                <div>
+                  <h4>Create a recovery location</h4>
+                  <p>A location is where restores land: nodes, storage per node, VMID mode (normal vs DR), network isolation, and default power-on / QGA behavior.</p>
+                </div>
+                <button type="button" class="secondary tiny help-goto" data-view="locations">Open Locations</button>
+              </li>
+              <li>
+                <div>
+                  <h4>Define inventory groups</h4>
+                  <p>Groups select which VMs belong together using VMIDs, ranges, name patterns, and/or tags. You can also save a Backups selection as a group.</p>
+                </div>
+                <button type="button" class="secondary tiny help-goto" data-view="groups">Open Groups</button>
+              </li>
+              <li>
+                <div>
+                  <h4>Build a recovery plan</h4>
+                  <p>A plan orders groups onto a location. Run <strong>Check</strong> for readiness, <strong>Run</strong> for production failback, or <strong>Drill</strong> for a teardown exercise.</p>
+                </div>
+                <button type="button" class="secondary tiny help-goto" data-view="plans">Open Plans</button>
+              </li>
+              <li>
+                <div>
+                  <h4>Watch restore progress</h4>
+                  <p>Ad-hoc restores from Backups and plan jobs both appear under Restores. Pause the queue, tune concurrency, and open job details for logs.</p>
+                </div>
+                <button type="button" class="secondary tiny help-goto" data-view="jobs">Open Restores</button>
+              </li>
+              <li>
+                <div>
+                  <h4>Prove recoverability</h4>
+                  <p>Enable an Assurance policy, run Assure now, then review evidence on Compliance. That path does not replace Plans → Run for real failback.</p>
+                </div>
+                <button type="button" class="secondary tiny help-goto" data-view="assurance">Open Assurance</button>
+              </li>
+            </ol>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h3>Concepts</h3></div>
+          <div class="panel-body">
+            <div class="help-callout">
+              <strong>Run vs Drill vs Assure</strong>
+              <p><strong>Run</strong> is production failback. <strong>Drill</strong> restores then tears down. <strong>Assure</strong> is a policy-gated drill (QGA/HTTP/RTO) that feeds Assurance and Compliance.</p>
+            </div>
+            <div class="help-callout">
+              <strong>Verification</strong>
+              <p>Plans become <strong>VERIFIED</strong> after a successful readiness Check. Some installs require verification before Run. Assure now can still run while unverified.</p>
+            </div>
+            <div class="help-callout">
+              <strong>DR mode</strong>
+              <p>DR locations keep source VMID, MAC, and UUID. Overwrite only reclaims guests previously restored by this tool — foreign VMs are never deleted.</p>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h3>Feature glossary</h3></div>
+          <div class="panel-body">
+            <div class="help-glossary">
+              <article><h4>Backups</h4><p>PBS inventory: pick snapshots, restore selected, load tags, estimate sizes, save selection as a group.</p></article>
+              <article><h4>Locations</h4><p>Named restore targets — nodes, storage, bandwidth, isolation, and default guest behavior for plan runs.</p></article>
+              <article><h4>Groups</h4><p>Reusable membership selectors (union of VMIDs, ranges, patterns, tags) with optional exclusions.</p></article>
+              <article><h4>Plans</h4><p>Ordered runbooks: groups + location, Check / Run / Drill, verification state, run history and reports.</p></article>
+              <article><h4>Restores</h4><p>Live queue of restore jobs with progress, speeds, ETA, pause/resume, and per-job logs.</p></article>
+              <article><h4>Assurance</h4><p>Per-plan policy and drills that prove recoverability without intending permanent failback.</p></article>
+              <article><h4>Compliance</h4><p>Read-only rollup of readiness and assurance evidence across plans.</p></article>
+              <article><h4>Infra / Audit / Settings</h4><p>Optional metrics, operator audit trail, PBS/PVE credentials, and notifications.</p></article>
+            </div>
+          </div>
         </div>
       </div>
     </main>
+      </div>
+    </div>
   </div>
 
   <div id="restore-modal" class="modal-backdrop">
@@ -1074,6 +2023,177 @@
       <div class="actions">
         <button type="button" class="primary" id="btn-taggroup-confirm">Restore group</button>
         <button type="button" class="secondary" id="btn-taggroup-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="plan-edit-modal" class="modal-backdrop">
+    <div class="modal modal-plan-edit">
+      <h3 id="plan-edit-modal-title">Create plan</h3>
+      <p class="hint">Ordered inventory groups restored to a location. Recoverability proof lives on Assurance.</p>
+      <div class="row">
+        <div><label>Name</label><input id="plan-name" placeholder="App stack restore" /></div>
+        <div><label>Location</label><select id="plan-location"></select></div>
+      </div>
+      <label>Groups (order = restore order; Ctrl/Cmd-click multi-select)</label>
+      <select id="plan-groups" multiple size="5" style="height:auto; min-height:6rem;"></select>
+      <div class="inline">
+        <input type="checkbox" id="plan-halt" checked />
+        <label for="plan-halt" style="margin:0">Halt on group failure</label>
+        <input type="checkbox" id="plan-enabled" checked style="margin-left:1rem;" />
+        <label for="plan-enabled" style="margin:0">Enabled</label>
+      </div>
+      <div class="inline" style="margin-top:0.5rem;">
+        <input type="checkbox" id="plan-schedule" />
+        <label for="plan-schedule" style="margin:0">Schedule automatic runs</label>
+        <input type="checkbox" id="plan-schedule-drill" checked style="margin-left:1rem;" />
+        <label for="plan-schedule-drill" style="margin:0">Scheduled as drill + teardown</label>
+      </div>
+      <label for="plan-schedule-hours">Schedule interval (hours, 0 = off)</label>
+      <input id="plan-schedule-hours" type="number" min="0" step="1" value="0" />
+      <p class="hint">Scheduled drills feed Assurance when a policy is enabled on the Assurance tab.</p>
+      <input type="hidden" id="plan-edit-id" value="" />
+      <div class="actions" style="margin-top:0.75rem;">
+        <button type="button" class="primary" id="btn-save-plan">Save plan</button>
+        <button type="button" class="secondary" id="btn-reset-plan">Clear form</button>
+        <button type="button" class="secondary" id="btn-close-plan-edit">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="group-edit-modal" class="modal-backdrop">
+    <div class="modal modal-entity-edit">
+      <h3 id="group-edit-modal-title">Create group</h3>
+      <p class="hint">Selectors are unioned; exclusions remove matches afterward.</p>
+      <div class="row">
+        <div><label>Name</label><input id="group-name" placeholder="Tier-1 apps" /></div>
+        <div><label>Tags (comma-separated, AND)</label><input id="group-tags" placeholder="prod, app" /></div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Name patterns (comma-separated)</label>
+          <input id="group-name-patterns" placeholder="web-*, db-*, re:^sql-" />
+        </div>
+        <div>
+          <label>VMID ranges (comma-separated)</label>
+          <input id="group-vmid-ranges" placeholder="100-199, 500-520" />
+        </div>
+      </div>
+      <label>VMIDs (comma-separated, optional)</label>
+      <input id="group-vmids" placeholder="100, 101" />
+      <div class="row">
+        <div>
+          <label>Exclude VMIDs (comma-separated, optional)</label>
+          <input id="group-exclude-vmids" placeholder="105, 110" />
+        </div>
+        <div>
+          <label>Exclude names / patterns (optional)</label>
+          <input id="group-exclude-names" placeholder="testvm, staging-*, re:^tmp-" />
+        </div>
+      </div>
+      <label>PBS source IDs (comma-separated, optional)</label>
+      <input id="group-source-ids" placeholder="main" />
+      <input type="hidden" id="group-edit-id" value="" />
+      <div class="actions" style="margin-top:0.75rem;">
+        <button type="button" class="primary" id="btn-save-group">Save group</button>
+        <button type="button" class="secondary" id="btn-close-group-edit">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="location-edit-modal" class="modal-backdrop">
+    <div class="modal modal-entity-edit">
+      <h3 id="location-edit-modal-title">Create location</h3>
+      <p class="hint">Named restore target used by recovery plans.</p>
+      <div class="row">
+        <div><label>Name</label><input id="loc-name" placeholder="Primary DR" /></div>
+        <div>
+          <label for="loc-nodes">Nodes (Ctrl/Cmd multi-select)</label>
+          <select id="loc-nodes" multiple size="4"></select>
+        </div>
+      </div>
+      <div class="row">
+        <div><label>Extra nodes (comma-separated, optional)</label><input id="loc-nodes-extra" placeholder="pve3, pve4" /></div>
+        <div><label>VMID start</label><input id="loc-vmid-start" type="number" min="100" value="100" /></div>
+      </div>
+      <label>Storage per node</label>
+      <div id="loc-storage-by-node" class="storage-by-node-panel">
+        <p class="hint">Select nodes above to choose storage for each (e.g. mirrored ZFS on fast nodes).</p>
+      </div>
+      <div class="row">
+        <div><label>Bandwidth limit (KiB/s)</label><input id="loc-bwlimit" type="number" min="0" value="0" /></div>
+        <div>
+          <label>Restore mode</label>
+          <select id="loc-restore-mode">
+            <option value="normal">Normal (new VMID, unique MAC/UUID)</option>
+            <option value="dr">DR (keep VMID, MAC, UUID)</option>
+          </select>
+        </div>
+      </div>
+      <p class="hint" id="loc-mode-dr-hint" hidden style="display:none;">
+        DR locations keep VMID/MAC/UUID from each backup. Overwrite only reclaims guests
+        previously restored by this tool — foreign VMs/LXCs are never deleted.
+      </p>
+      <div class="row">
+        <div>
+          <label for="loc-network-mode">Network isolation</label>
+          <select id="loc-network-mode">
+            <option value="none">None (do not power on on shared L2)</option>
+            <option value="unlink">Unlink NICs (link_down)</option>
+            <option value="remap">Remap to lab bridge</option>
+          </select>
+        </div>
+        <div>
+          <label for="loc-lab-bridge">Lab bridge (for remap)</label>
+          <input id="loc-lab-bridge" placeholder="vmbr99" />
+        </div>
+      </div>
+      <label class="check"><input type="checkbox" id="loc-isolated" /> Mark location isolated (safe to power on without NIC rewrite)</label>
+      <label for="loc-http-check">HTTP check URL after QGA (optional)</label>
+      <input id="loc-http-check" placeholder="http://10.0.0.5/health" />
+      <div class="section-label">Default guest behavior</div>
+      <p class="hint" style="margin-top:0;">
+        Applied automatically on plan runs unless the Run dialog overrides them.
+      </p>
+      <div class="inline" style="align-items:flex-end; padding-bottom:0.75rem;">
+        <input type="checkbox" id="loc-live" />
+        <label for="loc-live" style="margin:0">Live restore (default)</label>
+      </div>
+      <label class="check"><input type="checkbox" id="loc-power-on" /> Power on after restore (default)</label>
+      <label class="check"><input type="checkbox" id="loc-qga" /> Wait for QEMU guest agent (default; uses timeout below)</label>
+      <label for="loc-qga-sec">QGA timeout (seconds, 0 = off)</label>
+      <input id="loc-qga-sec" type="number" min="0" max="3600" step="10" value="0" />
+      <input type="hidden" id="loc-edit-id" value="" />
+      <div class="actions" style="margin-top:0.75rem;">
+        <button type="button" class="primary" id="btn-save-location">Save location</button>
+        <button type="button" class="secondary" id="btn-close-location-edit">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="assurance-edit-modal" class="modal-backdrop">
+    <div class="modal modal-entity-edit">
+      <h3 id="assurance-edit-modal-title">Configure assurance policy</h3>
+      <p class="hint">Set what a successful assurance drill must prove for a recovery plan.</p>
+      <label for="assurance-plan-select">Plan</label>
+      <select id="assurance-plan-select"></select>
+      <div class="inline" style="margin-top:0.75rem;">
+        <input type="checkbox" id="assurance-enabled" />
+        <label for="assurance-enabled" style="margin:0">Enable assurance for this plan</label>
+      </div>
+      <div class="inline" style="margin-top:0.5rem;">
+        <input type="checkbox" id="assurance-require-qga" />
+        <label for="assurance-require-qga" style="margin:0">Require QGA</label>
+        <input type="checkbox" id="assurance-require-http" style="margin-left:1rem;" />
+        <label for="assurance-require-http" style="margin:0">Require HTTP check</label>
+      </div>
+      <label for="assurance-max-rto">Max RTO (seconds, 0 = no limit)</label>
+      <input id="assurance-max-rto" type="number" min="0" step="60" value="0" />
+      <p class="hint">HTTP checks use the location’s HTTP check URL. Isolation/remap is configured on Locations.</p>
+      <p class="hint" id="assurance-readiness-hint" style="margin-top:0.25rem;"></p>
+      <div class="actions" style="margin-top:0.75rem;">
+        <button type="button" class="primary" id="btn-save-assurance-policy">Save policy</button>
+        <button type="button" class="secondary" id="btn-close-assurance-edit">Cancel</button>
       </div>
     </div>
   </div>
@@ -1805,12 +2925,19 @@
     }
 
     function showView(name) {
-      ["backups", "jobs", "credentials", "groups", "locations", "plans", "assurance", "compliance", "audit", "infra"].forEach((v) => {
+      ["backups", "jobs", "credentials", "groups", "locations", "plans", "assurance", "compliance", "audit", "infra", "help"].forEach((v) => {
         const view = document.getElementById("view-" + v);
         const nav = document.getElementById("nav-" + v);
         if (view) view.classList.toggle("hidden", v !== name);
         if (nav) nav.classList.toggle("active", v === name);
       });
+      const mainEl = document.querySelector("#app-screen main");
+      if (mainEl) {
+        mainEl.classList.toggle(
+          "plans-wide",
+          name === "plans" || name === "groups" || name === "locations" || name === "assurance" || name === "jobs" || name === "help"
+        );
+      }
       if (name === "jobs") startJobsPoll();
       else stopJobsPoll();
       if (name === "plans" || name === "assurance" || name === "compliance") startPlanRunsPoll();
@@ -1821,6 +2948,90 @@
       } else {
         stopInfraPoll();
       }
+      closeMobileSidebar();
+    }
+
+    function closeMobileSidebar() {
+      const sb = document.getElementById("app-sidebar");
+      const bd = document.getElementById("sidebar-backdrop");
+      if (sb) sb.classList.remove("open");
+      if (bd) bd.classList.remove("show");
+    }
+
+    function initSidebarChrome() {
+      const sb = document.getElementById("app-sidebar");
+      const bd = document.getElementById("sidebar-backdrop");
+      const collapseBtn = document.getElementById("btn-sidebar-collapse");
+      const openBtn = document.getElementById("btn-sidebar-open");
+      if (!sb) return;
+      try {
+        if (localStorage.getItem("re-sidebar-collapsed") === "1") sb.classList.add("collapsed");
+      } catch (_) {}
+      if (collapseBtn) {
+        collapseBtn.onclick = () => {
+          sb.classList.toggle("collapsed");
+          try {
+            localStorage.setItem("re-sidebar-collapsed", sb.classList.contains("collapsed") ? "1" : "0");
+          } catch (_) {}
+        };
+      }
+      if (openBtn) {
+        openBtn.onclick = () => {
+          sb.classList.add("open");
+          if (bd) bd.classList.add("show");
+        };
+      }
+      if (bd) bd.onclick = closeMobileSidebar;
+    }
+
+    function wireModalChrome(modalId) {
+      const el = document.getElementById(modalId);
+      if (!el) return;
+      const dialog = el.querySelector(".modal");
+      if (dialog) {
+        dialog.setAttribute("role", "dialog");
+        dialog.setAttribute("aria-modal", "true");
+        const title = dialog.querySelector("h3");
+        if (title) {
+          if (!title.id) title.id = modalId + "-title";
+          dialog.setAttribute("aria-labelledby", title.id);
+        }
+      }
+      el.addEventListener("click", (ev) => {
+        if (ev.target.id === modalId) el.classList.remove("show");
+      });
+    }
+
+    function initModalA11y() {
+      [
+        "restore-modal", "plan-edit-modal", "group-edit-modal", "location-edit-modal",
+        "assurance-edit-modal", "planrun-modal", "plancheck-modal", "job-detail-modal",
+        "group-from-selection-modal", "taggroup-modal",
+      ].forEach(wireModalChrome);
+      document.addEventListener("keydown", (ev) => {
+        if (ev.key !== "Escape") return;
+        document.querySelectorAll(".modal-backdrop.show").forEach((m) => m.classList.remove("show"));
+      });
+    }
+
+    function gotoView(name) {
+      if (name === "backups") {
+        if (!credentialsVerified) return showView("credentials");
+        showView("backups");
+        loadBackupList();
+        return;
+      }
+      if (name === "jobs") { showView("jobs"); loadJobs(); return; }
+      if (name === "infra") { showView("infra"); return; }
+      if (name === "groups") { showView("groups"); loadGroups(); return; }
+      if (name === "locations") { showView("locations"); loadLocations(); return; }
+      if (name === "plans") { showView("plans"); loadPlansPage(); return; }
+      if (name === "assurance") { showView("assurance"); loadAssurancePage(); return; }
+      if (name === "compliance") { showView("compliance"); loadCompliancePage(); return; }
+      if (name === "audit") { showView("audit"); loadAuditPage(); return; }
+      if (name === "credentials") { showView("credentials"); loadCredentialsForm(); return; }
+      if (name === "help") { showView("help"); return; }
+      showView(name);
     }
 
     async function refreshHealth() {
@@ -1875,27 +3086,26 @@
       showLogin();
     };
 
-    document.getElementById("nav-backups").onclick = () => {
-      if (!credentialsVerified) return showView("credentials");
-      showView("backups");
-      loadBackupList();
-    };
-    document.getElementById("nav-jobs").onclick = () => showView("jobs");
-    document.getElementById("nav-infra").onclick = () => showView("infra");
-    document.getElementById("nav-groups").onclick = () => { showView("groups"); loadGroups(); };
-    document.getElementById("nav-locations").onclick = () => { showView("locations"); loadLocations(); };
-    document.getElementById("nav-plans").onclick = () => { showView("plans"); loadPlansPage(); };
-    document.getElementById("nav-assurance").onclick = () => { showView("assurance"); loadAssurancePage(); };
-    document.getElementById("nav-compliance").onclick = () => { showView("compliance"); loadCompliancePage(); };
+    document.getElementById("nav-backups").onclick = () => gotoView("backups");
+    document.getElementById("nav-jobs").onclick = () => gotoView("jobs");
+    document.getElementById("nav-infra").onclick = () => gotoView("infra");
+    document.getElementById("nav-groups").onclick = () => gotoView("groups");
+    document.getElementById("nav-locations").onclick = () => gotoView("locations");
+    document.getElementById("nav-plans").onclick = () => gotoView("plans");
+    document.getElementById("nav-assurance").onclick = () => gotoView("assurance");
+    document.getElementById("nav-compliance").onclick = () => gotoView("compliance");
+    document.getElementById("nav-help").onclick = () => gotoView("help");
+    document.querySelectorAll(".help-goto").forEach((btn) => {
+      btn.onclick = () => gotoView(btn.dataset.view);
+    });
+    initSidebarChrome();
+    initModalA11y();
     document.getElementById("btn-refresh-assurance").onclick = () => loadAssurancePage();
     document.getElementById("btn-refresh-assurance-runs").onclick = () => loadAssuranceDrillRuns();
     document.getElementById("btn-refresh-compliance").onclick = () => loadCompliancePage();
-    document.getElementById("nav-audit").onclick = () => { showView("audit"); loadAuditPage(); };
+    document.getElementById("nav-audit").onclick = () => gotoView("audit");
     document.getElementById("btn-refresh-audit").onclick = () => loadAuditPage();
-    document.getElementById("nav-credentials").onclick = () => {
-      showView("credentials");
-      loadCredentialsForm();
-    };
+    document.getElementById("nav-credentials").onclick = () => gotoView("credentials");
     document.getElementById("link-setup-again").onclick = async (e) => {
       e.preventDefault();
       await api("/api/auth/reopen-credentials", { method: "POST", body: "{}" });
@@ -2314,7 +3524,7 @@
       const tags = tagsById[backupId];
       if (tags === undefined) return '<span class="hint">—</span>';
       if (!tags.length) return '<span class="hint">(none)</span>';
-      return tags.map((t) => '<span class="state-pill">' + escapeHtml(t) + "</span>").join(" ");
+      return tags.map((t) => '<span class="tag-pill">' + escapeHtml(t) + "</span>").join(" ");
     }
 
     function refreshTagUI() {
@@ -2832,23 +4042,30 @@
     let lastJobsStats = { paused: false, active: 0, pending: 0, max_concurrent: 2 };
 
     async function refreshJobsStats(jobs) {
-      const line = document.getElementById("jobs-stats-line");
+      const chips = document.getElementById("jobs-stat-chips");
       const pauseBanner = document.getElementById("jobs-pause-banner");
       let stats = lastJobsStats;
       try {
         stats = await api("/api/jobs/stats");
         lastJobsStats = stats;
       } catch (_) {}
-      document.getElementById("jobs-max-concurrent").value = stats.max_concurrent ?? 2;
+      const maxInput = document.getElementById("jobs-max-concurrent");
+      if (maxInput) maxInput.value = stats.max_concurrent ?? 2;
+      const list = Array.isArray(jobs) ? jobs : [];
+      const done = list.filter((j) => j.state === "COMPLETED").length;
+      const failed = list.filter((j) => j.state === "FAILED" || j.state === "CANCELLED").length;
       const aggSpeed = formatRateBps(stats.aggregate_speed_bps || 0);
       const eta = formatEtaSec(stats.worst_eta_sec);
-      line.textContent =
-        "Active " + (stats.active || 0) +
-        " · Queued " + (stats.pending || 0) +
-        " · Limit " + (stats.max_concurrent || 0) +
-        (stats.paused ? " · PAUSED" : "") +
-        (stats.aggregate_speed_bps ? " · Σ speed " + aggSpeed : "") +
-        (stats.worst_eta_sec ? " · Worst ETA " + eta : "");
+      if (chips) {
+        chips.innerHTML =
+          '<span class="stat-chip"><strong>' + (stats.active || 0) + "</strong> running</span>" +
+          '<span class="stat-chip"><strong>' + (stats.pending || 0) + "</strong> queued</span>" +
+          '<span class="stat-chip"><strong>' + done + "</strong> done</span>" +
+          '<span class="stat-chip"><strong>' + failed + "</strong> failed</span>" +
+          (stats.paused ? '<span class="stat-chip"><strong>ON</strong> paused</span>' : "") +
+          (stats.aggregate_speed_bps ? '<span class="stat-chip"><strong>' + escapeHtml(aggSpeed) + "</strong> Σ speed</span>" : "") +
+          (stats.worst_eta_sec ? '<span class="stat-chip"><strong>' + escapeHtml(eta) + "</strong> worst ETA</span>" : "");
+      }
       document.getElementById("btn-queue-pause").disabled = !!stats.paused;
       document.getElementById("btn-queue-resume").disabled = !stats.paused;
       if (stats.paused) {
@@ -2864,7 +4081,57 @@
     }
 
     let openJobDetailId = null;
+    let selectedJobId = "";
     let jobsById = {};
+
+    function jobStateBadge(state) {
+      const s = String(state || "").toUpperCase();
+      if (s === "COMPLETED") return '<span class="badge badge-verified">' + escapeHtml(s) + "</span>";
+      if (s === "FAILED" || s === "CANCELLED") return '<span class="badge badge-failed">' + escapeHtml(s) + "</span>";
+      if (s === "RESTORING" || s === "PENDING") return '<span class="badge badge-warn">' + escapeHtml(s) + "</span>";
+      return '<span class="badge badge-muted">' + escapeHtml(s || "—") + "</span>";
+    }
+
+    function renderSelectedJobDetail() {
+      const empty = document.getElementById("jobs-detail-empty");
+      const detail = document.getElementById("jobs-detail");
+      const job = jobsById[selectedJobId];
+      if (!job) {
+        if (empty) empty.classList.remove("hidden");
+        if (detail) detail.classList.add("hidden");
+        return;
+      }
+      if (empty) empty.classList.add("hidden");
+      if (detail) detail.classList.remove("hidden");
+      document.getElementById("jobs-detail-title").textContent =
+        (job.vm_name || "VM") + " → " + (job.proxmox_vmid || "?");
+      document.getElementById("jobs-detail-badge").innerHTML = jobStateBadge(job.state);
+      const etaOrDur = (job.state === "COMPLETED" || job.state === "FAILED" || job.state === "CANCELLED")
+        ? jobDurationLabel(job)
+        : formatEtaSec(job.eta_sec);
+      document.getElementById("jobs-detail-kv").innerHTML =
+        "<dt>Node</dt><dd>" + escapeHtml(job.proxmox_node || "—") + "</dd>" +
+        "<dt>Source</dt><dd>" + escapeHtml(job.source_label || "—") + " · VMID " + escapeHtml(String(job.source_vmid || "—")) + "</dd>" +
+        "<dt>Progress</dt><dd>" + escapeHtml(String(job.progress ?? 0)) + "%</dd>" +
+        "<dt>Speed</dt><dd>" + escapeHtml(formatRateBps(job.speed_bps)) + "</dd>" +
+        "<dt>Est. wire</dt><dd>" + escapeHtml(formatWireRate(job.network_speed_bps)) + "</dd>" +
+        "<dt>ETA / Duration</dt><dd>" + escapeHtml(etaOrDur) + "</dd>" +
+        "<dt>Updated</dt><dd>" + escapeHtml((job.updated_at || "").slice(0, 19) || "—") + "</dd>" +
+        (job.error ? ("<dt>Error</dt><dd>" + escapeHtml(job.error) + "</dd>") : "");
+      const stopBtn = document.getElementById("btn-jobs-detail-stop");
+      if (stopBtn) {
+        stopBtn.hidden = !jobCanStop(job.state);
+        stopBtn.onclick = async () => {
+          try {
+            await api("/api/jobs/" + encodeURIComponent(job.job_id) + "/stop", { method: "POST", body: "{}" });
+            loadJobs();
+          } catch (e) {
+            banner(document.getElementById("global-banner"), "err", e.message);
+          }
+        };
+      }
+      document.getElementById("btn-jobs-open-modal").onclick = () => openJobDetail(job.job_id);
+    }
 
     function jobDurationLabel(job) {
       const start = job.restore_started_at || job.created_at;
@@ -3029,8 +4296,7 @@
 
     async function loadJobs() {
       const statusEl = document.getElementById("jobs-list-status");
-      const tbody = document.getElementById("jobs-tbody");
-      const table = document.getElementById("jobs-table");
+      const listEl = document.getElementById("jobs-list");
       const empty = document.getElementById("jobs-empty");
       try {
         const page = await api("/api/jobs?limit=200");
@@ -3038,56 +4304,71 @@
         jobsById = Object.fromEntries(jobs.map((j) => [j.job_id, j]));
         const stats = await refreshJobsStats(jobs);
         const total = Array.isArray(page) ? jobs.length : (page.total != null ? page.total : jobs.length);
-        statusEl.textContent = total ? total + " job(s)" + (page.has_more ? " (showing " + jobs.length + ")" : "") : "";
+        if (statusEl) statusEl.textContent = total ? total + " job(s)" + (page.has_more ? " (showing " + jobs.length + ")" : "") : "";
         const busy = (stats.active || 0) > 0 || !!stats.paused;
         if (jobsPollTimer) {
           clearInterval(jobsPollTimer);
           jobsPollTimer = setInterval(loadJobs, busy ? 2000 : 5000);
         }
+        listEl.innerHTML = "";
         if (!jobs.length) {
-          table.hidden = true;
           empty.classList.remove("hidden");
+          selectedJobId = "";
+          renderSelectedJobDetail();
           return;
         }
         empty.classList.add("hidden");
-        table.hidden = false;
-        tbody.innerHTML = "";
-        // Newest first for operators reviewing finished restores.
+        if (!selectedJobId || !jobsById[selectedJobId]) selectedJobId = jobs[0].job_id;
         const ordered = [...jobs].sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
         for (const job of ordered) {
-          const tr = document.createElement("tr");
+          const row = document.createElement("div");
+          row.className = "job-row" + (job.job_id === selectedJobId ? " selected" : "");
+          row.dataset.id = job.job_id;
           const pct = Math.max(0, Math.min(100, Number(job.progress || 0)));
           const fillClass = job.state === "COMPLETED" ? "done" : job.state === "FAILED" ? "fail" : "";
-          const title = escapeHtml(job.pve_status_text || "");
+          const etaOrDur = (job.state === "COMPLETED" || job.state === "FAILED" || job.state === "CANCELLED")
+            ? jobDurationLabel(job)
+            : formatEtaSec(job.eta_sec);
           const stopBtn = jobCanStop(job.state)
-            ? '<button type="button" class="secondary btn-stop" data-id="' + escapeHtml(job.job_id) + '">Stop</button>'
+            ? '<button type="button" class="secondary tiny btn-stop" data-id="' + escapeHtml(job.job_id) + '">Stop</button>'
             : "";
-          tr.innerHTML =
-            "<td>" + escapeHtml(job.vm_name) + "</td>" +
-            "<td>" + escapeHtml(job.source_label || "") + "</td>" +
-            "<td>" + escapeHtml(job.source_vmid) + "</td>" +
-            "<td>" + escapeHtml(job.proxmox_vmid) + "</td>" +
-            "<td>" + escapeHtml(job.proxmox_node) + "</td>" +
-            '<td><span class="state-pill">' + escapeHtml(job.state) + "</span></td>" +
-            '<td class="progress-cell" title="' + title + '"><div class="progress-wrap"><div class="progress-fill ' + fillClass + '" style="width:' + pct + '%"></div></div><div class="progress-pct">' + pct + "%</div></td>" +
-            "<td>" + escapeHtml(formatRateBps(job.speed_bps)) + "</td>" +
-            "<td title=\"Est. wire ≈ (read − zeroes) × sampled PBS compression\">" +
-              escapeHtml(formatWireRate(job.network_speed_bps)) + "</td>" +
-            "<td>" + escapeHtml(job.state === "COMPLETED" || job.state === "FAILED" || job.state === "CANCELLED"
-              ? jobDurationLabel(job)
-              : formatEtaSec(job.eta_sec)) + "</td>" +
-            "<td>" + escapeHtml((job.updated_at || "").slice(0, 19)) + "</td>" +
-            '<td class="actions-cell">' +
-              '<button type="button" class="secondary btn-job-detail" data-id="' + escapeHtml(job.job_id) + '">Details</button>' +
-              stopBtn +
-            "</td>";
-          tbody.appendChild(tr);
+          row.innerHTML =
+            "<div>" +
+            '<div class="job-row-name">' + escapeHtml(job.vm_name || "VM") + "</div>" +
+            '<div class="job-row-meta">' + escapeHtml(job.proxmox_node || "—") +
+            " · → " + escapeHtml(String(job.proxmox_vmid || "?")) +
+            (job.error ? (" · " + escapeHtml(String(job.error).slice(0, 80))) : "") +
+            "</div></div>" +
+            jobStateBadge(job.state) +
+            '<div class="progress-cell" title="' + escapeHtml(job.pve_status_text || "") + '">' +
+            '<div class="progress-wrap"><div class="progress-fill ' + fillClass + '" style="width:' + pct + '%"></div></div>' +
+            '<div class="progress-pct">' + pct + "%</div></div>" +
+            "<div>" + escapeHtml(etaOrDur) + "</div>" +
+            '<div class="job-row-actions">' +
+            '<button type="button" class="secondary tiny btn-job-detail" data-id="' + escapeHtml(job.job_id) + '">Log</button>' +
+            stopBtn +
+            "</div>";
+          row.onclick = (ev) => {
+            if (ev.target.closest("button")) return;
+            selectedJobId = job.job_id;
+            listEl.querySelectorAll(".job-row").forEach((r) => {
+              r.classList.toggle("selected", r.dataset.id === selectedJobId);
+            });
+            renderSelectedJobDetail();
+          };
+          listEl.appendChild(row);
         }
-        tbody.querySelectorAll(".btn-job-detail").forEach((btn) => {
-          btn.onclick = () => openJobDetail(btn.dataset.id);
+        listEl.querySelectorAll(".btn-job-detail").forEach((btn) => {
+          btn.onclick = (ev) => {
+            ev.stopPropagation();
+            selectedJobId = btn.dataset.id;
+            openJobDetail(btn.dataset.id);
+            renderSelectedJobDetail();
+          };
         });
-        tbody.querySelectorAll(".btn-stop").forEach((btn) => {
-          btn.onclick = async () => {
+        listEl.querySelectorAll(".btn-stop").forEach((btn) => {
+          btn.onclick = async (ev) => {
+            ev.stopPropagation();
             try {
               await api("/api/jobs/" + encodeURIComponent(btn.dataset.id) + "/stop", { method: "POST", body: "{}" });
               loadJobs();
@@ -3096,7 +4377,7 @@
             }
           };
         });
-        // Keep an open detail modal fresh while polling.
+        renderSelectedJobDetail();
         if (openJobDetailId && document.getElementById("job-detail-modal").classList.contains("show")) {
           const still = jobsById[openJobDetailId];
           if (still && jobCanStop(still.state)) {
@@ -3104,7 +4385,7 @@
           }
         }
       } catch (e) {
-        statusEl.textContent = "";
+        if (statusEl) statusEl.textContent = "";
         banner(document.getElementById("global-banner"), "err", e.message);
       }
     }
@@ -3306,6 +4587,29 @@
       return bits.join(" · ") || "(empty)";
     }
 
+    let selectedGroupId = "";
+    let selectedLocationId = "";
+
+    function openGroupEditModal(isCreate) {
+      const title = document.getElementById("group-edit-modal-title");
+      if (title) title.textContent = isCreate ? "Create group" : "Edit group";
+      document.getElementById("group-edit-modal").classList.add("show");
+    }
+
+    function closeGroupEditModal() {
+      document.getElementById("group-edit-modal").classList.remove("show");
+    }
+
+    function openLocationEditModal(isCreate) {
+      const title = document.getElementById("location-edit-modal-title");
+      if (title) title.textContent = isCreate ? "Create location" : "Edit location";
+      document.getElementById("location-edit-modal").classList.add("show");
+    }
+
+    function closeLocationEditModal() {
+      document.getElementById("location-edit-modal").classList.remove("show");
+    }
+
     function groupBodyFromForm() {
       return {
         name: document.getElementById("group-name").value.trim(),
@@ -3349,52 +4653,104 @@
       document.getElementById("group-source-ids").value = (g.source_ids || []).join(", ");
     }
 
+    function renderSelectedGroupDetail() {
+      const empty = document.getElementById("groups-detail-empty");
+      const detail = document.getElementById("groups-detail");
+      const g = cachedGroups.find((x) => x.id === selectedGroupId);
+      if (!g) {
+        if (empty) empty.classList.remove("hidden");
+        if (detail) detail.classList.add("hidden");
+        return;
+      }
+      if (empty) empty.classList.add("hidden");
+      if (detail) detail.classList.remove("hidden");
+      document.getElementById("groups-detail-name").textContent = g.name || "—";
+      document.getElementById("groups-detail-kv").innerHTML =
+        "<dt>Name</dt><dd>" + escapeHtml(g.name || "—") + "</dd>" +
+        "<dt>Selectors</dt><dd>" + escapeHtml(formatGroupSelectors(g)) + "</dd>" +
+        "<dt>VMIDs</dt><dd>" + escapeHtml((g.vmids || []).join(", ") || "—") + "</dd>" +
+        "<dt>Tags</dt><dd>" + escapeHtml((g.tags || []).join(", ") || "—") + "</dd>" +
+        "<dt>Sources</dt><dd>" + escapeHtml((g.source_ids || []).join(", ") || "—") + "</dd>";
+
+      document.getElementById("btn-detail-edit-group").onclick = () => {
+        fillGroupForm(g);
+        openGroupEditModal(false);
+      };
+      document.getElementById("btn-detail-del-group").onclick = async () => {
+        if (!confirm("Delete group “" + g.name + "”?")) return;
+        try {
+          await api("/api/groups/" + encodeURIComponent(g.id), { method: "DELETE" });
+          if (selectedGroupId === g.id) selectedGroupId = "";
+          loadGroups();
+        } catch (e) {
+          banner(document.getElementById("global-banner"), "err", e.message);
+        }
+      };
+    }
+
     async function loadGroups() {
       const status = document.getElementById("groups-status");
+      const listEl = document.getElementById("groups-list");
+      const emptyEl = document.getElementById("groups-empty");
       try {
         cachedGroups = await api("/api/groups");
-        const tbody = document.getElementById("groups-tbody");
-        tbody.innerHTML = "";
-        for (const g of cachedGroups) {
-          const tr = document.createElement("tr");
-          tr.innerHTML =
-            "<td>" + escapeHtml(g.name) + "</td>" +
-            "<td>" + escapeHtml(formatGroupSelectors(g)) + "</td>" +
-            '<td><button type="button" class="secondary tiny btn-edit-group" data-id="' + escapeHtml(g.id) + '">Edit</button> ' +
-            '<button type="button" class="danger tiny btn-del-group" data-id="' + escapeHtml(g.id) + '">Delete</button></td>';
-          tbody.appendChild(tr);
+        listEl.innerHTML = "";
+        if (!cachedGroups.length) {
+          emptyEl.classList.remove("hidden");
+          status.textContent = "";
+          selectedGroupId = "";
+          renderSelectedGroupDetail();
+          return;
         }
-        status.textContent = cachedGroups.length ? cachedGroups.length + " group(s)" : "No groups yet";
-        tbody.querySelectorAll(".btn-edit-group").forEach((btn) => {
-          btn.onclick = () => {
-            const g = cachedGroups.find((x) => x.id === btn.dataset.id);
-            if (!g) return;
-            fillGroupForm(g);
+        emptyEl.classList.add("hidden");
+        if (!selectedGroupId || !cachedGroups.some((g) => g.id === selectedGroupId)) {
+          selectedGroupId = cachedGroups[0].id;
+        }
+        status.textContent = "Showing " + cachedGroups.length + " of " + cachedGroups.length + " groups";
+        for (const g of cachedGroups) {
+          const card = document.createElement("div");
+          card.className = "plan-card" + (g.id === selectedGroupId ? " selected" : "");
+          card.dataset.id = g.id;
+          const selectorHint = formatGroupSelectors(g);
+          card.innerHTML =
+            '<div class="plan-card-top">' +
+            '<span class="plan-card-name">' + escapeHtml(g.name) + "</span>" +
+            "</div>" +
+            '<div class="plan-card-meta">' + escapeHtml(selectorHint) + "</div>";
+          card.onclick = () => {
+            selectedGroupId = g.id;
+            listEl.querySelectorAll(".plan-card").forEach((c) => {
+              c.classList.toggle("selected", c.dataset.id === selectedGroupId);
+            });
+            renderSelectedGroupDetail();
           };
-        });
-        tbody.querySelectorAll(".btn-del-group").forEach((btn) => {
-          btn.onclick = async () => {
-            try {
-              await api("/api/groups/" + encodeURIComponent(btn.dataset.id), { method: "DELETE" });
-              loadGroups();
-            } catch (e) {
-              banner(document.getElementById("global-banner"), "err", e.message);
-            }
-          };
-        });
+          listEl.appendChild(card);
+        }
+        renderSelectedGroupDetail();
       } catch (e) {
         status.textContent = "";
         banner(document.getElementById("global-banner"), "err", e.message);
       }
     }
 
-    document.getElementById("btn-reset-group").onclick = resetGroupForm;
+    document.getElementById("btn-create-group").onclick = () => {
+      resetGroupForm();
+      openGroupEditModal(true);
+    };
+    document.getElementById("btn-close-group-edit").onclick = closeGroupEditModal;
+    document.getElementById("group-edit-modal").addEventListener("click", (ev) => {
+      if (ev.target.id === "group-edit-modal") closeGroupEditModal();
+    });
     document.getElementById("btn-save-group").onclick = async () => {
       const body = groupBodyFromForm();
       const id = document.getElementById("group-edit-id").value;
       try {
-        if (id) await api("/api/groups/" + encodeURIComponent(id), { method: "PUT", body: JSON.stringify(body) });
-        else await api("/api/groups", { method: "POST", body: JSON.stringify(body) });
+        const res = id
+          ? await api("/api/groups/" + encodeURIComponent(id), { method: "PUT", body: JSON.stringify(body) })
+          : await api("/api/groups", { method: "POST", body: JSON.stringify(body) });
+        if (res && res.id) selectedGroupId = res.id;
+        else if (id) selectedGroupId = id;
+        closeGroupEditModal();
         resetGroupForm();
         loadGroups();
       } catch (e) {
@@ -3492,6 +4848,7 @@
           banner(document.getElementById("global-banner"), "ok", "Created group “" + name + "” with " + vmids.length + " VMID(s)");
         }
         document.getElementById("group-from-selection-modal").classList.remove("show");
+        loadGroups();
       } catch (e) {
         banner(document.getElementById("global-banner"), "err", e.message);
       }
@@ -3516,7 +4873,32 @@
       const hint = document.getElementById("loc-mode-dr-hint");
       hint.hidden = true;
       hint.style.display = "none";
-      fillNodeSelect("loc-nodes", "").then(() => loadLocationStorages());
+      return fillNodeSelect("loc-nodes", "").then(() => loadLocationStorages());
+    }
+
+    async function fillLocationForm(loc) {
+      document.getElementById("loc-edit-id").value = loc.id;
+      document.getElementById("loc-name").value = loc.name;
+      const nodes = (loc.nodes && loc.nodes.length) ? loc.nodes : [loc.node];
+      await fillNodeSelect("loc-nodes", nodes);
+      document.getElementById("loc-nodes-extra").value = "";
+      document.getElementById("loc-vmid-start").value = loc.vmid_start;
+      document.getElementById("loc-bwlimit").value = loc.bwlimit || 0;
+      document.getElementById("loc-restore-mode").value = loc.restore_mode === "dr" ? "dr" : "normal";
+      document.getElementById("loc-network-mode").value = loc.network_mode || "none";
+      document.getElementById("loc-lab-bridge").value = loc.lab_bridge || "";
+      document.getElementById("loc-isolated").checked = !!loc.isolated;
+      document.getElementById("loc-http-check").value = loc.http_check_url || "";
+      document.getElementById("loc-live").checked = !!loc.live_restore;
+      document.getElementById("loc-power-on").checked = !!loc.power_on;
+      document.getElementById("loc-qga").checked = Number(loc.qga_wait_sec || 0) > 0;
+      document.getElementById("loc-qga-sec").value = loc.qga_wait_sec || 0;
+      const isDr = loc.restore_mode === "dr";
+      document.getElementById("loc-vmid-start").disabled = isDr;
+      const hint = document.getElementById("loc-mode-dr-hint");
+      hint.hidden = !isDr;
+      hint.style.display = isDr ? "" : "none";
+      await loadLocationStorages(loc.storage_by_node || { [loc.node]: loc.storage });
     }
 
     function locationNodesDisplay(loc) {
@@ -3556,73 +4938,111 @@
       );
     }
 
+    function locationGuestDefaults(loc) {
+      const bits = [];
+      if (loc.live_restore) bits.push("live");
+      if (loc.power_on) bits.push("power-on");
+      if (Number(loc.qga_wait_sec || 0) > 0) bits.push("QGA " + loc.qga_wait_sec + "s");
+      return bits.join(" · ") || "none";
+    }
+
+    function renderSelectedLocationDetail() {
+      const empty = document.getElementById("locations-detail-empty");
+      const detail = document.getElementById("locations-detail");
+      const loc = cachedLocations.find((x) => x.id === selectedLocationId);
+      if (!loc) {
+        if (empty) empty.classList.remove("hidden");
+        if (detail) detail.classList.add("hidden");
+        return;
+      }
+      if (empty) empty.classList.add("hidden");
+      if (detail) detail.classList.remove("hidden");
+      document.getElementById("locations-detail-name").textContent = loc.name || "—";
+      const mode = (loc.restore_mode || "normal").toUpperCase();
+      const vmid = loc.restore_mode === "dr" ? "source VMIDs" : String(loc.vmid_start || "—");
+      document.getElementById("locations-detail-kv").innerHTML =
+        "<dt>Name</dt><dd>" + escapeHtml(loc.name || "—") + "</dd>" +
+        "<dt>Nodes</dt><dd>" + escapeHtml(locationNodesDisplay(loc) || "—") + "</dd>" +
+        "<dt>Storage</dt><dd>" + escapeHtml(locationStorageDisplay(loc) || "—") + "</dd>" +
+        "<dt>Mode</dt><dd>" + escapeHtml(mode) + "</dd>" +
+        "<dt>Network</dt><dd>" + escapeHtml((loc.network_mode || "none") + (loc.isolated ? " · isolated" : "")) + "</dd>" +
+        "<dt>VMID start</dt><dd>" + escapeHtml(vmid) + "</dd>" +
+        "<dt>Defaults</dt><dd>" + escapeHtml(locationGuestDefaults(loc)) + "</dd>" +
+        "<dt>HTTP check</dt><dd>" + escapeHtml(loc.http_check_url || "—") + "</dd>";
+
+      document.getElementById("btn-detail-edit-location").onclick = async () => {
+        await fillLocationForm(loc);
+        openLocationEditModal(false);
+      };
+      document.getElementById("btn-detail-del-location").onclick = async () => {
+        if (!confirm("Delete location “" + loc.name + "”?")) return;
+        try {
+          await api("/api/locations/" + encodeURIComponent(loc.id), { method: "DELETE" });
+          if (selectedLocationId === loc.id) selectedLocationId = "";
+          loadLocations();
+        } catch (e) {
+          banner(document.getElementById("global-banner"), "err", e.message);
+        }
+      };
+    }
+
     async function loadLocations() {
       const status = document.getElementById("locations-status");
+      const listEl = document.getElementById("locations-list");
+      const emptyEl = document.getElementById("locations-empty");
       try {
-        await fillNodeSelect("loc-nodes", "");
-        await loadLocationStorages();
         cachedLocations = await api("/api/locations");
-        const tbody = document.getElementById("locations-tbody");
-        tbody.innerHTML = "";
-        for (const loc of cachedLocations) {
-          const tr = document.createElement("tr");
-          tr.innerHTML =
-            "<td>" + escapeHtml(loc.name) + "</td>" +
-            "<td>" + escapeHtml(locationNodesDisplay(loc)) + "</td>" +
-            "<td>" + escapeHtml(locationStorageDisplay(loc)) + "</td>" +
-            "<td>" + escapeHtml((loc.restore_mode || "normal").toUpperCase()) + "</td>" +
-            "<td>" + escapeHtml(loc.network_mode || "none") + (loc.isolated ? " · iso" : "") + "</td>" +
-            "<td>" + escapeHtml(loc.restore_mode === "dr" ? "source VMIDs" : loc.vmid_start) + "</td>" +
-            '<td><button type="button" class="secondary tiny btn-edit-loc" data-id="' + escapeHtml(loc.id) + '">Edit</button> ' +
-            '<button type="button" class="danger tiny btn-del-loc" data-id="' + escapeHtml(loc.id) + '">Delete</button></td>';
-          tbody.appendChild(tr);
+        listEl.innerHTML = "";
+        if (!cachedLocations.length) {
+          emptyEl.classList.remove("hidden");
+          status.textContent = "";
+          selectedLocationId = "";
+          renderSelectedLocationDetail();
+          return;
         }
-        status.textContent = cachedLocations.length ? cachedLocations.length + " location(s)" : "No locations yet";
-        tbody.querySelectorAll(".btn-edit-loc").forEach((btn) => {
-          btn.onclick = async () => {
-            const loc = cachedLocations.find((x) => x.id === btn.dataset.id);
-            if (!loc) return;
-            document.getElementById("loc-edit-id").value = loc.id;
-            document.getElementById("loc-name").value = loc.name;
-            const nodes = (loc.nodes && loc.nodes.length) ? loc.nodes : [loc.node];
-            await fillNodeSelect("loc-nodes", nodes);
-            document.getElementById("loc-nodes-extra").value = "";
-            document.getElementById("loc-vmid-start").value = loc.vmid_start;
-            document.getElementById("loc-bwlimit").value = loc.bwlimit || 0;
-            document.getElementById("loc-restore-mode").value = loc.restore_mode === "dr" ? "dr" : "normal";
-            document.getElementById("loc-network-mode").value = loc.network_mode || "none";
-            document.getElementById("loc-lab-bridge").value = loc.lab_bridge || "";
-            document.getElementById("loc-isolated").checked = !!loc.isolated;
-            document.getElementById("loc-http-check").value = loc.http_check_url || "";
-            document.getElementById("loc-live").checked = !!loc.live_restore;
-            document.getElementById("loc-power-on").checked = !!loc.power_on;
-            document.getElementById("loc-qga").checked = Number(loc.qga_wait_sec || 0) > 0;
-            document.getElementById("loc-qga-sec").value = loc.qga_wait_sec || 0;
-            const isDr = loc.restore_mode === "dr";
-            document.getElementById("loc-vmid-start").disabled = isDr;
-            const hint = document.getElementById("loc-mode-dr-hint");
-            hint.hidden = !isDr;
-            hint.style.display = isDr ? "" : "none";
-            await loadLocationStorages(loc.storage_by_node || { [loc.node]: loc.storage });
+        emptyEl.classList.add("hidden");
+        if (!selectedLocationId || !cachedLocations.some((l) => l.id === selectedLocationId)) {
+          selectedLocationId = cachedLocations[0].id;
+        }
+        status.textContent = "Showing " + cachedLocations.length + " of " + cachedLocations.length + " locations";
+        for (const loc of cachedLocations) {
+          const card = document.createElement("div");
+          card.className = "plan-card" + (loc.id === selectedLocationId ? " selected" : "");
+          card.dataset.id = loc.id;
+          const mode = (loc.restore_mode || "normal").toUpperCase();
+          card.innerHTML =
+            '<div class="plan-card-top">' +
+            '<span class="plan-card-name">' + escapeHtml(loc.name) + "</span>" +
+            '<span class="badge badge-muted">' + escapeHtml(mode) + "</span>" +
+            "</div>" +
+            '<div class="plan-card-meta">' +
+            '<div class="meta-row"><span>' + escapeHtml(locationNodesDisplay(loc) || "—") + "</span></div>" +
+            '<div class="meta-row"><span>' + escapeHtml(locationStorageDisplay(loc) || "—") + "</span></div>" +
+            "</div>";
+          card.onclick = () => {
+            selectedLocationId = loc.id;
+            listEl.querySelectorAll(".plan-card").forEach((c) => {
+              c.classList.toggle("selected", c.dataset.id === selectedLocationId);
+            });
+            renderSelectedLocationDetail();
           };
-        });
-        tbody.querySelectorAll(".btn-del-loc").forEach((btn) => {
-          btn.onclick = async () => {
-            try {
-              await api("/api/locations/" + encodeURIComponent(btn.dataset.id), { method: "DELETE" });
-              loadLocations();
-            } catch (e) {
-              banner(document.getElementById("global-banner"), "err", e.message);
-            }
-          };
-        });
+          listEl.appendChild(card);
+        }
+        renderSelectedLocationDetail();
       } catch (e) {
         status.textContent = "";
         banner(document.getElementById("global-banner"), "err", e.message);
       }
     }
 
-    document.getElementById("btn-reset-location").onclick = resetLocationForm;
+    document.getElementById("btn-create-location").onclick = async () => {
+      await resetLocationForm();
+      openLocationEditModal(true);
+    };
+    document.getElementById("btn-close-location-edit").onclick = closeLocationEditModal;
+    document.getElementById("location-edit-modal").addEventListener("click", (ev) => {
+      if (ev.target.id === "location-edit-modal") closeLocationEditModal();
+    });
     document.getElementById("loc-nodes").onchange = () => loadLocationStorages();
     document.getElementById("loc-nodes-extra").onchange = () => loadLocationStorages();
     document.getElementById("loc-nodes-extra").onblur = () => loadLocationStorages();
@@ -3658,9 +5078,13 @@
       };
       const id = document.getElementById("loc-edit-id").value;
       try {
-        if (id) await api("/api/locations/" + encodeURIComponent(id), { method: "PUT", body: JSON.stringify(body) });
-        else await api("/api/locations", { method: "POST", body: JSON.stringify(body) });
-        resetLocationForm();
+        const res = id
+          ? await api("/api/locations/" + encodeURIComponent(id), { method: "PUT", body: JSON.stringify(body) })
+          : await api("/api/locations", { method: "POST", body: JSON.stringify(body) });
+        if (res && res.id) selectedLocationId = res.id;
+        else if (id) selectedLocationId = id;
+        closeLocationEditModal();
+        await resetLocationForm();
         loadLocations();
       } catch (e) {
         banner(document.getElementById("global-banner"), "err", e.message);
@@ -3695,6 +5119,325 @@
       ).join("");
     }
 
+    let selectedPlanId = "";
+    let cachedPlans = [];
+    let plansDetailTab = "summary";
+
+    const PLAN_ICON_CHECK =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    const PLAN_ICON_WARN =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 9v4m0 4h.01M10.3 4.3L2.8 18a2 2 0 001.7 3h15a2 2 0 001.7-3L13.7 4.3a2 2 0 00-3.4 0z" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    const PLAN_ICON_X =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>';
+    const PLAN_ICON_SERVER =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/><path d="M7 7h.01M7 17h.01" stroke-linecap="round"/></svg>';
+    const PLAN_ICON_CLOCK =
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2" stroke-linecap="round"/></svg>';
+    const PLAN_ICON_PLAY =
+      '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5L8 5.5z"/></svg>';
+
+    function planVerificationBadge(verification, enabled) {
+      const v = String(verification || "").toUpperCase();
+      let cls = "badge-muted";
+      let label = v || "NOT CHECKED";
+      let icon = "";
+      if (v === "VERIFIED") {
+        cls = "badge-verified";
+        icon = PLAN_ICON_CHECK;
+      } else if (v === "FAILED") {
+        cls = "badge-failed";
+        icon = PLAN_ICON_X;
+      } else if (v) {
+        cls = "badge-warn";
+        icon = PLAN_ICON_WARN;
+      }
+      let html = '<span class="badge ' + cls + '">' + icon + escapeHtml(label) + "</span>";
+      if (!enabled) html += ' <span class="badge badge-muted">disabled</span>';
+      return html;
+    }
+
+    function groupVmHint(group) {
+      if (!group) return "—";
+      const explicit = Array.isArray(group.vmids) ? group.vmids.length : 0;
+      if (explicit > 0) return String(explicit);
+      const tags = (group.tags || []).length;
+      const ranges = (group.vmid_ranges || []).length;
+      const patterns = (group.name_patterns || []).length;
+      if (tags || ranges || patterns) return "selector";
+      return "—";
+    }
+
+    function parseGroupCheckMap(check) {
+      const map = {};
+      const items = (check && check.items) || [];
+      for (const item of items) {
+        const code = item.code || "";
+        const msg = String(item.message || "");
+        let name = "";
+        let count = null;
+        const mMembers = msg.match(/^Group (.+): (\d+) VM/);
+        const mEmpty = msg.match(/^Group (.+) resolved/);
+        if (mMembers) {
+          name = mMembers[1];
+          count = Number(mMembers[2]);
+        } else if (mEmpty) {
+          name = mEmpty[1];
+          count = 0;
+        } else {
+          continue;
+        }
+        const level = item.level || (code === "group.empty" ? "error" : "ok");
+        map[name] = { level, count, code };
+      }
+      return map;
+    }
+
+    function groupReadinessHtml(info, planVer) {
+      if (!info) {
+        if (String(planVer || "").toUpperCase() === "VERIFIED") {
+          return '<span class="group-ready ok">' + PLAN_ICON_CHECK + " Ready</span>";
+        }
+        return '<span class="group-ready muted">—</span>';
+      }
+      if (info.level === "error" || info.code === "group.empty") {
+        return '<span class="group-ready err">' + PLAN_ICON_X + " Failed</span>";
+      }
+      if (info.level === "warn" || info.level === "warning") {
+        return '<span class="group-ready warn">' + PLAN_ICON_WARN + " Warn</span>";
+      }
+      return '<span class="group-ready ok">' + PLAN_ICON_CHECK + " Ready</span>";
+    }
+
+    function openPlanEditModal(isCreate) {
+      const title = document.getElementById("plan-edit-modal-title");
+      if (title) title.textContent = isCreate ? "Create plan" : "Edit plan";
+      document.getElementById("plan-edit-modal").classList.add("show");
+    }
+
+    function closePlanEditModal() {
+      document.getElementById("plan-edit-modal").classList.remove("show");
+    }
+
+    function fillPlanForm(p) {
+      if (!p) {
+        resetPlanForm();
+        return;
+      }
+      document.getElementById("plan-edit-id").value = p.id;
+      document.getElementById("plan-name").value = p.name;
+      document.getElementById("plan-location").value = p.location_id;
+      document.getElementById("plan-halt").checked = !!p.halt_on_error;
+      document.getElementById("plan-enabled").checked = !!p.enabled;
+      document.getElementById("plan-schedule").checked = !!p.schedule_enabled;
+      document.getElementById("plan-schedule-drill").checked = p.schedule_drill !== false;
+      document.getElementById("plan-schedule-hours").value = p.schedule_interval_hours || 0;
+      Array.from(document.getElementById("plan-groups").options).forEach((o) => {
+        o.selected = (p.group_ids || []).includes(o.value);
+      });
+    }
+
+    function setPlansDetailTab(tab) {
+      plansDetailTab = tab === "history" ? "history" : "summary";
+      const sumBtn = document.getElementById("plans-tab-summary");
+      const histBtn = document.getElementById("plans-tab-history");
+      const sumPanel = document.getElementById("plans-panel-summary");
+      const histPanel = document.getElementById("plans-panel-history");
+      if (sumBtn) sumBtn.classList.toggle("active", plansDetailTab === "summary");
+      if (histBtn) histBtn.classList.toggle("active", plansDetailTab === "history");
+      if (sumPanel) sumPanel.classList.toggle("hidden", plansDetailTab !== "summary");
+      if (histPanel) histPanel.classList.toggle("hidden", plansDetailTab !== "history");
+    }
+
+    function renderSelectedPlanDetail() {
+      const empty = document.getElementById("plans-detail-empty");
+      const detail = document.getElementById("plans-detail");
+      const p = cachedPlans.find((x) => x.id === selectedPlanId);
+      if (!p) {
+        if (empty) empty.classList.remove("hidden");
+        if (detail) detail.classList.add("hidden");
+        return;
+      }
+      if (empty) empty.classList.add("hidden");
+      if (detail) detail.classList.remove("hidden");
+
+      const locById = Object.fromEntries(cachedLocations.map((l) => [l.id, l]));
+      const groupById = Object.fromEntries(cachedGroups.map((g) => [g.id, g]));
+      const locName = (locById[p.location_id] && locById[p.location_id].name) || p.location_id || "—";
+      const check = p.last_check || {};
+      const checkedAt = p.last_check_at
+        ? String(p.last_check_at).replace("T", " ").slice(0, 19)
+        : "Never";
+      const groupCheckMap = parseGroupCheckMap(check);
+
+      document.getElementById("plans-detail-name").textContent = p.name;
+      document.getElementById("plans-detail-badge-wrap").innerHTML = planVerificationBadge(
+        p.verification,
+        p.enabled !== false
+      );
+
+      const aStatus = p.assurance_enabled ? (p.assurance_status || "UNKNOWN") : "off";
+      document.getElementById("plans-detail-kv").innerHTML =
+        "<dt>Name</dt><dd>" + escapeHtml(p.name) + "</dd>" +
+        "<dt>Location</dt><dd>" + escapeHtml(locName) + "</dd>" +
+        "<dt>Last check</dt><dd>" + escapeHtml(checkedAt) + "</dd>" +
+        "<dt>Verification</dt><dd>" + planVerificationBadge(p.verification, true) + "</dd>" +
+        "<dt>Assurance</dt><dd>" + escapeHtml(aStatus) + "</dd>" +
+        "<dt>Schedule</dt><dd>" +
+        escapeHtml(
+          p.schedule_enabled
+            ? ("every " + (p.schedule_interval_hours || "?") + "h" + (p.schedule_drill !== false ? " (drill)" : ""))
+            : "off"
+        ) +
+        "</dd>";
+
+      const rb = document.getElementById("plans-readiness-box");
+      const ver = String(p.verification || "").toUpperCase();
+      let rbCls = "readiness-box";
+      let rbTitle = "Not checked";
+      let rbBodyText = "Run Check to verify backups, nodes, and storage for this plan.";
+      let rbIcon = PLAN_ICON_CLOCK;
+      const gids = p.group_ids || [];
+      let readyGroups = 0;
+      let failedGroups = 0;
+      gids.forEach((gid) => {
+        const g = groupById[gid];
+        const key = (g && g.name) || gid;
+        const info = groupCheckMap[key];
+        if (!info && ver === "VERIFIED") readyGroups += 1;
+        else if (info && (info.level === "error" || info.code === "group.empty")) failedGroups += 1;
+        else if (info) readyGroups += 1;
+      });
+      if (ver === "VERIFIED") {
+        rbCls += " ok";
+        rbTitle = "Ready";
+        rbBodyText = check.summary || "All checked groups are ready.";
+        rbIcon = PLAN_ICON_CHECK;
+      } else if (ver === "FAILED") {
+        rbCls += " err";
+        rbTitle = "Failed";
+        rbBodyText = check.summary || "Last readiness check failed.";
+        rbIcon = PLAN_ICON_X;
+      } else if (p.last_check_at) {
+        rbCls += " warn";
+        rbTitle = ver || "Checked";
+        rbBodyText = check.summary || ("Last check " + checkedAt);
+        rbIcon = PLAN_ICON_WARN;
+      }
+      let statsHtml = "";
+      if (gids.length || check.member_count != null) {
+        const groupStat = gids.length
+          ? (ver === "VERIFIED"
+              ? (readyGroups + " of " + gids.length + " ready")
+              : (failedGroups
+                  ? (failedGroups + " failed · " + gids.length + " group(s)")
+                  : (gids.length + " group(s)")))
+          : "—";
+        const vmStat = check.member_count != null ? String(check.member_count) : "—";
+        statsHtml =
+          '<ul class="readiness-stats">' +
+          "<li>Groups: " + escapeHtml(groupStat) + "</li>" +
+          "<li>VMs resolved: " + escapeHtml(vmStat) + "</li>" +
+          "</ul>";
+      }
+      rb.className = rbCls;
+      rb.innerHTML =
+        '<div class="readiness-icon">' + rbIcon + "</div>" +
+        '<div class="readiness-copy">' +
+        '<div class="readiness-label">Readiness summary</div>' +
+        '<div class="rb-title">' + escapeHtml(rbTitle) + "</div>" +
+        "<div>" + escapeHtml(rbBodyText) + "</div>" +
+        statsHtml +
+        "</div>";
+
+      const gtbody = document.getElementById("plans-groups-tbody");
+      gtbody.innerHTML = "";
+      if (!gids.length) {
+        gtbody.innerHTML = '<tr><td colspan="4" class="hint">No groups on this plan.</td></tr>';
+      } else {
+        gids.forEach((gid, idx) => {
+          const g = groupById[gid];
+          const gname = (g && g.name) || gid;
+          const info = groupCheckMap[gname] || groupCheckMap[gid];
+          let vmCell = groupVmHint(g);
+          if (info && info.count != null) vmCell = String(info.count);
+          const tr = document.createElement("tr");
+          tr.innerHTML =
+            "<td>" + (idx + 1) + "</td>" +
+            "<td>" + escapeHtml(gname) + "</td>" +
+            "<td>" + escapeHtml(vmCell) + "</td>" +
+            "<td>" + groupReadinessHtml(info, p.verification) + "</td>";
+          gtbody.appendChild(tr);
+        });
+      }
+
+      const editBtn = document.getElementById("btn-detail-edit-plan");
+      const delBtn = document.getElementById("btn-detail-del-plan");
+      if (editBtn) {
+        editBtn.onclick = () => {
+          fillPlanForm(p);
+          openPlanEditModal(false);
+        };
+      }
+      if (delBtn) {
+        delBtn.onclick = async () => {
+          if (!confirm("Delete plan “" + p.name + "”?")) return;
+          try {
+            await api("/api/plans/" + encodeURIComponent(p.id), { method: "DELETE" });
+            if (selectedPlanId === p.id) selectedPlanId = "";
+            loadPlansPage();
+          } catch (e) {
+            banner(document.getElementById("global-banner"), "err", e.message);
+          }
+        };
+      }
+    }
+
+    function bindPlanCardActions(listEl) {
+      listEl.querySelectorAll(".btn-check-plan").forEach((btn) => {
+        btn.onclick = async (ev) => {
+          ev.stopPropagation();
+          btn.disabled = true;
+          try {
+            const res = await api("/api/plans/" + encodeURIComponent(btn.dataset.id) + "/check", {
+              method: "POST",
+              body: JSON.stringify({}),
+            });
+            showPlanCheckModal(btn.dataset.name || "Plan", res.check || {}, (res.plan && res.plan.last_check_report_id) || "");
+            selectedPlanId = btn.dataset.id;
+            loadPlansPage();
+          } catch (e) {
+            banner(document.getElementById("global-banner"), "err", e.message);
+          } finally {
+            btn.disabled = false;
+          }
+        };
+      });
+      listEl.querySelectorAll(".btn-run-plan").forEach((btn) => {
+        btn.onclick = (ev) => {
+          ev.stopPropagation();
+          openPlanRunModal(
+            btn.dataset.id,
+            btn.dataset.name,
+            btn.dataset.verification,
+            btn.dataset.location,
+            false
+          );
+        };
+      });
+      listEl.querySelectorAll(".btn-drill-plan").forEach((btn) => {
+        btn.onclick = (ev) => {
+          ev.stopPropagation();
+          openPlanRunModal(
+            btn.dataset.id,
+            btn.dataset.name,
+            btn.dataset.verification,
+            btn.dataset.location,
+            true
+          );
+        };
+      });
+    }
+
     async function loadPlansPage() {
       try {
         const defs = await api("/api/restore-defaults");
@@ -3706,97 +5449,72 @@
       cachedLocations = await api("/api/locations");
       fillPlanSelectors();
       const plans = await api("/api/plans");
+      cachedPlans = plans || [];
       const status = document.getElementById("plans-status");
-      const tbody = document.getElementById("plans-tbody");
-      tbody.innerHTML = "";
+      const listEl = document.getElementById("plans-list");
+      const emptyEl = document.getElementById("plans-empty");
+      listEl.innerHTML = "";
       const locById = Object.fromEntries(cachedLocations.map((l) => [l.id, l]));
-      const groupById = Object.fromEntries(cachedGroups.map((g) => [g.id, g]));
-      for (const p of plans) {
-        const tr = document.createElement("tr");
-        const gnames = (p.group_ids || []).map((id) => (groupById[id] && groupById[id].name) || id).join(" → ");
-        const check = p.last_check || {};
-        const checkHint = p.last_check_at
-          ? (check.summary || p.last_check_at)
-          : "Not checked yet";
-        const stateHtml =
-          escapeHtml(p.verification || "") +
-          (p.enabled ? "" : " · disabled") +
-          '<div class="progress-pct" title="' + escapeHtml(checkHint) + '">' +
-          escapeHtml(p.last_check_at ? ("Checked " + String(p.last_check_at).replace("T", " ").slice(0, 19)) : "Never checked") +
-          "</div>";
-        const aStatus = p.assurance_enabled
-          ? (p.assurance_status || "UNKNOWN")
-          : "—";
-        tr.innerHTML =
-          "<td>" + escapeHtml(p.name) + "</td>" +
-          "<td>" + escapeHtml(gnames) + "</td>" +
-          "<td>" + escapeHtml((locById[p.location_id] && locById[p.location_id].name) || p.location_id) + "</td>" +
-          "<td>" + stateHtml + "</td>" +
-          '<td title="' + escapeHtml(p.assurance_detail || "") + '">' + escapeHtml(aStatus) + "</td>" +
-          '<td class="actions-cell">' +
-          '<button type="button" class="secondary tiny btn-check-plan" data-id="' + escapeHtml(p.id) + '" data-name="' + escapeHtml(p.name) + '">Check</button> ' +
+
+      if (!cachedPlans.length) {
+        status.textContent = "";
+        emptyEl.classList.remove("hidden");
+        selectedPlanId = "";
+        renderSelectedPlanDetail();
+        loadPlanRuns();
+        loadReports();
+        return;
+      }
+      emptyEl.classList.add("hidden");
+      if (!selectedPlanId || !cachedPlans.some((p) => p.id === selectedPlanId)) {
+        selectedPlanId = cachedPlans[0].id;
+      }
+      status.textContent = "Showing " + cachedPlans.length + " of " + cachedPlans.length + " plans";
+
+      for (const p of cachedPlans) {
+        const card = document.createElement("div");
+        card.className = "plan-card" + (p.id === selectedPlanId ? " selected" : "");
+        card.dataset.id = p.id;
+        const locName = (locById[p.location_id] && locById[p.location_id].name) || p.location_id || "—";
+        const checkedAt = p.last_check_at
+          ? ("Last check " + String(p.last_check_at).replace("T", " ").slice(0, 19))
+          : "Never checked";
+        card.innerHTML =
+          '<div class="plan-card-top">' +
+          '<span class="plan-card-name">' + escapeHtml(p.name) + "</span>" +
+          planVerificationBadge(p.verification, p.enabled !== false) +
+          "</div>" +
+          '<div class="plan-card-meta">' +
+          '<div class="meta-row">' + PLAN_ICON_SERVER + "<span>" + escapeHtml(locName) + "</span></div>" +
+          '<div class="meta-row">' + PLAN_ICON_CLOCK + "<span>" + escapeHtml(checkedAt) + "</span></div>" +
+          "</div>" +
+          '<div class="plan-card-actions">' +
+          '<button type="button" class="secondary tiny btn-check-plan" data-id="' + escapeHtml(p.id) +
+          '" data-name="' + escapeHtml(p.name) + '">Check</button>' +
           '<button type="button" class="primary tiny btn-run-plan" data-id="' + escapeHtml(p.id) +
           '" data-name="' + escapeHtml(p.name) +
           '" data-verification="' + escapeHtml(p.verification || "") +
           '" data-location="' + escapeHtml(p.location_id || "") +
-          '">Run</button> ' +
-          '<button type="button" class="secondary tiny btn-edit-plan" data-id="' + escapeHtml(p.id) + '">Edit</button> ' +
-          '<button type="button" class="danger tiny btn-del-plan" data-id="' + escapeHtml(p.id) + '">Delete</button></td>';
-        tbody.appendChild(tr);
-      }
-      status.textContent = plans.length ? plans.length + " plan(s)" : "No plans yet";
-      tbody.querySelectorAll(".btn-edit-plan").forEach((btn) => {
-        btn.onclick = () => {
-          const p = plans.find((x) => x.id === btn.dataset.id);
-          if (!p) return;
-          document.getElementById("plan-edit-id").value = p.id;
-          document.getElementById("plan-name").value = p.name;
-          document.getElementById("plan-location").value = p.location_id;
-          document.getElementById("plan-halt").checked = !!p.halt_on_error;
-          document.getElementById("plan-enabled").checked = !!p.enabled;
-          document.getElementById("plan-schedule").checked = !!p.schedule_enabled;
-          document.getElementById("plan-schedule-drill").checked = p.schedule_drill !== false;
-          document.getElementById("plan-schedule-hours").value = p.schedule_interval_hours || 0;
-          Array.from(document.getElementById("plan-groups").options).forEach((o) => {
-            o.selected = (p.group_ids || []).includes(o.value);
+          '">' + PLAN_ICON_PLAY + "Run</button>" +
+          '<button type="button" class="secondary tiny btn-drill-plan" data-id="' + escapeHtml(p.id) +
+          '" data-name="' + escapeHtml(p.name) +
+          '" data-verification="' + escapeHtml(p.verification || "") +
+          '" data-location="' + escapeHtml(p.location_id || "") +
+          '">Drill</button>' +
+          "</div>";
+        card.onclick = (ev) => {
+          if (ev.target.closest("button")) return;
+          selectedPlanId = p.id;
+          listEl.querySelectorAll(".plan-card").forEach((c) => {
+            c.classList.toggle("selected", c.dataset.id === selectedPlanId);
           });
+          renderSelectedPlanDetail();
         };
-      });
-      tbody.querySelectorAll(".btn-del-plan").forEach((btn) => {
-        btn.onclick = async () => {
-          try {
-            await api("/api/plans/" + encodeURIComponent(btn.dataset.id), { method: "DELETE" });
-            loadPlansPage();
-          } catch (e) {
-            banner(document.getElementById("global-banner"), "err", e.message);
-          }
-        };
-      });
-      tbody.querySelectorAll(".btn-check-plan").forEach((btn) => {
-        btn.onclick = async () => {
-          btn.disabled = true;
-          try {
-            const res = await api("/api/plans/" + encodeURIComponent(btn.dataset.id) + "/check", {
-              method: "POST",
-              body: JSON.stringify({}),
-            });
-            showPlanCheckModal(btn.dataset.name || "Plan", res.check || {}, (res.plan && res.plan.last_check_report_id) || "");
-            loadPlansPage();
-          } catch (e) {
-            banner(document.getElementById("global-banner"), "err", e.message);
-          } finally {
-            btn.disabled = false;
-          }
-        };
-      });
-      tbody.querySelectorAll(".btn-run-plan").forEach((btn) => {
-        btn.onclick = () => openPlanRunModal(
-          btn.dataset.id,
-          btn.dataset.name,
-          btn.dataset.verification,
-          btn.dataset.location
-        );
-      });
+        listEl.appendChild(card);
+      }
+      bindPlanCardActions(listEl);
+      renderSelectedPlanDetail();
+      setPlansDetailTab(plansDetailTab);
       loadPlanRuns();
       loadReports();
     }
@@ -3807,11 +5525,33 @@
     }
 
     let cachedAssurancePlans = [];
+    let cachedAssuranceDashRows = [];
+    let selectedAssurancePlanId = "";
+    let assuranceDetailTab = "summary";
+
+    function assuranceStatusBadge(row, plan) {
+      const enabled = plan ? !!plan.assurance_enabled : !!(row && row.assurance_enabled);
+      if (!enabled) return '<span class="badge badge-muted">policy off</span>';
+      const st = String((row && row.assurance_status) || (plan && plan.assurance_status) || "UNKNOWN").toUpperCase();
+      if (st === "ASSURED") return '<span class="badge badge-verified">' + PLAN_ICON_CHECK + "ASSURED</span>";
+      if (st === "FAILED") return '<span class="badge badge-failed">' + PLAN_ICON_X + "FAILED</span>";
+      if (st === "IN_PROGRESS") return '<span class="badge badge-warn">' + PLAN_ICON_WARN + "IN PROGRESS</span>";
+      return '<span class="badge badge-muted">' + escapeHtml(st) + "</span>";
+    }
+
+    function openAssuranceEditModal(planId) {
+      fillAssurancePlanSelect(cachedAssurancePlans, planId || selectedAssurancePlanId);
+      document.getElementById("assurance-edit-modal").classList.add("show");
+    }
+
+    function closeAssuranceEditModal() {
+      document.getElementById("assurance-edit-modal").classList.remove("show");
+    }
 
     function fillAssurancePlanSelect(plans, selectedId) {
       const sel = document.getElementById("assurance-plan-select");
       if (!sel) return;
-      const prev = selectedId || sel.value;
+      const prev = selectedId || sel.value || selectedAssurancePlanId;
       sel.innerHTML = (plans || []).map((p) =>
         '<option value="' + escapeHtml(p.id) + '">' + escapeHtml(p.name) +
         (p.assurance_enabled ? "" : " (policy off)") + "</option>"
@@ -3843,83 +5583,231 @@
           hint.textContent = "Readiness: VERIFIED (optional for Assure now).";
         } else {
           hint.textContent =
-            "Readiness: " + ver + " — use Check readiness if you want a verified inventory/backup check. Assure now can still run.";
+            "Readiness: " + ver + " — use Check if you want a verified inventory/backup check. Assure now can still run.";
         }
       }
     }
 
+    function setAssuranceDetailTab(tab) {
+      assuranceDetailTab = tab === "history" ? "history" : "summary";
+      const sumBtn = document.getElementById("assurance-tab-summary");
+      const histBtn = document.getElementById("assurance-tab-history");
+      const sumPanel = document.getElementById("assurance-panel-summary");
+      const histPanel = document.getElementById("assurance-panel-history");
+      if (sumBtn) sumBtn.classList.toggle("active", assuranceDetailTab === "summary");
+      if (histBtn) histBtn.classList.toggle("active", assuranceDetailTab === "history");
+      if (sumPanel) sumPanel.classList.toggle("hidden", assuranceDetailTab !== "summary");
+      if (histPanel) histPanel.classList.toggle("hidden", assuranceDetailTab !== "history");
+    }
+
+    function dashRowForPlan(planId) {
+      return cachedAssuranceDashRows.find((r) => r.plan_id === planId) || null;
+    }
+
+    function renderSelectedAssuranceDetail() {
+      const empty = document.getElementById("assurance-detail-empty");
+      const detail = document.getElementById("assurance-detail");
+      const p = cachedAssurancePlans.find((x) => x.id === selectedAssurancePlanId);
+      if (!p) {
+        if (empty) empty.classList.remove("hidden");
+        if (detail) detail.classList.add("hidden");
+        return;
+      }
+      if (empty) empty.classList.add("hidden");
+      if (detail) detail.classList.remove("hidden");
+
+      const row = dashRowForPlan(p.id);
+      const locById = Object.fromEntries(cachedLocations.map((l) => [l.id, l]));
+      const locName = (locById[p.location_id] && locById[p.location_id].name) || p.location_id || "—";
+      const when = (row && row.assurance_updated_at)
+        ? String(row.assurance_updated_at).replace("T", " ").slice(0, 19)
+        : (p.assurance_updated_at ? String(p.assurance_updated_at).replace("T", " ").slice(0, 19) : "—");
+      const next = (row && row.next_scheduled_at)
+        ? String(row.next_scheduled_at).replace("T", " ").slice(0, 19)
+        : (p.schedule_enabled ? "due" : "—");
+      const rto = (row && row.assurance_last_rto) || p.assurance_last_rto || "—";
+      const status = p.assurance_enabled
+        ? ((row && row.assurance_status) || p.assurance_status || "UNKNOWN")
+        : "off";
+
+      document.getElementById("assurance-detail-name").textContent = p.name;
+      document.getElementById("assurance-detail-badge-wrap").innerHTML = assuranceStatusBadge(row, p);
+
+      document.getElementById("assurance-detail-kv").innerHTML =
+        "<dt>Plan</dt><dd>" + escapeHtml(p.name) + "</dd>" +
+        "<dt>Location</dt><dd>" + escapeHtml(locName) + "</dd>" +
+        "<dt>Policy</dt><dd>" + escapeHtml(p.assurance_enabled ? "enabled" : "off") + "</dd>" +
+        "<dt>Require</dt><dd>" + escapeHtml(
+          [
+            p.assurance_require_qga ? "QGA" : null,
+            p.assurance_require_http ? "HTTP" : null,
+          ].filter(Boolean).join(" · ") || "none"
+        ) + "</dd>" +
+        "<dt>Max RTO</dt><dd>" + escapeHtml(p.assurance_max_rto_sec ? (p.assurance_max_rto_sec + "s") : "no limit") + "</dd>" +
+        "<dt>Last RTO</dt><dd>" + escapeHtml(String(rto)) + "</dd>" +
+        "<dt>Updated</dt><dd>" + escapeHtml(when) + "</dd>" +
+        "<dt>Next schedule</dt><dd>" + escapeHtml(next) + "</dd>";
+
+      const rb = document.getElementById("assurance-readiness-box");
+      const ver = String(p.verification || "").toUpperCase();
+      let rbCls = "readiness-box";
+      let rbTitle = "Not checked";
+      let rbBody = "Run Check to verify backups for this plan before or after drills.";
+      let rbIcon = PLAN_ICON_CLOCK;
+      if (String(status).toUpperCase() === "ASSURED") {
+        rbCls += " ok";
+        rbTitle = "Assured";
+        rbBody = (row && row.assurance_detail) || "Last drill met the assurance policy.";
+        rbIcon = PLAN_ICON_CHECK;
+      } else if (String(status).toUpperCase() === "FAILED") {
+        rbCls += " err";
+        rbTitle = "Failed";
+        rbBody = (row && row.assurance_detail) || "Last assurance drill failed.";
+        rbIcon = PLAN_ICON_X;
+      } else if (String(status).toUpperCase() === "IN_PROGRESS") {
+        rbCls += " warn";
+        rbTitle = "Drill running";
+        rbBody = "An assurance drill is in progress.";
+        rbIcon = PLAN_ICON_WARN;
+      } else if (ver === "VERIFIED") {
+        rbCls += " ok";
+        rbTitle = "Ready to assure";
+        rbBody = "Readiness is VERIFIED. Policy " + (p.assurance_enabled ? "enabled" : "is off");
+        rbIcon = PLAN_ICON_CHECK;
+      } else if (!p.assurance_enabled) {
+        rbCls += " warn";
+        rbTitle = "Policy off";
+        rbBody = "Configure and enable a policy, then run Assure now.";
+        rbIcon = PLAN_ICON_WARN;
+      }
+      rb.className = rbCls;
+      rb.innerHTML =
+        '<div class="readiness-icon">' + rbIcon + "</div>" +
+        '<div class="readiness-copy">' +
+        '<div class="readiness-label">Assurance status</div>' +
+        '<div class="rb-title">' + escapeHtml(rbTitle) + "</div>" +
+        "<div>" + escapeHtml(rbBody) + "</div>" +
+        '<ul class="readiness-stats"><li>Readiness: ' + escapeHtml(ver || "NOT_VERIFIED") + "</li></ul>" +
+        "</div>";
+
+      const runBtn = document.getElementById("btn-detail-assurance-run");
+      if (runBtn) {
+        runBtn.disabled = !p.assurance_enabled || String(status).toUpperCase() === "IN_PROGRESS";
+        runBtn.onclick = () => {
+          if (!p.assurance_enabled) {
+            document.getElementById("assurance-policy-status").textContent =
+              "Enable assurance and save the policy before Assure now.";
+            openAssuranceEditModal(p.id);
+            return;
+          }
+          runAssurance(p.id, p.location_id || "");
+        };
+      }
+      document.getElementById("btn-detail-edit-assurance").onclick = () => openAssuranceEditModal(p.id);
+      document.getElementById("btn-detail-assurance-check").onclick = () =>
+        runAssuranceReadinessCheck(p.id, p.name || "Plan");
+      setAssuranceDetailTab(assuranceDetailTab);
+      loadAssuranceDrillRuns();
+    }
+
     async function loadAssuranceDashboard() {
-      const el = document.getElementById("assurance-strip");
       const countsEl = document.getElementById("assurance-counts");
-      if (!el) return;
+      const listEl = document.getElementById("assurance-list");
+      const emptyEl = document.getElementById("assurance-empty");
+      const status = document.getElementById("assurance-status");
+      if (!listEl) return;
       try {
         const data = await api("/api/assurance/dashboard");
         const rows = data.plans || [];
+        cachedAssuranceDashRows = rows;
         const c = data.counts || {};
         if (countsEl) {
-          countsEl.textContent =
-            "ASSURED " + (c.ASSURED || 0) +
-            " · FAILED " + (c.FAILED || 0) +
-            " · IN PROGRESS " + (c.IN_PROGRESS || 0) +
-            " · UNKNOWN " + (c.UNKNOWN || 0) +
-            " · policy off " + (c.disabled || 0);
+          countsEl.innerHTML =
+            '<span class="stat-chip"><strong>' + (c.ASSURED || 0) + "</strong> assured</span>" +
+            '<span class="stat-chip"><strong>' + (c.FAILED || 0) + "</strong> failed</span>" +
+            '<span class="stat-chip"><strong>' + (c.IN_PROGRESS || 0) + "</strong> in progress</span>" +
+            '<span class="stat-chip"><strong>' + (c.UNKNOWN || 0) + "</strong> unknown</span>" +
+            '<span class="stat-chip"><strong>' + (c.disabled || 0) + "</strong> policy off</span>";
         }
-        if (!rows.length) {
-          el.textContent = "No plans yet. Create a recovery plan on the Plans tab, then enable a policy here.";
+
+        listEl.innerHTML = "";
+        if (!cachedAssurancePlans.length) {
+          emptyEl.classList.remove("hidden");
+          status.textContent = "";
+          selectedAssurancePlanId = "";
+          renderSelectedAssuranceDetail();
           return;
         }
-        el.innerHTML = "<table class=\"vm-table\"><thead><tr>" +
-          "<th>Plan</th><th>Status</th><th>RTO</th><th>Next schedule</th><th>Readiness</th><th></th>" +
-          "</tr></thead><tbody>" +
-          rows.map((p) => {
-            const when = p.assurance_updated_at
-              ? String(p.assurance_updated_at).replace("T", " ").slice(0, 19)
-              : "";
-            let statusLabel = p.assurance_enabled ? p.assurance_status : "off";
-            if (p.assurance_status === "IN_PROGRESS") {
-              statusLabel = "IN PROGRESS";
-            } else if (when && p.assurance_enabled && p.assurance_status !== "IN_PROGRESS") {
-              statusLabel = statusLabel + " · " + when;
-            }
-            const next = p.next_scheduled_at
-              ? String(p.next_scheduled_at).replace("T", " ").slice(0, 19)
-              : (p.schedule_enabled ? "due" : "—");
-            const actions =
-              '<button type="button" class="secondary tiny btn-assurance-check" data-id="' +
-              escapeHtml(p.plan_id) + '" data-name="' + escapeHtml(p.plan_name || p.plan_id) +
-              '">Check</button> ' +
-              (p.assurance_enabled && p.assurance_status !== "IN_PROGRESS"
-                ? '<button type="button" class="secondary tiny btn-assure-dash" data-id="' + escapeHtml(p.plan_id) +
-                  '" data-location="' + escapeHtml(p.location_id || "") + '">Assure now</button> '
-                : "") +
-              (p.assurance_status === "IN_PROGRESS"
-                ? '<span class="hint">drill running</span> '
-                : "") +
-              (p.last_run_report_id
-                ? '<button type="button" class="secondary tiny btn-assurance-report" data-id="' +
-                  escapeHtml(p.last_run_report_id) + '">Report</button>'
-                : "");
-            return "<tr>" +
-              "<td>" + escapeHtml(p.plan_name || p.plan_id) + (p.enabled ? "" : " · disabled") + "</td>" +
-              "<td title=\"" + escapeHtml(p.assurance_detail || "") + "\">" + escapeHtml(statusLabel) + "</td>" +
-              "<td>" + escapeHtml(p.assurance_last_rto || "—") + "</td>" +
-              "<td>" + escapeHtml(next) + "</td>" +
-              "<td>" + escapeHtml(p.verification || "") + "</td>" +
-              '<td class="actions-cell">' + actions + "</td>" +
-              "</tr>";
-          }).join("") +
-          "</tbody></table>";
-        el.querySelectorAll(".btn-assure-dash").forEach((btn) => {
-          btn.onclick = () => runAssurance(btn.dataset.id, btn.dataset.location || "");
+        emptyEl.classList.add("hidden");
+        if (!selectedAssurancePlanId || !cachedAssurancePlans.some((p) => p.id === selectedAssurancePlanId)) {
+          selectedAssurancePlanId = cachedAssurancePlans[0].id;
+        }
+        status.textContent = "Showing " + cachedAssurancePlans.length + " of " + cachedAssurancePlans.length + " plans";
+
+        const locById = Object.fromEntries(cachedLocations.map((l) => [l.id, l]));
+        for (const p of cachedAssurancePlans) {
+          const row = dashRowForPlan(p.id);
+          const card = document.createElement("div");
+          card.className = "plan-card" + (p.id === selectedAssurancePlanId ? " selected" : "");
+          card.dataset.id = p.id;
+          const locName = (locById[p.location_id] && locById[p.location_id].name) || p.location_id || "—";
+          const rto = (row && row.assurance_last_rto) || "—";
+          const next = (row && row.next_scheduled_at)
+            ? ("Next " + String(row.next_scheduled_at).replace("T", " ").slice(0, 19))
+            : (p.schedule_enabled ? "Schedule due" : "No schedule");
+          const canAssure = p.assurance_enabled && !(row && row.assurance_status === "IN_PROGRESS");
+          card.innerHTML =
+            '<div class="plan-card-top">' +
+            '<span class="plan-card-name">' + escapeHtml(p.name) + "</span>" +
+            assuranceStatusBadge(row, p) +
+            "</div>" +
+            '<div class="plan-card-meta">' +
+            '<div class="meta-row">' + PLAN_ICON_SERVER + "<span>" + escapeHtml(locName) + "</span></div>" +
+            '<div class="meta-row">' + PLAN_ICON_CLOCK + "<span>RTO " + escapeHtml(String(rto)) + " · " + escapeHtml(next) + "</span></div>" +
+            "</div>" +
+            '<div class="plan-card-actions">' +
+            '<button type="button" class="secondary tiny btn-assurance-check" data-id="' + escapeHtml(p.id) +
+            '" data-name="' + escapeHtml(p.name) + '">Check</button>' +
+            (canAssure
+              ? '<button type="button" class="primary tiny btn-assure-dash" data-id="' + escapeHtml(p.id) +
+                '" data-location="' + escapeHtml(p.location_id || "") + '">Assure now</button>'
+              : "") +
+            '<button type="button" class="secondary tiny btn-edit-assurance" data-id="' + escapeHtml(p.id) + '">Policy</button>' +
+            "</div>";
+          card.onclick = (ev) => {
+            if (ev.target.closest("button")) return;
+            selectedAssurancePlanId = p.id;
+            listEl.querySelectorAll(".plan-card").forEach((c) => {
+              c.classList.toggle("selected", c.dataset.id === selectedAssurancePlanId);
+            });
+            renderSelectedAssuranceDetail();
+          };
+          listEl.appendChild(card);
+        }
+        listEl.querySelectorAll(".btn-assure-dash").forEach((btn) => {
+          btn.onclick = (ev) => {
+            ev.stopPropagation();
+            runAssurance(btn.dataset.id, btn.dataset.location || "");
+          };
         });
-        el.querySelectorAll(".btn-assurance-check").forEach((btn) => {
-          btn.onclick = () => runAssuranceReadinessCheck(btn.dataset.id, btn.dataset.name || "Plan");
+        listEl.querySelectorAll(".btn-assurance-check").forEach((btn) => {
+          btn.onclick = (ev) => {
+            ev.stopPropagation();
+            runAssuranceReadinessCheck(btn.dataset.id, btn.dataset.name || "Plan");
+          };
         });
-        el.querySelectorAll(".btn-assurance-report").forEach((btn) => {
-          btn.onclick = () => downloadReport(btn.dataset.id, "html");
+        listEl.querySelectorAll(".btn-edit-assurance").forEach((btn) => {
+          btn.onclick = (ev) => {
+            ev.stopPropagation();
+            selectedAssurancePlanId = btn.dataset.id;
+            openAssuranceEditModal(btn.dataset.id);
+            renderSelectedAssuranceDetail();
+          };
         });
+        renderSelectedAssuranceDetail();
       } catch (e) {
-        el.textContent = "Assurance dashboard unavailable: " + e.message;
+        if (status) status.textContent = "";
+        if (listEl) listEl.innerHTML = '<p class="hint">Assurance dashboard unavailable: ' + escapeHtml(e.message) + "</p>";
       }
     }
 
@@ -3928,7 +5816,11 @@
       if (!tbody) return;
       try {
         const runs = await api("/api/plan-runs?limit=40");
-        const drills = (runs || []).filter((r) => r.drill);
+        let drills = (runs || []).filter((r) => r.drill);
+        if (selectedAssurancePlanId) {
+          const mine = drills.filter((r) => r.plan_id === selectedAssurancePlanId);
+          drills = mine.length ? mine : drills;
+        }
         tbody.innerHTML = "";
         if (!drills.length) {
           tbody.innerHTML = '<tr><td colspan="7" class="hint">No drill runs yet.</td></tr>';
@@ -3964,12 +5856,11 @@
           cachedLocations = await api("/api/locations");
         }
         cachedAssurancePlans = await api("/api/plans");
-        fillAssurancePlanSelect(cachedAssurancePlans);
+        fillAssurancePlanSelect(cachedAssurancePlans, selectedAssurancePlanId);
       } catch (e) {
         banner(document.getElementById("global-banner"), "err", e.message);
       }
       await loadAssuranceDashboard();
-      await loadAssuranceDrillRuns();
     }
 
     function riskChipLabel(code) {
@@ -3996,17 +5887,15 @@
         const v = c.verification || {};
         const a = c.assurance || {};
         const s = c.schedule || {};
-        countsEl.textContent =
-          "Readiness VERIFIED " + (v.VERIFIED || 0) +
-          " · NEEDS " + (v.NEEDS_VERIFIED || 0) +
-          " · NOT " + (v.NOT_VERIFIED || 0) +
-          " · Assurance ASSURED " + (a.ASSURED || 0) +
-          " · FAILED " + (a.FAILED || 0) +
-          " · IN PROGRESS " + (a.IN_PROGRESS || 0) +
-          " · UNKNOWN " + (a.UNKNOWN || 0) +
-          " · policy off " + (a.disabled || 0) +
-          " · schedules overdue " + (s.overdue || 0) +
-          (c.require_verified_to_run ? " · verify-gate ON" : " · verify-gate off");
+        countsEl.innerHTML =
+          '<span class="stat-chip"><strong>' + (v.VERIFIED || 0) + "</strong> verified</span>" +
+          '<span class="stat-chip"><strong>' + (v.NEEDS_VERIFIED || 0) + "</strong> needs check</span>" +
+          '<span class="stat-chip"><strong>' + (v.NOT_VERIFIED || 0) + "</strong> not verified</span>" +
+          '<span class="stat-chip"><strong>' + (a.ASSURED || 0) + "</strong> assured</span>" +
+          '<span class="stat-chip"><strong>' + (a.FAILED || 0) + "</strong> assure failed</span>" +
+          '<span class="stat-chip"><strong>' + (a.IN_PROGRESS || 0) + "</strong> in progress</span>" +
+          '<span class="stat-chip"><strong>' + (s.overdue || 0) + "</strong> overdue</span>" +
+          '<span class="stat-chip"><strong>' + (c.require_verified_to_run ? "ON" : "off") + "</strong> verify-gate</span>";
         const plans = data.plans || [];
         if (!plans.length) {
           table.hidden = true;
@@ -4058,14 +5947,9 @@
         });
         tbody.querySelectorAll(".btn-comp-assure").forEach((btn) => {
           btn.onclick = () => {
+            selectedAssurancePlanId = btn.dataset.id || "";
             showView("assurance");
-            loadAssurancePage().then(() => {
-              const sel = document.getElementById("assurance-plan-select");
-              if (sel && btn.dataset.id) {
-                sel.value = btn.dataset.id;
-                syncAssurancePolicyForm();
-              }
-            });
+            loadAssurancePage();
           };
         });
       } catch (e) {
@@ -4124,12 +6008,8 @@
         });
         showPlanCheckModal(planName || "Plan", res.check || {}, (res.plan && res.plan.last_check_report_id) || "");
         if (status) status.textContent = "Readiness check finished.";
+        selectedAssurancePlanId = planId;
         await loadAssurancePage();
-        const sel = document.getElementById("assurance-plan-select");
-        if (sel && planId) {
-          sel.value = planId;
-          syncAssurancePolicyForm();
-        }
       } catch (e) {
         if (status) status.textContent = e.message;
         banner(document.getElementById("global-banner"), "err", e.message);
@@ -4156,6 +6036,7 @@
           "ok",
           "Assurance drill started (" + (run.job_count || 0) + " job(s))."
         );
+        selectedAssurancePlanId = planId;
         startPlanRunsPoll();
         loadAssurancePage();
       } catch (e) {
@@ -4164,18 +6045,19 @@
     }
 
     document.getElementById("assurance-plan-select").onchange = syncAssurancePolicyForm;
-
-    document.getElementById("btn-assurance-check").onclick = () => {
-      const planId = document.getElementById("assurance-plan-select").value;
-      const p = cachedAssurancePlans.find((x) => x.id === planId);
-      runAssuranceReadinessCheck(planId, (p && p.name) || "Plan");
-    };
+    document.getElementById("assurance-tab-summary").onclick = () => setAssuranceDetailTab("summary");
+    document.getElementById("assurance-tab-history").onclick = () => setAssuranceDetailTab("history");
+    document.getElementById("btn-configure-assurance").onclick = () => openAssuranceEditModal(selectedAssurancePlanId);
+    document.getElementById("btn-close-assurance-edit").onclick = closeAssuranceEditModal;
+    document.getElementById("assurance-edit-modal").addEventListener("click", (ev) => {
+      if (ev.target.id === "assurance-edit-modal") closeAssuranceEditModal();
+    });
 
     document.getElementById("btn-save-assurance-policy").onclick = async () => {
       const planId = document.getElementById("assurance-plan-select").value;
       const status = document.getElementById("assurance-policy-status");
       if (!planId) {
-        status.textContent = "Select a plan first.";
+        if (status) status.textContent = "Select a plan first.";
         return;
       }
       const body = {
@@ -4186,30 +6068,14 @@
       };
       try {
         await api("/api/plans/" + encodeURIComponent(planId), { method: "PUT", body: JSON.stringify(body) });
-        status.textContent = "Policy saved.";
+        if (status) status.textContent = "Policy saved.";
+        selectedAssurancePlanId = planId;
+        closeAssuranceEditModal();
         await loadAssurancePage();
-        const sel = document.getElementById("assurance-plan-select");
-        if (sel) sel.value = planId;
-        syncAssurancePolicyForm();
       } catch (e) {
-        status.textContent = e.message;
+        if (status) status.textContent = e.message;
         banner(document.getElementById("global-banner"), "err", e.message);
       }
-    };
-
-    document.getElementById("btn-assurance-run-now").onclick = () => {
-      const planId = document.getElementById("assurance-plan-select").value;
-      const p = cachedAssurancePlans.find((x) => x.id === planId);
-      if (!p) {
-        document.getElementById("assurance-policy-status").textContent = "Select a plan first.";
-        return;
-      }
-      if (!p.assurance_enabled && !document.getElementById("assurance-enabled").checked) {
-        document.getElementById("assurance-policy-status").textContent =
-          "Enable assurance and save the policy before Assure now.";
-        return;
-      }
-      runAssurance(planId, p.location_id || "");
     };
 
     async function loadReports() {
@@ -4290,6 +6156,17 @@
 
     document.getElementById("btn-refresh-reports").onclick = loadReports;
 
+    document.getElementById("btn-create-plan").onclick = () => {
+      resetPlanForm();
+      openPlanEditModal(true);
+    };
+    document.getElementById("btn-close-plan-edit").onclick = closePlanEditModal;
+    document.getElementById("plan-edit-modal").addEventListener("click", (ev) => {
+      if (ev.target.id === "plan-edit-modal") closePlanEditModal();
+    });
+    document.getElementById("plans-tab-summary").onclick = () => setPlansDetailTab("summary");
+    document.getElementById("plans-tab-history").onclick = () => setPlansDetailTab("history");
+
     document.getElementById("btn-reset-plan").onclick = resetPlanForm;
     document.getElementById("btn-save-plan").onclick = async () => {
       const groupSel = document.getElementById("plan-groups");
@@ -4306,9 +6183,15 @@
       };
       const id = document.getElementById("plan-edit-id").value;
       try {
-        if (id) await api("/api/plans/" + encodeURIComponent(id), { method: "PUT", body: JSON.stringify(body) });
-        else await api("/api/plans", { method: "POST", body: JSON.stringify(body) });
+        let saved;
+        if (id) {
+          saved = await api("/api/plans/" + encodeURIComponent(id), { method: "PUT", body: JSON.stringify(body) });
+        } else {
+          saved = await api("/api/plans", { method: "POST", body: JSON.stringify(body) });
+        }
+        if (saved && saved.id) selectedPlanId = saved.id;
         resetPlanForm();
+        closePlanEditModal();
         loadPlansPage();
       } catch (e) {
         banner(document.getElementById("global-banner"), "err", e.message);
@@ -4430,16 +6313,17 @@
       syncPlanRunLocationDefaultsHint();
     }
 
-    function openPlanRunModal(planId, planName, verification, locationId) {
+    function openPlanRunModal(planId, planName, verification, locationId, asDrill) {
       document.getElementById("planrun-plan-id").value = planId;
       document.getElementById("planrun-verification").value = verification || "";
       planRunDefaultLocationId = locationId || "";
-      document.getElementById("planrun-summary").textContent = "Run “" + planName + "” with optional point-in-time.";
+      document.getElementById("planrun-summary").textContent =
+        (asDrill ? "Drill" : "Run") + " “" + planName + "” with optional point-in-time.";
       document.getElementById("planrun-cutoff").value = "";
       document.getElementById("planrun-location").value = "";
-      document.getElementById("planrun-kind-recovery").checked = true;
-      document.getElementById("planrun-kind-drill").checked = false;
-      document.getElementById("planrun-auto-teardown").checked = false;
+      document.getElementById("planrun-kind-recovery").checked = !asDrill;
+      document.getElementById("planrun-kind-drill").checked = !!asDrill;
+      document.getElementById("planrun-auto-teardown").checked = !!asDrill;
       document.getElementById("planrun-allow-unverified").checked = false;
       document.getElementById("planrun-confirm-dr").checked = false;
       document.getElementById("planrun-overwrite").checked = false;

@@ -94,6 +94,7 @@ On the offline host
   cd images && for f in *.tar.gz; do gunzip -c "\$f" | docker load; done
   cd ../restore-engine
   cp config.docker.example.yaml config.docker.yaml   # edit secrets before up
+  export RESTORE_ENGINE_IMAGE_TAG=${VERSION}
   docker compose up -d
   docker compose --profile observability up -d       # optional
 
