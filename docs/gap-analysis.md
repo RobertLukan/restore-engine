@@ -30,7 +30,7 @@ Manual lab evidence (utility-host restores, PBS mount, `timeout_sec`, operator-c
 | Audit log | **Implemented** | |
 | Job TTL / hygiene | **Implemented** | |
 | LXC restore | **Missing** | QEMU only |
-| Version from git | **Partial** | Hardcoded `0.2.0` |
+| Version from git | **Partial** | Hardcoded `0.3.0` |
 
 ---
 

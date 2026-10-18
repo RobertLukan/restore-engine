@@ -39,13 +39,13 @@ From this directory you can **pull a release image** from GitHub Container Regis
 Published on each [GitHub release](https://github.com/RobertLukan/restore-engine/releases):
 
 ```bash
-docker pull ghcr.io/robertlukan/restore-engine:0.2.0
+docker pull ghcr.io/robertlukan/restore-engine:0.3.0
 # or: docker compose pull
 ```
 
-Image: **`ghcr.io/robertlukan/restore-engine`** — tags match release versions (`0.2.0`, `latest`).
+Image: **`ghcr.io/robertlukan/restore-engine`** — tags match release versions (`0.3.0`, `latest`).
 
-Set `RESTORE_ENGINE_IMAGE_TAG` in the environment or `.env` to pin a version (Compose default: `0.2.0`).
+Set `RESTORE_ENGINE_IMAGE_TAG` in the environment or `.env` to pin a version (Compose default: `0.3.0`).
 
 ### Build locally
 
@@ -139,7 +139,7 @@ Or minimal core only:
 ```bash
 docker compose build
 docker pull redis:7-alpine
-docker save ghcr.io/robertlukan/restore-engine:0.2.0 redis:7-alpine -o restore-engine-bundle-amd64.tar
+docker save ghcr.io/robertlukan/restore-engine:0.3.0 redis:7-alpine -o restore-engine-bundle-amd64.tar
 ```
 
 Copy the **`.tar`** bundle, this **`docker-compose.yml`**, and **`config.docker.yaml`** (create from example; never commit secrets) to the offline host, then:

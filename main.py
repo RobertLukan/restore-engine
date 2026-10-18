@@ -1839,7 +1839,7 @@ def health() -> JSONResponse:
 def version() -> dict[str, str]:
     out = {
         "name": "restore-engine",
-        "version": (os.environ.get("RESTORE_ENGINE_VERSION") or "0.2.0").strip(),
+        "version": (os.environ.get("RESTORE_ENGINE_VERSION") or "0.3.0").strip(),
     }
     rev = (os.environ.get("RESTORE_ENGINE_GIT_REVISION") or "").strip()
     if rev:

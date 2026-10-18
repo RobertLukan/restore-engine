@@ -26,7 +26,7 @@ From repo root:
 
 ```bash
 # Optional: pin version + git rev embedded in image labels / GET /version
-export RESTORE_ENGINE_VERSION=0.2.0          # match intended tag (current line is 0.2.0 until next release)
+export RESTORE_ENGINE_VERSION=0.3.0          # match intended release tag
 export RESTORE_ENGINE_GIT_REVISION="$(git rev-parse --short HEAD)"
 
 ./scripts/build-offline-bundle.sh
@@ -45,7 +45,7 @@ Minimal core-only alternative (no observability images):
 ```bash
 docker compose build
 docker pull redis:7-alpine
-docker save ghcr.io/robertlukan/restore-engine:${RESTORE_ENGINE_VERSION:-0.2.0} redis:7-alpine \
+docker save ghcr.io/robertlukan/restore-engine:${RESTORE_ENGINE_VERSION:-0.3.0} redis:7-alpine \
   -o restore-engine-bundle-amd64.tar
 ```
 
@@ -69,7 +69,7 @@ cp config.docker.example.yaml config.docker.yaml
 #   - pve_clusters[] + pbs_servers[].mounts (pve_cluster_id / pve_storage)
 #   - ui.password, ui.session_secret (≥32)
 #   - redis.url: redis://127.0.0.1:6380/0  (host-network default)
-export RESTORE_ENGINE_IMAGE_TAG=0.2.0   # must match loaded app image tag
+export RESTORE_ENGINE_IMAGE_TAG=0.3.0   # must match loaded app image tag
 docker compose up -d
 # Optional metrics stack:
 docker compose --profile observability up -d

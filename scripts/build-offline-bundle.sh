@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-VERSION="${RESTORE_ENGINE_VERSION:-0.2.0}"
+VERSION="${RESTORE_ENGINE_VERSION:-0.3.0}"
 GIT_REV="${RESTORE_ENGINE_GIT_REVISION:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}"
 IMAGE="ghcr.io/robertlukan/restore-engine:${VERSION}"
 STAMP="$(date +%Y%m%d)"
