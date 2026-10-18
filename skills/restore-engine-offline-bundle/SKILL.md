@@ -26,7 +26,7 @@ From repo root:
 
 ```bash
 # Optional: pin version + git rev embedded in image labels / GET /version
-export RESTORE_ENGINE_VERSION=0.2.2          # match intended tag
+export RESTORE_ENGINE_VERSION=0.2.0          # match intended tag (current line is 0.2.0 until next release)
 export RESTORE_ENGINE_GIT_REVISION="$(git rev-parse --short HEAD)"
 
 ./scripts/build-offline-bundle.sh
@@ -45,7 +45,7 @@ Minimal core-only alternative (no observability images):
 ```bash
 docker compose build
 docker pull redis:7-alpine
-docker save ghcr.io/robertlukan/restore-engine:${RESTORE_ENGINE_VERSION:-0.2.2} redis:7-alpine \
+docker save ghcr.io/robertlukan/restore-engine:${RESTORE_ENGINE_VERSION:-0.2.0} redis:7-alpine \
   -o restore-engine-bundle-amd64.tar
 ```
 
@@ -65,14 +65,25 @@ tar -xf restore-engine-offline-full-amd64-YYYYMMDD.tar
 cd images && for f in *.tar.gz; do gunzip -c "$f" | docker load; done
 cd ../restore-engine
 cp config.docker.example.yaml config.docker.yaml
-# Edit config.docker.yaml: PBS/PVE tokens, ui.password, ui.session_secret (≥32), redis.url host "redis"
-export RESTORE_ENGINE_IMAGE_TAG=0.2.2   # must match loaded app image tag
+# Edit config.docker.yaml:
+#   - pve_clusters[] + pbs_servers[].mounts (pve_cluster_id / pve_storage)
+#   - ui.password, ui.session_secret (≥32)
+#   - redis.url: redis://127.0.0.1:6380/0  (host-network default)
+export RESTORE_ENGINE_IMAGE_TAG=0.2.0   # must match loaded app image tag
 docker compose up -d
 # Optional metrics stack:
 docker compose --profile observability up -d
 ```
 
-UI: `http://localhost:8001` (plain HTTP — put TLS in front for anything beyond a closed lab).
+### Networking modes (match DOCKER.md)
+
+| Mode | How | UI | Redis config |
+| --- | --- | --- | --- |
+| **Host network (default)** | `docker compose up -d` | `http://127.0.0.1:8000` | `redis://127.0.0.1:6380/0` |
+| **Bridge (isolated)** | `docker compose -f docker-compose.yml -f docker-compose.bridge.yml up -d` | `http://127.0.0.1:8001` | `redis://redis:6379/0` |
+| **Mac + VPN lab** | `./scripts/lab-mac.sh` (Redis in Docker; api/worker on Mac) | `http://127.0.0.1:8000` | same as host Redis publish |
+
+On Linux utility hosts, prefer host network so api/worker share VPN/LAN routes to PBS/PVE. Docker Desktop Mac host-network is **not** the Mac VPN — use `lab-mac.sh` for that lab pattern.
 
 ## Checklist
 
@@ -83,9 +94,10 @@ Offline deploy:
 - [ ] images/*.tar.gz loaded on offline host
 - [ ] config.docker.yaml created from example (not committed)
 - [ ] RESTORE_ENGINE_IMAGE_TAG matches loaded image
-- [ ] redis service not published to host ports
+- [ ] redis.url matches networking mode (6380 host vs redis:6379 bridge)
 - [ ] GET /version (or UI) shows expected version/revision
-- [ ] Worker can reach PBS + PVE networks
+- [ ] Worker can reach PBS + PVE networks (host-net or lab-mac)
+- [ ] Multi-PVE: pve_clusters + mount pve_cluster_id set if needed
 ```
 
 ## Hard rules
@@ -98,7 +110,7 @@ Offline deploy:
 
 ## Related
 
-- Operator docs: `DOCKER.md` (offline section), `README.md` production checklist
+- Operator docs: `DOCKER.md` (networking + offline), `README.md` production checklist
 - Domain behavior while testing the lab: skill `restore-engine-domain`
 - Drive restores via API after up: skill `restore-engine-operate`
 - Extra steps / troubleshooting: [reference.md](reference.md)

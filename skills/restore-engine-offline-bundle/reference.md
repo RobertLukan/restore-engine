@@ -13,9 +13,12 @@ restore-engine-offline-full-amd64-YYYYMMDD.tar
 │   └── grafana_grafana_*.tar.gz
 └── restore-engine/          # compose tree (no secrets)
     ├── docker-compose.yml
+    ├── docker-compose.bridge.yml
+    ├── docker-compose.host-network.yml
     ├── config.docker.example.yaml
     ├── Dockerfile
     ├── DOCKER.md
+    ├── scripts/lab-mac.sh
     └── ...
 ```
 
@@ -35,15 +38,25 @@ restore-engine-offline-full-amd64-YYYYMMDD.tar
 | Compose pulls from GHCR offline | Forgot `docker load` or wrong tag |
 | API/worker crash on start | Missing/short `ui.session_secret` with password set |
 | Empty backup list | PBS unreachable from container network / bad tokens |
+| Mac VPN PBS unreachable in Docker | Used host-network on Docker Desktop; use `./scripts/lab-mac.sh` |
+| Redis URL wrong | Host-net needs `127.0.0.1:6380`; bridge needs `redis:6379` |
 | Restore fails hostpci | Non-root token on PCI-passthrough guests |
-| Redis conflict on host | Host Redis vs compose Redis — leave compose Redis unpublished; see `DOCKER.md` |
+| Wrong PVE | Mount `pve_cluster_id` / location cluster mismatch |
 
 ## Verify after up
 
+Host-network default:
+
 ```bash
 docker compose ps
-curl -sS http://127.0.0.1:8001/version
+curl -sS http://127.0.0.1:8000/version
 docker compose logs --tail=80 api worker
+```
+
+Bridge overlay:
+
+```bash
+curl -sS http://127.0.0.1:8001/version
 ```
 
 ## Observability profile

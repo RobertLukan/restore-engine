@@ -8,7 +8,7 @@
 set -euo pipefail
 
 if [[ -z "${RESTORE_ENGINE_URL:-}" ]]; then
-  echo "RESTORE_ENGINE_URL is not set (e.g. http://localhost:8001)" >&2
+  echo "RESTORE_ENGINE_URL is not set (e.g. http://127.0.0.1:8000 host-network, or http://localhost:8001 bridge)" >&2
   exit 1
 fi
 if [[ -z "${RESTORE_ENGINE_TOKEN:-}" ]]; then
