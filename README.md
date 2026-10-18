@@ -338,6 +338,20 @@ The suite is **offline** (FakeRedis + mocks) against `tests/fixtures/minimal_con
 
 Contributing and security: **[CONTRIBUTING.md](CONTRIBUTING.md)**, **[SECURITY.md](SECURITY.md)**.
 
-## Related project
+---
 
-- [migration-engine](https://github.com/RobertLukan/migration-engine) — VMware → Proxmox migration orchestrator
+## 🧩 The Proxmox Enterprise Lifecycle Suite
+
+This repository is part of an open-source automation suite engineered to bring enterprise orchestration, zero-drama cutovers, and verifiable disaster recovery to **Proxmox VE** and **Proxmox Backup Server**:
+
+| Lifecycle Phase | Project | Description |
+| :--- | :--- | :--- |
+| **1. Migrate (Day 0)** | [**migration-engine**](https://github.com/RobertLukan/migration-engine) | VMware ESXi → Proxmox VE mass migration orchestrator (FastAPI + Redis worker queue, direct SCSI boot import, QGA & WinRM automation). |
+| **2. Provision (Day 1)** | [**proxmox-guestos-customization**](https://github.com/RobertLukan/proxmox-guestos-customization) | VMware-style Windows template cloning, QGA-driven Sysprep, static/DHCP networking, AD domain join, and bulk VDI rollout sidecar. |
+| **3. Recover & Assure (Day 2)** | [**restore-engine**](https://github.com/RobertLukan/restore-engine) | Multi-cluster PBS → PVE disaster recovery orchestrator, automated isolated DR drills, QGA/HTTP assurance gates, and RTO compliance reporting. |
+| **4. Foundation (IaC)** | *PVE Infrastructure-as-Code (WIP)* | Declarative cluster state, SDN, Ceph/storage, and zero-drift configuration management *(Public preview coming soon)*. |
+
+### 🏢 Enterprise Architecture & Commercial Support
+Maintained by **Robert Lukan** — Founder & Principal Architect at **Stackvolve Systems Ltd**.  
+Planning a large-scale transition off VMware or legacy HCI toward open-source European digital sovereignty? We help organizations design, automate, and execute production Proxmox VE & Ceph migrations and NIS2-compliant DR architectures.  
+👉 Connect via [**LinkedIn**](https://www.linkedin.com/in/robertlukan/) or reach out through [**Stackvolve Systems**](https://github.com/RobertLukan).
