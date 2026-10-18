@@ -46,6 +46,7 @@ Lab screenshots with private fields blurred (names, IDs, form values). More in [
 - **DR overwrite**: destroy existing VMID then restore (explicit confirm; owned guests only)
 - **Email / webhook notifications** on readiness fail, plan-run terminal, optional ad-hoc job fail
 - Redis-backed **concurrency slots**, job **TTL**, **audit log**, optional **API tokens** (operator/viewer)
+- **Agent skills** for Cursor and [OpenClaw](https://docs.openclaw.ai/skills/) — operate the same HTTP API as the UI (`skills/restore-engine-operate`), plus domain rules and offline-bundle helpers
 - **Largest-first enqueue** within each batch (ad-hoc or one plan group) so big VMs claim slots first; plan groups stay sequential
 - **One plan run at a time** — starting Run / Drill / Assure while another plan is RUNNING returns HTTP 409
 - Track per-job progress and logs via Redis + worker; Restores tab lists newest jobs first (Load more) and can **Clear finished**
@@ -252,6 +253,35 @@ ui:
 ```
 
 Send `Authorization: Bearer <token>` instead of a session cookie. Operator actions are recorded in the Redis audit log (`GET /api/audit` and the **Audit** tab).
+
+Use a dedicated operator token when driving restore-engine from **OpenClaw** or other agents (see **Agent skills / OpenClaw** below). Never put the token in chat logs or git.
+
+## Agent skills / OpenClaw
+
+restore-engine ships Agent Skills under [`skills/`](skills/) (symlinked for Cursor as `.cursor/skills/` and `.agents/skills/`). They work with **Cursor Agent Skills** and **[OpenClaw](https://docs.openclaw.ai/skills/)** so an agent can drive the same `/api/*` endpoints as the web UI — without talking to PBS/PVE directly.
+
+| Skill | Purpose |
+| --- | --- |
+| [`restore-engine-operate`](skills/restore-engine-operate/SKILL.md) | HTTP workflows: backups, restores, plans, cleanup, jobs (Bearer token) |
+| [`restore-engine-domain`](skills/restore-engine-domain/SKILL.md) | Product invariants (enqueue order, plan lock, batch tags, multi-PVE, safety) |
+| [`restore-engine-offline-bundle`](skills/restore-engine-offline-bundle/SKILL.md) | Air-gap Docker bundle build/deploy |
+
+**OpenClaw quick start**
+
+1. Add an `ui.api_tokens` entry with `role: operator` (see above).
+2. On the OpenClaw host, set:
+   - `RESTORE_ENGINE_URL` — e.g. `http://127.0.0.1:8000` (host-network) or `http://localhost:8001` (bridge)
+   - `RESTORE_ENGINE_TOKEN` — the operator token
+3. Install the skills from a checkout of this repo, for example:
+   ```bash
+   openclaw skills install ./skills/restore-engine-operate
+   openclaw skills install ./skills/restore-engine-domain
+   openclaw skills install ./skills/restore-engine-offline-bundle
+   ```
+   Cursor users can rely on the `.cursor/skills` / `.agents/skills` symlinks in the workspace.
+4. Prefer the helper in the operate skill: `skills/restore-engine-operate/scripts/re-api.sh`.
+
+Confirm destructive actions (DR overwrite, cleanup destroy, bulk restore) with a human before the agent calls mutating APIs. Domain skill documents the safety defaults. OpenClaw skill authoring: [docs.openclaw.ai/tools/creating-skills](https://docs.openclaw.ai/tools/creating-skills).
 
 ## Notifications
 

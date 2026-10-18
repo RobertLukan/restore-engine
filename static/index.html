@@ -1938,6 +1938,16 @@
               <strong>DR mode</strong>
               <p>DR locations keep source VMID, MAC, and UUID. Overwrite only reclaims guests previously restored by this tool — foreign VMs are never deleted.</p>
             </div>
+            <div class="help-callout">
+              <strong>OpenClaw / agent skills</strong>
+              <p>
+                This product can be driven by <strong>OpenClaw</strong> and Cursor agents via the skills in the repo
+                (<code>skills/restore-engine-operate</code>, domain, offline-bundle). Create an operator
+                <strong>API token</strong> in config, set <code>RESTORE_ENGINE_URL</code> and
+                <code>RESTORE_ENGINE_TOKEN</code> on the agent host, then use the same HTTP API as this UI.
+                See the project README section <em>Agent skills / OpenClaw</em>.
+              </p>
+            </div>
           </div>
         </div>
         <div class="panel">
@@ -1952,6 +1962,7 @@
               <article><h4>Assurance</h4><p>Per-plan policy and drills that prove recoverability without intending permanent failback.</p></article>
               <article><h4>Compliance</h4><p>Read-only rollup of readiness and assurance evidence across plans.</p></article>
               <article><h4>Infra / Audit / Settings</h4><p>Optional metrics, operator audit trail, PBS/PVE credentials, and notifications.</p></article>
+              <article><h4>OpenClaw / skills</h4><p>Agent skills in <code>skills/</code> let OpenClaw or Cursor operate restores and plans over the API with a Bearer token.</p></article>
             </div>
           </div>
         </div>
