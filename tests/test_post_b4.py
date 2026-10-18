@@ -98,6 +98,47 @@ def test_location_unlink_marks_isolated() -> None:
     )
     assert loc["network_mode"] == "unlink"
     assert loc["isolated"] is True
+    assert loc["network_checks_from_orchestrator"] is False
+
+
+def test_location_network_checks_from_orchestrator() -> None:
+    from plans import effective_location_http_check_url, location_network_checks_enabled
+
+    bubble = normalize_location(
+        {
+            "name": "bubble",
+            "node": "pve",
+            "storage": "local-lvm",
+            "network_mode": "remap",
+            "lab_bridge": "vmbr99",
+            "http_check_url": "http://10.99.0.5/health",
+            "network_checks_from_orchestrator": False,
+        }
+    )
+    assert location_network_checks_enabled(bubble) is False
+    assert effective_location_http_check_url(bubble) == ""
+
+    flat = normalize_location(
+        {
+            "name": "flat",
+            "node": "pve",
+            "storage": "local-lvm",
+            "http_check_url": "http://10.0.0.5/health",
+            "network_checks_from_orchestrator": True,
+        }
+    )
+    assert location_network_checks_enabled(flat) is True
+    assert effective_location_http_check_url(flat) == "http://10.0.0.5/health"
+
+    legacy = normalize_location(
+        {
+            "name": "legacy",
+            "node": "pve",
+            "storage": "local-lvm",
+            "http_check_url": "http://10.0.0.1/h",
+        }
+    )
+    assert legacy["network_checks_from_orchestrator"] is True
 
 
 def test_enqueue_stores_network_and_http(monkeypatch: pytest.MonkeyPatch) -> None:

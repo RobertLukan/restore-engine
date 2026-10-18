@@ -2331,7 +2331,15 @@
         </div>
       </div>
       <label class="check"><input type="checkbox" id="loc-isolated" /> Mark location isolated (safe to power on without NIC rewrite)</label>
-      <label for="loc-http-check">HTTP check URL after QGA (optional)</label>
+      <label class="check">
+        <input type="checkbox" id="loc-network-checks" />
+        Network checks from restore-engine (HTTP from this host)
+      </label>
+      <p class="hint" style="margin-top:0;">
+        Enable only when restore-engine can reach guest IPs. Leave off for bubble / isolated labs —
+        use Require QGA on the Assurance policy instead. Multi-VLAN in-bubble probes are a later add-on.
+      </p>
+      <label for="loc-http-check">HTTP check URL after QGA (optional; needs network checks above)</label>
       <input id="loc-http-check" placeholder="http://10.0.0.5/health" />
       <div class="section-label">Default guest behavior</div>
       <p class="hint" style="margin-top:0;">
@@ -2371,7 +2379,11 @@
       </div>
       <label for="assurance-max-rto">Max RTO (seconds, 0 = no limit)</label>
       <input id="assurance-max-rto" type="number" min="0" step="60" value="0" />
-      <p class="hint">HTTP checks use the location’s HTTP check URL. Isolation/remap is configured on Locations.</p>
+      <p class="hint">
+        QGA works for Windows and Linux without guest L3 from restore-engine.
+        Require HTTP needs the plan location’s “Network checks from restore-engine” plus an HTTP URL —
+        turn that off for bubbles.
+      </p>
       <p class="hint" id="assurance-readiness-hint" style="margin-top:0.25rem;"></p>
       <div class="actions" style="margin-top:0.75rem;">
         <button type="button" class="primary" id="btn-save-assurance-policy">Save policy</button>
@@ -5721,6 +5733,7 @@
       document.getElementById("loc-network-mode").value = "none";
       document.getElementById("loc-lab-bridge").value = "";
       document.getElementById("loc-isolated").checked = false;
+      document.getElementById("loc-network-checks").checked = false;
       document.getElementById("loc-http-check").value = "";
       document.getElementById("loc-live").checked = false;
       document.getElementById("loc-power-on").checked = false;
@@ -5751,6 +5764,7 @@
       document.getElementById("loc-network-mode").value = loc.network_mode || "none";
       document.getElementById("loc-lab-bridge").value = loc.lab_bridge || "";
       document.getElementById("loc-isolated").checked = !!loc.isolated;
+      document.getElementById("loc-network-checks").checked = !!loc.network_checks_from_orchestrator;
       document.getElementById("loc-http-check").value = loc.http_check_url || "";
       document.getElementById("loc-live").checked = !!loc.live_restore;
       document.getElementById("loc-power-on").checked = !!loc.power_on;
@@ -5834,6 +5848,9 @@
         "<dt>Network</dt><dd>" + escapeHtml((loc.network_mode || "none") + (loc.isolated ? " · isolated" : "")) + "</dd>" +
         "<dt>VMID start</dt><dd>" + escapeHtml(vmid) + "</dd>" +
         "<dt>Defaults</dt><dd>" + escapeHtml(locationGuestDefaults(loc)) + "</dd>" +
+        "<dt>Network checks from RE</dt><dd>" +
+          (loc.network_checks_from_orchestrator ? "enabled" : "disabled") +
+          "</dd>" +
         "<dt>HTTP check</dt><dd>" + escapeHtml(loc.http_check_url || "—") + "</dd>";
 
       document.getElementById("btn-detail-edit-location").onclick = async () => {
@@ -5943,6 +5960,7 @@
         network_mode: document.getElementById("loc-network-mode").value || "none",
         lab_bridge: document.getElementById("loc-lab-bridge").value.trim(),
         isolated: document.getElementById("loc-isolated").checked,
+        network_checks_from_orchestrator: document.getElementById("loc-network-checks").checked,
         http_check_url: document.getElementById("loc-http-check").value.trim(),
         power_on: document.getElementById("loc-power-on").checked,
         qga_wait_sec: document.getElementById("loc-qga").checked

@@ -492,6 +492,7 @@ def process_job(r: redis.Redis, cfg: dict[str, Any], job_id: str) -> None:
             _check_guest_hostname(r, cfg, job_id, key, proxmox, node, target_vmid)
 
         http_url = (data.get("http_check_url") or "").strip()
+        # Empty URL means orchestrator network checks are off (bubble / no path).
         if http_url:
             append_log(r, cfg, job_id, "INFO", "RESTORING", f"HTTP check {http_url}")
             try:

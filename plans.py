@@ -435,6 +435,18 @@ def normalize_location(
     mode = str(payload.get("restore_mode") or "normal").strip().lower()
     if mode not in {"normal", "dr"}:
         raise ValueError("restore_mode must be 'normal' or 'dr'")
+    net_mode = _normalize_network_mode(payload.get("network_mode"))
+    isolated = bool(payload.get("isolated", False)) or net_mode in {"unlink", "remap"}
+    http_check_url = str(payload.get("http_check_url") or "").strip()
+    # RE-origin HTTP/TCP from the API/worker host. Bubble/isolated labs usually
+    # have no path — operators opt in when restore-engine can reach guest IPs.
+    if "network_checks_from_orchestrator" in payload:
+        network_checks = bool(payload.get("network_checks_from_orchestrator"))
+    elif http_check_url:
+        # Legacy locations that already configured an HTTP URL kept that behavior.
+        network_checks = True
+    else:
+        network_checks = False
     storage_by_node: dict[str, str] = {}
     raw_sbn = payload.get("storage_by_node")
     if isinstance(raw_sbn, dict):
@@ -465,11 +477,11 @@ def normalize_location(
         "restore_mode": mode,
         "power_on": bool(payload.get("power_on", False)),
         "qga_wait_sec": _safe_qga_sec(payload.get("qga_wait_sec")),
-        "network_mode": _normalize_network_mode(payload.get("network_mode")),
+        "network_mode": net_mode,
         "lab_bridge": str(payload.get("lab_bridge") or "").strip(),
-        "isolated": bool(payload.get("isolated", False))
-        or _normalize_network_mode(payload.get("network_mode")) in {"unlink", "remap"},
-        "http_check_url": str(payload.get("http_check_url") or "").strip(),
+        "isolated": isolated,
+        "http_check_url": http_check_url,
+        "network_checks_from_orchestrator": network_checks,
         "pve_cluster_id": normalize_mount_cluster_id(
             payload.get("pve_cluster_id"), default=default_cluster_id
         ),
@@ -479,6 +491,22 @@ def normalize_location(
     if data["network_mode"] == "remap" and not data["lab_bridge"]:
         raise ValueError("lab_bridge is required when network_mode=remap")
     return data
+
+
+def location_network_checks_enabled(location: dict[str, Any] | None) -> bool:
+    """True when HTTP/TCP checks may originate on the restore-engine host."""
+    if not location:
+        return False
+    if "network_checks_from_orchestrator" in location:
+        return bool(location.get("network_checks_from_orchestrator"))
+    return bool(str(location.get("http_check_url") or "").strip())
+
+
+def effective_location_http_check_url(location: dict[str, Any] | None) -> str:
+    """HTTP check URL only when orchestrator network checks are enabled."""
+    if not location or not location_network_checks_enabled(location):
+        return ""
+    return str(location.get("http_check_url") or "").strip()
 
 
 def create_location(r: redis.Redis, cfg: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
@@ -1519,7 +1547,7 @@ def _start_plan_run_unlocked(
 
     net_mode = _normalize_network_mode(location.get("network_mode"))
     lab_bridge = str(location.get("lab_bridge") or "").strip()
-    http_check = str(location.get("http_check_url") or "").strip()
+    http_check = effective_location_http_check_url(location)
     do_overwrite = bool(overwrite)
     do_add_ha = bool(plan.get("add_to_ha", False))
     ha_group = str(plan.get("ha_group") or "").strip()
@@ -1551,6 +1579,7 @@ def _start_plan_run_unlocked(
         "network_mode": net_mode,
         "lab_bridge": lab_bridge,
         "http_check_url": http_check,
+        "network_checks_from_orchestrator": location_network_checks_enabled(location),
         "overwrite": do_overwrite,
         "add_to_ha": do_add_ha,
         "ha_group": ha_group,
@@ -1963,6 +1992,14 @@ def evaluate_assurance_policy(
                 return PlanAssurance.FAILED.value, "QGA check failed or missing on one or more jobs", rto
 
     if plan.get("assurance_require_http"):
+        # HTTP from the orchestrator host — skipped when location network checks are off.
+        run_net = run.get("network_checks_from_orchestrator")
+        if run_net is False or run_net in ("0", 0):
+            return (
+                PlanAssurance.FAILED.value,
+                "HTTP check required but network checks from orchestrator are disabled on the location",
+                rto,
+            )
         if not jobs:
             return PlanAssurance.FAILED.value, "no jobs to verify HTTP", rto
         for j in jobs:

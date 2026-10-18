@@ -791,6 +791,8 @@ class LocationUpsert(BaseModel):
     lab_bridge: str = ""
     isolated: bool = False
     http_check_url: str = ""
+    network_checks_from_orchestrator: bool = False
+    pve_cluster_id: str = ""
 
 
 class PlanUpsert(BaseModel):
@@ -1470,7 +1472,15 @@ def api_assure_plan(plan_id: str, request: Request, body: PlanAssureRequest | No
 
     need_qga = bool(plan.get("assurance_require_qga"))
     need_http = bool(plan.get("assurance_require_http"))
-    if need_http and not str(location.get("http_check_url") or "").strip():
+    if need_http and not plans_module.location_network_checks_enabled(location):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "assurance_require_http needs location network_checks_from_orchestrator "
+                "enabled (restore-engine must reach guest IPs); use QGA-only for bubbles"
+            ),
+        )
+    if need_http and not plans_module.effective_location_http_check_url(location):
         raise HTTPException(
             status_code=400,
             detail="assurance_require_http is set but location has no http_check_url",

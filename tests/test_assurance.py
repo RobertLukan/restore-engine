@@ -85,6 +85,16 @@ def test_assurance_require_http() -> None:
     assert status == PlanAssurance.ASSURED.value
 
 
+def test_assurance_require_http_fails_when_orchestrator_network_checks_off() -> None:
+    status, detail, _ = evaluate_assurance_policy(
+        _plan(assurance_require_http=True),
+        _run(network_checks_from_orchestrator=False),
+        [{"http_check_url": "", "http_check_ok": ""}],
+    )
+    assert status == PlanAssurance.FAILED.value
+    assert "network checks from orchestrator" in detail.lower()
+
+
 def test_assurance_max_rto() -> None:
     status, detail, rto = evaluate_assurance_policy(
         _plan(assurance_max_rto_sec=60),
