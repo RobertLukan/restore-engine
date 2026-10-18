@@ -61,19 +61,24 @@ That downloads base images (`python:3.12-slim-bookworm`, `redis:7-alpine`) and P
 docker compose up -d
 ```
 
-Open **http://localhost:8001**. Log in with `ui.password` from the config file inside the image (default baked from `config.docker.example.yaml`: change it for anything beyond a throwaway lab).
+Open **http://127.0.0.1:8000** (host-network default). Log in with `ui.password` from the config file (default baked from `config.docker.example.yaml`: change it for anything beyond a throwaway lab).
 
-Health: **GET http://localhost:8001/health** (checks Redis and config).
-Version: **GET http://localhost:8001/version**.
+Health: **GET http://127.0.0.1:8000/health** (checks Redis and config).  
+Version: **GET http://127.0.0.1:8000/version**.
+
+Bridge overlay UI/health use **:8001** instead.
 
 ## Use your own config (secrets, PBS / Proxmox IPs)
 
 1. Copy `config.docker.example.yaml` to `config.docker.yaml`.
-2. Keep **`redis.url`** as **`redis://redis:6379/0`** (hostname must match the compose service name).
-3. Set **`ui.password`** and **`ui.session_secret`** (session secret must be non-empty; long random string).
-4. Fill **`pbs_servers`** (or legacy `pbs:`) and **`proxmox`** with real endpoints and tokens.
-5. Uncomment the **`volumes`** lines under `api` and `worker` in `docker-compose.yml` so both processes read `./config.docker.yaml`.
-6. `docker compose up -d --build` if you changed the compose file only, or restart containers.
+2. Set **`redis.url`** for your networking mode:
+   - Host-network (default): `redis://127.0.0.1:6380/0`
+   - Bridge overlay: `redis://redis:6379/0`
+3. Set **`ui.password`** and **`ui.session_secret`** (session secret must be non-empty; long random string ≥32).
+4. Fill **`pve_clusters[]`** and **`pbs_servers[]`** (each mount needs `pve_cluster_id` + `pve_storage`). Legacy single `proxmox:` / `pbs:` still maps to cluster `default`.
+5. Optional: `ui.plan_run_cleanup_enabled: true` for the Cleanup tab / `/api/cleanup/*`.
+6. Compose already mounts `./config.docker.yaml` for api/worker in the default file — keep that path gitignored.
+7. `docker compose up -d --build` if you changed the compose file only, or restart containers.
 
 **Never commit `config.docker.yaml`** — it is gitignored. Only `config.docker.example.yaml` ships in the repo and image.
 
@@ -81,14 +86,14 @@ Version: **GET http://localhost:8001/version**.
 
 Same pattern as migration-engine on a Docker-capable LXC:
 
-1. Clone the private repo onto the LXC (or copy the tree).
-2. `cp config.docker.example.yaml config.docker.yaml` and edit secrets / PBS / PVE.
-3. Uncomment config volume mounts in `docker-compose.yml`.
+1. Clone the repo onto the LXC (or copy the tree / offline bundle).
+2. `cp config.docker.example.yaml config.docker.yaml` and edit secrets / `pve_clusters` / PBS mounts.
+3. Confirm `redis.url` is `redis://127.0.0.1:6380/0` for host-network.
 4. `docker compose up --build -d`
-5. Confirm: `curl -sS http://127.0.0.1:8001/version` and open the UI on **:8001**.
-6. Sign in with `ui.password`; Settings → verify PBS and Proxmox.
+5. Confirm: `curl -sS http://127.0.0.1:8000/version` and open the UI on **:8000**.
+6. Sign in with `ui.password`; wizard/Settings → verify PBS and every PVE cluster.
 
-Port **8001** is the default published host port (maps to container 8000). Change the left side of `ports:` in `docker-compose.yml` if you need another host port on your utility box.
+Host networking shares the LXC’s routes to PBS/PVE (typical lab). For bridge mode, see the overlay file and use UI **:8001**.
 
 ## Optional observability (Grafana)
 
@@ -114,14 +119,14 @@ Compose mounts a named volume **`redis-data`** on the bundled Redis service and 
 
 **Short answer:** it is **not** a problem for the host to run Redis and for Compose to also run the **`redis`** service. They are **separate instances** unless you point both at the same socket/port.
 
-- **Default compose file** does **not** publish Redis on the host (`ports:` is only on `api`). The bundled `redis:7-alpine` container listens on **6379 inside the Docker network** only, under the hostname **`redis`**.
-- The app and worker use **whatever URL you set** in `redis.url` (e.g. `redis://redis:6379/0` for the **Compose** Redis).
+- **Host-network default:** Compose publishes Redis on **`127.0.0.1:6380`** → container 6379. App/worker use `redis://127.0.0.1:6380/0`.
+- **Bridge overlay:** Redis stays on the Docker network as hostname **`redis`**; use `redis://redis:6379/0` and do not publish Redis to the LAN.
 
-**If you want to use the host’s Redis instead of the Compose `redis` service:**
+**If you want to use the host’s own Redis instead of the Compose `redis` service:**
 
-1. Set **`redis.url`** in your mounted config to a URL the containers can reach (e.g. `redis://host.docker.internal:6379/0` or the host gateway IP on Linux).
-2. Ensure host Redis accepts TCP from Docker; prefer firewall rules so only the Docker bridge can reach that port.
-3. Remove or disable the **`redis`** service and **`depends_on: redis`** in `docker-compose.yml` (optional but cleaner).
+1. Set **`redis.url`** to a URL the api/worker can reach.
+2. Ensure that Redis accepts only trusted clients; prefer localhost or firewall rules.
+3. Remove or disable the **`redis`** service and **`depends_on: redis`** in compose (optional but cleaner).
 
 ## Move to an air-gapped host
 
@@ -163,9 +168,10 @@ docker compose up -d
 
 ## Notes
 
-- **PBS and Proxmox VE** need reachability from the **worker** (and usually the **api**) container to those networks.
+- **PBS and Proxmox VE** need reachability from the **worker** and **api** (host-network shares the host routes; Mac VPN labs use `scripts/lab-mac.sh`).
 - **`config.yaml`** in the repo is **not** copied into the image (`.dockerignore`) to avoid leaking credentials; the image ships **`config.docker.example.yaml`** as `/app/config.docker.yaml`.
-- **TLS:** Compose publishes plain HTTP on **8001**. For production, terminate TLS at a reverse proxy; do not rely on lab HTTP.
+- **TLS:** Compose publishes plain HTTP on **8000** (host-net) or **8001** (bridge). For production, terminate TLS at a reverse proxy; do not rely on lab HTTP.
 - **Secrets:** mount a host `config.docker.yaml` (gitignored). Prefer strong `ui.session_secret`, API tokens, and `worker.require_verified_to_run: true` outside the lab.
-- **Redis:** default Compose Redis has **no password** and is reachable only on the Docker network — do not add a host `ports:` mapping for Redis in production.
-- Product status: plans / readiness / reports / drills / assurance / compliance / notifications are implemented; see README production checklist.
+- **Redis:** default Compose Redis has **no password**; keep it on localhost (`127.0.0.1:6380`) or the internal Docker network — do not publish it on a shared LAN.
+- **Multi-PVE / Cleanup / HA / network-check toggle:** see README features and production checklist.
+- Product status: plans / readiness / reports / drills / assurance / compliance / notifications / batch cleanup are implemented; see README.

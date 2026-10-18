@@ -15,22 +15,29 @@ Manual lab evidence (utility-host restores, PBS mount, `timeout_sec`, operator-c
 |------|--------|-------|
 | Auth (password session, API tokens) | **Implemented** | Tokens config-only; no Settings UI |
 | Multi-PBS inventory / backups list | **Implemented** | |
+| Multi-PVE clusters | **Implemented** | `pve_clusters[]`, mount `pve_cluster_id` |
 | Tag resolve (`extractconfig`) | **Implemented** | Manual “Load tags” (not auto) |
 | Size estimate (fidx) | **Implemented** | Uses PBS `ns=` param |
 | Restore selected / by tag | **Implemented** | |
 | Job queue, concurrency, pause/stop | **Implemented** | |
+| Largest-first enqueue | **Implemented** | `worker.enqueue_largest_first` |
 | Worker restore pipeline | **Implemented** | Highest test risk historically |
-| DR mode / ownership / teardown | **Implemented** | |
+| DR mode / ownership / teardown | **Implemented** | Dual-tag batch gate |
+| Plan batch cleanup API/UI | **Implemented** | Opt-in `ui.plan_run_cleanup_enabled` |
+| Add to HA after restore | **Implemented** | Plan `add_to_ha` / `ha_group` |
 | Groups / locations / plans | **Implemented** | Name patterns, VMID ranges, picker; tags optional |
-| Plan readiness / run / schedule / drills | **Implemented** | |
+| Plan readiness / run / schedule / drills | **Implemented** | One RUNNING plan (409) |
 | Assurance / compliance dashboards | **Implemented** | |
+| Network checks from orchestrator toggle | **Implemented** | Location flag; HTTP skipped when off |
 | Reports (MD/HTML) | **Implemented** | |
 | Notifications email + webhook | **Implemented** | Email test endpoint; no webhook test UI |
 | Infra API snapshot + Grafana embed | **Implemented** | Optional compose profile |
 | Audit log | **Implemented** | |
 | Job TTL / hygiene | **Implemented** | |
+| In-bubble multi-NIC probe | **Missing** | Design only; QGA-local + RE toggle first |
+| Plan custom step model | **Missing** | Roadmap |
 | LXC restore | **Missing** | QEMU only |
-| Version from git | **Partial** | Hardcoded `0.3.0` |
+| Version from git | **Partial** | Hardcoded `0.3.0` (env override) |
 
 ---
 
@@ -38,8 +45,9 @@ Manual lab evidence (utility-host restores, PBS mount, `timeout_sec`, operator-c
 
 | Module | Depth | Key tests |
 |--------|-------|-----------|
-| `plans.py` | **Well** (domain) | `test_plans`, `test_plan_readiness`, `test_plan_teardown`, `test_assurance` |
-| `jobs.py` | **Well** | `test_dr_restore`, `test_load_balance`, `test_qga_power_on`, `test_post_b4` |
+| `plans.py` | **Well** (domain) | `test_plans`, `test_plan_readiness`, `test_plan_teardown`, `test_assurance`, `test_plan_run_cleanup`, `test_plan_run_busy` |
+| `clusters.py` / multi-PVE | **Well–partial** | `test_clusters`, settings/credentials paths |
+| `jobs.py` | **Well** | `test_dr_restore`, `test_load_balance`, `test_qga_power_on`, `test_post_b4`, `test_enqueue_order`, `test_ha` |
 | `progress_parse.py` | **Well** | `test_progress_parse` |
 | `sources.py` / `pbs_client.py` | **Well–partial** | `test_sources`, `test_pbs_parse`, `test_pbs_auth` |
 | `pbs_wire.py` | **Partial** | parse/usage/cache; reader I/O mocked |

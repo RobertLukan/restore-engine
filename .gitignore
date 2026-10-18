@@ -24,3 +24,6 @@ restore-engine-offline*.tar.gz
 
 # local PBS VPN proxy target
 .pbs-proxy-target
+
+# local Cursor plan drafts (not product docs)
+.cursor/plans/

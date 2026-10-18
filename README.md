@@ -30,13 +30,15 @@ Lab screenshots with private fields blurred (names, IDs, form values). More in [
 
 ## Features
 
-- Configure **multiple PBS servers** and Proxmox VE in the UI
-- List VM backups across every server, datastore, and namespace (each row shows its source)
+- Configure **multiple PBS servers** and **multiple Proxmox VE clusters** in the UI (wizard / Settings)
+- List VM backups across every server, datastore, and namespace (each row shows its source and target cluster)
 - Select multiple backups at once (checkboxes + row click)
 - Bulk restore with load-balanced nodes, per-node storage, VMID allocation, live restore, bandwidth limit
-- **Recovery plans**: groups, locations, ordered runs, readiness check + VERIFIED gate, optional **add to HA** after restore, compliance reports (RTO)
+- **Recovery plans**: groups, locations (per-cluster), ordered runs, readiness check + VERIFIED gate, optional **add to HA** after restore, compliance reports (RTO)
 - **Drills**: powered-off restore, optional auto-teardown, optional schedule (interval hours)
-- **Assurance**: policy on plans (require QGA/HTTP, max RTO); drill outcomes set ASSURED/FAILED; dashboard + Assure now
+- **Plan batch cleanup** (opt-in): each plan run tags guests `restore-engine` + `re-<batch>`; Cleanup tab / `/api/cleanup/*` destroy only dual-tagged guests (Settings → Plan run cleanup)
+- **Assurance**: policy on plans (require QGA and/or HTTP, max RTO); drill outcomes set ASSURED/FAILED; dashboard + Assure now
+- **Network checks from restore-engine**: per-location opt-in for HTTP probes from the API/worker host — leave **off** for bubble / isolated labs (use QGA); enable when RE can reach guest IPs
 - **Compliance**: read-only posture rollup (readiness + assurance + schedule + evidence links)
 - **Audit**: browser for recent operator actions (also `GET /api/audit`)
 - **Power-on + QGA** and optional **HTTP check** after guest agent is up; guest hostname vs PVE name is a warning on mismatch
@@ -49,13 +51,23 @@ Lab screenshots with private fields blurred (names, IDs, form values). More in [
 - Track per-job progress and logs via Redis + worker; Restores tab lists newest jobs first (Load more) and can **Clear finished**
 - Ownership stamp after restore (required for reclaim/teardown); stamp failure fails the job
 
-## Multiple PBS servers, datastores, and namespaces
+## Multiple PBS servers and Proxmox VE clusters
 
 Sources are configured as a list under `pbs_servers`. Each server holds its
 connection details plus one or more `mounts`, where a mount ties a
-`(datastore, namespace)` to the **PVE storage ID** that references it:
+`(datastore, namespace)` to a **PVE cluster** and the **PVE storage ID** that
+references that PBS on that cluster:
 
 ```yaml
+pve_clusters:
+  - id: default
+    host: 10.0.0.20
+    port: 8006
+    api_token_id: root@pam!restore
+    api_token_secret: SECRET
+    default_node: pve
+    storage: local-lvm
+
 pbs_servers:
   - id: main
     host: 10.0.0.10
@@ -66,9 +78,11 @@ pbs_servers:
     mounts:
       - datastore: main
         namespace: ""            # root namespace
+        pve_cluster_id: default
         pve_storage: pbs-main
       - datastore: main
         namespace: team-a
+        pve_cluster_id: default
         pve_storage: pbs-main-teamA
 ```
 
@@ -76,12 +90,21 @@ This mirrors how Proxmox works: **PVE binds one datastore and one namespace per
 storage definition**, so each `(datastore, namespace)` you want to restore from
 needs its own PVE storage entry, and that storage ID is what goes in `pve_storage`.
 The backup list aggregates all sources and the restore uses the correct
-`pve_storage` per selected backup automatically. A legacy single `pbs:` block plus
-`proxmox.pbs_storage` is still read and shown as one server.
+`pve_storage` (and cluster) per selected backup automatically. A legacy single
+`pbs:` / `proxmox:` block is still read and mapped to cluster `default`.
 
 PBS and Proxmox VE auth: set **either** an API token (`api_token_id` +
 `api_token_secret`) **or** `user` + `password`. When both are present, the token
 is used.
+
+### Plan batch tags and Cleanup
+
+Each plan run allocates a `batch_id` (12 hex). Restored guests are tagged
+`restore-engine` and `re-<batch_id>`. Teardown and the **Cleanup** tab only
+destroy guests that match that dual-tag gate (or proven ownership) on the chosen
+cluster. Enable Cleanup under **Settings → Plan run cleanup**
+(`ui.plan_run_cleanup_enabled`); when off, `/api/cleanup/*` returns 403.
+Destroy waits for PVE disk reclaim (`worker.destroy_task_timeout_sec`, `0` = unlimited).
 
 ## Restore by tags (groups)
 
@@ -129,15 +152,17 @@ Open http://localhost:8001 and sign in with `ui.password` from `config.yaml`.
 
 | Port | Service |
 |------|---------|
-| **8001** | restore-engine UI (local dev and Docker Compose default) |
-| **8006** | Proxmox VE API (`proxmox.port` in config) |
+| **8000** | restore-engine UI (Docker Compose **host-network** default) |
+| **8001** | UI when using bridge overlay or typical local `uvicorn` |
+| **6380** | Redis published to the host (host-network Compose → container 6379) |
+| **8006** | Proxmox VE API (`pve_clusters[].port` / legacy `proxmox.port`) |
 | **8007** | Proxmox Backup Server API (`pbs_servers[].port` in config) |
 
-Do not publish restore-engine on **8007** in public docs — that is PBS’s usual API port. You may remap the Compose host port locally (see [DOCKER.md](DOCKER.md)).
+Do not publish restore-engine on **8007** in public docs — that is PBS’s usual API port. See [DOCKER.md](DOCKER.md) for host vs bridge vs Mac lab networking.
 
 ## Docker Compose
 
-Full guide (Apple Silicon → amd64, LXC checklist, air-gap, Redis on host): **[DOCKER.md](DOCKER.md)**.
+Full guide (host network, Mac VPN lab, Apple Silicon → amd64, LXC, air-gap): **[DOCKER.md](DOCKER.md)**.
 
 **Container image (GHCR):** [`ghcr.io/robertlukan/restore-engine`](https://github.com/RobertLukan/restore-engine/pkgs/container/restore-engine)
 
@@ -145,14 +170,18 @@ Full guide (Apple Silicon → amd64, LXC checklist, air-gap, Redis on host): **[
 git clone https://github.com/RobertLukan/restore-engine.git
 cd restore-engine
 cp config.docker.example.yaml config.docker.yaml
-# edit config.docker.yaml — keep redis.url host as "redis"
-docker compose pull
+# edit config.docker.yaml — host-network default:
+#   redis.url: redis://127.0.0.1:6380/0
+#   fill pve_clusters[] + pbs_servers[].mounts (pve_cluster_id / pve_storage)
+docker compose pull   # or: docker compose up --build -d
 docker compose up -d
 ```
 
-Local build instead of pull: `docker compose up --build -d`
+Dashboard (host-network): http://127.0.0.1:8000  
 
-Dashboard: http://localhost:8001
+Bridge overlay: `docker compose -f docker-compose.yml -f docker-compose.bridge.yml up -d` → UI **:8001**, `redis.url: redis://redis:6379/0`.  
+
+Mac + VPN PBS: `./scripts/lab-mac.sh` (see DOCKER.md).
 
 ## Performance tuning
 
@@ -171,15 +200,16 @@ Note: Proxmox-side throttles (a `bwlimit` in `datacenter.cfg` or on the storage,
 
 ## Workflow
 
-1. **Settings** — save and verify PBS + Proxmox connections; optional SMTP/webhook notifications and API tokens in config.
-2. **Groups / Locations / Plans** — define inventory groups, a recovery location (including network isolation / HTTP check), and a plan; optional schedule for automatic drills.
-3. **Check** a plan (readiness), then **Run** or **Drill** with point-in-time; download reports from the Plans tab.
-4. **Assurance** — set policy, **Assure now**, watch ASSURED/FAILED (does not perform production failback).
-5. **Compliance** — read-only posture across plans (readiness, assurance, schedule, report links).
-6. **Backups** — refresh list, optionally **Estimate sizes** (non-zero), select backups, **Restore selected** (ad-hoc) with isolation / overwrite options.
-7. **Restores** — watch job state and progress; stop queued jobs if needed.
-8. **Infra** — Grafana embed (optional) and/or live PVE/PBS CPU/RAM snapshot.
-9. **Audit** — browse recent operator actions when investigating who changed what.
+1. **Settings / wizard** — add one or more **PVE clusters** and PBS mounts (`pve_cluster_id` + `pve_storage`); verify connections. Optional SMTP/webhook, API tokens, and **Plan run cleanup**.
+2. **Groups / Locations / Plans** — inventory groups, a recovery location (cluster, isolation, optional HTTP URL + **network checks from restore-engine**), and a plan (`add_to_ha` optional); schedule for automatic drills if needed.
+3. **Check** a plan (readiness), then **Run** or **Drill** with point-in-time; note the run’s `batch_id`; download reports from the Plans tab.
+4. **Assurance** — set policy (QGA and/or HTTP), **Assure now**, watch ASSURED/FAILED (does not perform production failback). For bubbles, prefer Require QGA and leave location network checks **off**.
+5. **Cleanup** (if enabled) — preview/destroy batch-tagged drill guests after a run, or use plan-run teardown.
+6. **Compliance** — read-only posture across plans (readiness, assurance, schedule, report links).
+7. **Backups** — refresh list, optionally **Estimate sizes** (non-zero), select backups, **Restore selected** (ad-hoc) with isolation / overwrite / HA options.
+8. **Restores** — watch job state and progress; stop queued jobs if needed.
+9. **Infra** — Grafana embed (optional) and/or live PVE/PBS CPU/RAM snapshot.
+10. **Audit** — browse recent operator actions when investigating who changed what.
 
 DR workflow and safety defaults: **[docs/dr-overview.md](docs/dr-overview.md)** (generic). Site-specific topology belongs in your internal runbooks.
 
@@ -189,20 +219,23 @@ Infrastructure metrics (Grafana, Netdata, PVE/PBS OpenTelemetry): **[docs/infra-
 
 Lab defaults favor convenience. For anything beyond a closed lab:
 
-1. **TLS** — put a reverse proxy (Caddy/nginx) in front of `:8001` with HTTPS and secure cookies; do not expose plain HTTP on a shared network.
+1. **TLS** — put a reverse proxy (Caddy/nginx) in front of the UI port (`:8000` host-net or `:8001` bridge) with HTTPS and secure cookies; do not expose plain HTTP on a shared network.
 2. **`ui.password` / `ui.session_secret`** — strong unique values; the API **refuses to start** if a password is set but the session secret is missing, shorter than 32 characters, or the dev placeholder.
 3. **`worker.require_verified_to_run: true`** (or `plans.require_verified_to_run`) — block production Runs until readiness is VERIFIED (drills/Assure can still use `allow_unverified` where intended).
 4. **Secrets** — keep `config.docker.yaml` out of git; prefer API tokens over passwords; treat SMTP password and PBS/PVE tokens as sensitive.
-5. **Redis** — Compose Redis is unauthenticated on the internal Docker network only; do not publish Redis ports to the host in production.
+5. **Redis** — prefer localhost-only publish (`127.0.0.1:6380`) or internal Docker network; do not expose Redis on a shared LAN in production.
 6. **Single worker (or documented scale)** — concurrency slots are Redis-backed; still prefer one worker replica unless you understand shared-queue behavior (`DOCKER.md`).
-7. **Isolation** — power-on / QGA / HTTP only with unlink/remap or an isolated location; avoid `allow_non_isolated` on shared L2.
-8. **Notifications** — enable SMTP or webhook so failed readiness/drills are not UI-only.
+7. **Isolation** — power-on / QGA only with unlink/remap or an isolated location; avoid `allow_non_isolated` on shared L2. Keep **network checks from restore-engine** off unless RE truly reaches guest IPs.
+8. **Cleanup** — leave `plan_run_cleanup_enabled` false until operators need the Cleanup tab; destroy is permanent.
+9. **Notifications** — enable SMTP or webhook so failed readiness/drills are not UI-only.
 
 See also **Safety notes** below and **[DOCKER.md](DOCKER.md)**.
 
-## Safety notes (power-on)
+## Safety notes (power-on and verify)
 
 Power-on, live-restore, and QGA require **network isolation** (`unlink` / `remap`), an **isolated** location flag, or an explicit **allow non-isolated** override. On a shared production L2, prefer powered-off drills.
+
+**HTTP checks from the orchestrator** need L3 from restore-engine to the guest URL. On bubble / remapped lab networks that path often does not exist — disable **Network checks from restore-engine** on the location and use **Require QGA** (works for Windows and Linux via the PVE guest agent). East-west “same VLAN” probes are a later optional design; they are not required for QGA-local assurance.
 
 ## API tokens
 

@@ -24,11 +24,13 @@ restore-engine orchestrates PBS → PVE restores, plans, drills, and assurance. 
 
 | Capability | Use in DR |
 |------------|-----------|
+| **Multi-PVE** | Target the correct `pve_clusters[]` entry per location / PBS mount |
 | **Groups** | Define which VMs belong in a recovery batch (tags, VMIDs, name patterns, ranges) |
-| **Locations** | Target cluster node(s), storage, VMID start, DR vs normal mode, isolation |
-| **Plans** | Ordered groups + location; **Check** before run |
+| **Locations** | Target cluster node(s), storage, VMID start, DR vs normal mode, isolation, optional RE-origin HTTP |
+| **Plans** | Ordered groups + location; **Check** before run; optional **add to HA** |
 | **Drills** | Prove restore path without leaving VMs on production L2 |
-| **Assurance** | Policy (QGA, HTTP, max RTO) on drill outcomes |
+| **Batch tags / Cleanup** | Each run tags `re-<batch>`; opt-in Cleanup destroys only dual-tagged guests |
+| **Assurance** | Policy (QGA and/or HTTP, max RTO) on drill outcomes |
 | **Reports** | Readiness / run evidence (Markdown/HTML) |
 
 See [README](../README.md) workflow and [infra-metrics.md](infra-metrics.md) for observability during large restores.
@@ -37,7 +39,9 @@ See [README](../README.md) workflow and [infra-metrics.md](infra-metrics.md) for
 
 - Use **readiness Check** and `require_verified_to_run` before production recovery runs.
 - Prefer **powered-off drills** on shared L2; use network **unlink/remap** or **isolated** locations before power-on.
+- For **bubble** labs, leave location **network checks from restore-engine** off and rely on **QGA** (Windows/Linux). Enable HTTP-from-RE only when the orchestrator can reach guest IPs.
 - **DR mode** keeps source VMIDs — confirm explicitly; do not run against a live cluster without a runbook.
+- Keep **Cleanup** disabled until operators need batch destroy; teardown still reclaims owned drill guests for a run.
 
 ## Further reading
 

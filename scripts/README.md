@@ -11,7 +11,8 @@ Lab scripts read **`config.yaml`** (or `RESTORE_ENGINE_CONFIG`) from your workin
 | `build-offline-bundle.sh` | Build amd64 offline Docker bundle (see DOCKER.md) |
 | `smoke-ui.sh` / `smoke-ui.cjs` | Headless Chromium UI smoke on the lab VM (Docker; does not change the app) |
 | `capture-ui-shots.sh` / `capture-ui-shots.cjs` | Blurred UI screenshots for docs (private fields CSS-blurred) |
-| `cleanup.py` | On a Proxmox node: list, then destroy cluster QEMU guests tagged `restore-engine` |
+| `lab-mac.sh` | Mac lab: Redis in Docker, api/worker on the Mac (VPN-reachable PBS) |
+| `cleanup.py` | On a Proxmox node: destroy QEMU guests for a **batch** (`--batch re-<id>`); dual-tag gate |
 | `add-ha.py` | On a Proxmox node: list, then add every cluster QEMU VM to HA |
 
 ### Lab networking (PBS on VPN)
@@ -30,12 +31,14 @@ Keep `pbs_servers[].host` as the real PBS IP (e.g. `192.168.65.78`), not `host.d
 
 ### Cleanup restored VMs (on a Proxmox node)
 
-Copy `cleanup.py` to any node and run it as root with `python3`. It scans the cluster (`/etc/pve/nodes/*/qemu-server`) for the `restore-engine` tag, prints every match, and destroys those QEMU guests only after you type `yes`. LXC containers are listed and skipped. PBS backups are not touched.
+Prefer the UI **Cleanup** tab or `/api/cleanup/*` when `ui.plan_run_cleanup_enabled` is on (uses the plan run `batch_id`).
+
+Node-side helper: copy `cleanup.py` to any node and run as root. **Requires `--batch`** (`re-<12hex>` or bare hex). Guests must carry both `restore-engine` and that batch tag. LXC skipped; PBS untouched.
 
 ```bash
-python3 cleanup.py --dry-run   # print the list
-python3 cleanup.py             # print the list, then ask
-python3 cleanup.py --yes       # print the list, then delete
+python3 cleanup.py --batch re-a1b2c3d4e5f6 --dry-run
+python3 cleanup.py --batch a1b2c3d4e5f6          # ask before destroy
+python3 cleanup.py --batch re-a1b2c3d4e5f6 --yes
 ```
 
 ### Add cluster VMs to HA (on a Proxmox node)
