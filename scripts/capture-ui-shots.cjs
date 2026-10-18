@@ -31,6 +31,11 @@ const BLUR_CSS = `
   #groups-status,
   #locations-status,
   #plans-status,
+  #cleanup-status,
+  #assurance-status,
+  #compliance-status,
+  #cleanup-preview-list,
+  #cleanup-progress-list,
   .stat-chip strong,
   input, textarea, select,
   .vm-table td,
@@ -88,6 +93,21 @@ async function main() {
       }, { timeout: 15000 });
     }
 
+    // Dismiss auto-opened Connection setup wizard, then unlock backups
+    // via Settings → continue (sets credentialsVerified in-page).
+    await sleep(1500);
+    await page.evaluate(() => {
+      const modal = document.getElementById("setup-wizard-modal");
+      if (modal && modal.classList.contains("show")) {
+        document.getElementById("wiz-cancel-1")?.click();
+        modal.classList.remove("show");
+      }
+    });
+    await sleep(300);
+    await clickId(page, "nav-credentials");
+    await page.evaluate(() => document.getElementById("btn-continue-backups")?.click());
+    await sleep(2000);
+
     await page.addStyleTag({ content: BLUR_CSS });
 
     const shots = [
@@ -98,6 +118,9 @@ async function main() {
       ["05-assurance", "nav-assurance"],
       ["06-help", "nav-help"],
       ["07-settings", "nav-credentials"],
+      ["09-cleanup", "nav-cleanup"],
+      ["10-compliance", "nav-compliance"],
+      ["11-backups", "nav-backups"],
     ];
 
     for (const [name, nav] of shots) {

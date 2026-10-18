@@ -11,7 +11,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$ROOT/scripts/capture-ui-shots.cjs"
 CONFIG="${RE_CONFIG:-$ROOT/config.docker.yaml}"
-URL="${RE_UI_URL:-http://127.0.0.1:8006}"
+# Lab defaults: host-network / lab-mac → :8000; some utility hosts still use :8006.
+URL="${RE_UI_URL:-http://127.0.0.1:8000}"
 IMAGE="${RE_SMOKE_IMAGE:-zenika/alpine-chrome:with-puppeteer}"
 OUT="${RE_SHOT_DIR:-$ROOT/docs/screenshots/ui}"
 
@@ -41,9 +42,20 @@ PY
 )"
 export RE_UI_PASSWORD
 
+# Docker Desktop (Mac): --network host is the Linux VM, not the Mac loopback.
+# Reach lab-mac / host-bound UI via host.docker.internal instead.
+RUN_ARGS=(run --rm --user root)
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  if [[ "$URL" == *"127.0.0.1"* ]] || [[ "$URL" == *"localhost"* ]]; then
+    URL="${URL/127.0.0.1/host.docker.internal}"
+    URL="${URL/localhost/host.docker.internal}"
+  fi
+else
+  RUN_ARGS+=(--network host)
+fi
+
 echo "UI screenshots → $URL → $OUT"
-docker run --rm --network host \
-  --user root \
+docker "${RUN_ARGS[@]}" \
   -e RE_UI_URL="$URL" \
   -e RE_UI_PASSWORD \
   -e RE_SHOT_DIR=/shots \

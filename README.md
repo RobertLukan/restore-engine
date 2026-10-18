@@ -23,9 +23,15 @@ Lab screenshots with private fields blurred (names, IDs, form values). More in [
 </p>
 
 <p align="center">
+  <img src="docs/screenshots/ui/09-cleanup.png" alt="Cleanup batch destroy" width="900" />
+  <br />
+  <em>Cleanup — opt-in batch destroy for plan-run tagged guests</em>
+</p>
+
+<p align="center">
   <img src="docs/screenshots/ui/06-help.png" alt="In-app Help getting started" width="900" />
   <br />
-  <em>Help — Location → Group → Plan getting-started flow</em>
+  <em>Help — Location → Group → Plan getting-started flow (includes Cleanup)</em>
 </p>
 
 ## Features

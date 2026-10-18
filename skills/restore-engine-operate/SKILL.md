@@ -1,6 +1,10 @@
 ---
 name: restore-engine-operate
-description: Operate restore-engine via HTTP API like the web UI (backups, restores, plans, cleanup, jobs). Use when restoring or managing plans from OpenClaw.
+description: >
+  Operate restore-engine via HTTP API (backups, restores, plans, cleanup, jobs).
+  Use whenever the user mentions restore-engine, PBS/PVE restores, drills, or plans.
+  Always call re-api.sh / Bearer API first — never docker inspect, redis containers,
+  or memory search to discover the deployment.
 compatibility: Cursor Agent Skills + OpenClaw. Needs network to restore-engine URL; Bearer operator token.
 metadata:
   openclaw:
