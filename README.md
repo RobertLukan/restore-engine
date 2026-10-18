@@ -34,7 +34,7 @@ Lab screenshots with private fields blurred (names, IDs, form values). More in [
 - List VM backups across every server, datastore, and namespace (each row shows its source)
 - Select multiple backups at once (checkboxes + row click)
 - Bulk restore with load-balanced nodes, per-node storage, VMID allocation, live restore, bandwidth limit
-- **Recovery plans**: groups, locations, ordered runs, readiness check + VERIFIED gate, compliance reports (RTO)
+- **Recovery plans**: groups, locations, ordered runs, readiness check + VERIFIED gate, optional **add to HA** after restore, compliance reports (RTO)
 - **Drills**: powered-off restore, optional auto-teardown, optional schedule (interval hours)
 - **Assurance**: policy on plans (require QGA/HTTP, max RTO); drill outcomes set ASSURED/FAILED; dashboard + Assure now
 - **Compliance**: read-only posture rollup (readiness + assurance + schedule + evidence links)
@@ -44,7 +44,9 @@ Lab screenshots with private fields blurred (names, IDs, form values). More in [
 - **DR overwrite**: destroy existing VMID then restore (explicit confirm; owned guests only)
 - **Email / webhook notifications** on readiness fail, plan-run terminal, optional ad-hoc job fail
 - Redis-backed **concurrency slots**, job **TTL**, **audit log**, optional **API tokens** (operator/viewer)
-- Track per-job progress and logs via Redis + worker
+- **Largest-first enqueue** within each batch (ad-hoc or one plan group) so big VMs claim slots first; plan groups stay sequential
+- **One plan run at a time** — starting Run / Drill / Assure while another plan is RUNNING returns HTTP 409
+- Track per-job progress and logs via Redis + worker; Restores tab lists newest jobs first (Load more) and can **Clear finished**
 - Ownership stamp after restore (required for reclaim/teardown); stamp failure fails the job
 
 ## Multiple PBS servers, datastores, and namespaces

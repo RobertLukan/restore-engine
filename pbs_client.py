@@ -192,6 +192,7 @@ def _list_source_backups(source: Source) -> list[dict[str, Any]]:
                 "source_id": source.source_id,
                 "source_label": source.label,
                 "pve_storage": source.pve_storage,
+                "pve_cluster_id": source.pve_cluster_id,
                 # PBS snapshot ``size`` = sum of archive sizes from the manifest (gross).
                 "size_bytes": size_bytes,
             }

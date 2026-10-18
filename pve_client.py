@@ -95,23 +95,18 @@ def parse_tags(config_text: str) -> list[str]:
     return out
 
 
-def extract_vm_config(proxmox: ProxmoxAPI, node: str, volid: str) -> str:
-    """Return the stored guest config for a PBS backup volid via PVE extractconfig.
+def connect_proxmox(cfg: dict[str, Any], cluster_id: str | None = None) -> ProxmoxAPI:
+    """Connect to a Proxmox VE cluster.
 
-    Works through PVE (which holds the storage's decryption key), so it also
-    covers encrypted datastores. The guest ``tags`` live in this config, not in
-    the PBS snapshot listing.
+    ``cluster_id`` selects from ``pve_clusters`` (or the legacy ``proxmox:`` shim).
+    When omitted, the default/first cluster is used.
     """
-    result: Any = proxmox.nodes(node).vzdump.extractconfig.get(volume=volid)
-    if isinstance(result, str):
-        return result
-    if isinstance(result, dict):
-        return str(result.get("data") or "")
-    return str(result or "")
+    from clusters import get_pve_cluster
 
-
-def connect_proxmox(cfg: dict[str, Any]) -> ProxmoxAPI:
-    p = cfg["proxmox"]
+    try:
+        p = get_pve_cluster(cfg, cluster_id)
+    except KeyError as exc:
+        raise ValueError(str(exc)) from exc
     try:
         timeout = float(p.get("timeout_sec", 30) or 30)
     except (TypeError, ValueError):
@@ -137,7 +132,10 @@ def connect_proxmox(cfg: dict[str, Any]) -> ProxmoxAPI:
     user = (p.get("user") or "").strip()
     password = (p.get("password") or "").strip()
     if not user or not password:
-        raise ValueError("proxmox: set api_token_id/api_token_secret or user/password in config.yaml")
+        raise ValueError(
+            "pve cluster: set api_token_id/api_token_secret or user/password "
+            f"(cluster_id={p.get('id') or cluster_id or 'default'})"
+        )
     return ProxmoxAPI(
         host=p["host"],
         user=user,
@@ -148,10 +146,13 @@ def connect_proxmox(cfg: dict[str, Any]) -> ProxmoxAPI:
     )
 
 
-def test_proxmox_connection(cfg: dict[str, Any]) -> tuple[bool, str]:
+def test_proxmox_connection(
+    cfg: dict[str, Any], cluster_id: str | None = None
+) -> tuple[bool, str]:
     try:
-        connect_proxmox(cfg).version.get()
-        return True, "Proxmox API reachable."
+        connect_proxmox(cfg, cluster_id=cluster_id).version.get()
+        label = (cluster_id or "").strip() or "default"
+        return True, f"Proxmox API reachable ({label})."
     except Exception as exc:
         return False, public_error_message(exc, prefix="Proxmox connection failed")
 
@@ -366,6 +367,25 @@ def wait_for_qemu_agent(
         time.sleep(max(0.5, float(poll_interval_sec)))
 
 
+def _extract_upid(result: Any) -> str:
+    """Normalize proxmoxer delete/create responses into a UPID string."""
+    if result is None:
+        return ""
+    if isinstance(result, str):
+        text = result.strip()
+        return text if text.upper().startswith("UPID:") else ""
+    if isinstance(result, dict):
+        for key in ("data", "upid"):
+            val = result.get(key)
+            if isinstance(val, str) and val.strip().upper().startswith("UPID:"):
+                return val.strip()
+            if isinstance(val, dict):
+                nested = val.get("upid") or val.get("data")
+                if isinstance(nested, str) and nested.strip().upper().startswith("UPID:"):
+                    return nested.strip()
+    return ""
+
+
 def destroy_qemu_vm(
     proxmox: ProxmoxAPI,
     node: str,
@@ -373,10 +393,19 @@ def destroy_qemu_vm(
     *,
     purge: bool = True,
     destroy_unreferenced_disks: bool = True,
-) -> None:
+    wait: bool = True,
+    timeout_sec: float = 0.0,
+    poll_interval_sec: float = 3.0,
+    should_cancel: Callable[[], bool] | None = None,
+    on_tick: Callable[[dict[str, Any], list[str]], None] | None = None,
+) -> str:
     """Destroy a QEMU VM. Stops first when needed; raises on hard API failures.
 
+    When ``wait`` is True (default), poll the delete task UPID until storage reclaim
+    finishes. ``timeout_sec`` <= 0 means wait indefinitely (8TiB-safe).
+
     Prefer :func:`destroy_owned_qemu_vm` so foreign cluster guests are never removed.
+    Returns the delete UPID when known, else empty string.
     """
     vmid = int(vmid)
     node = str(node).strip()
@@ -389,16 +418,19 @@ def destroy_qemu_vm(
     if destroy_unreferenced_disks:
         params["destroy-unreferenced-disks"] = 1
     last_exc: Exception | None = None
+    upid = ""
     for attempt in range(3):
         try:
-            proxmox.nodes(node).qemu(vmid).delete(**params)
-            return
+            result = proxmox.nodes(node).qemu(vmid).delete(**params)
+            upid = _extract_upid(result)
+            break
         except TypeError:
             # Older proxmoxer / API may not accept destroy-unreferenced-disks.
             params.pop("destroy-unreferenced-disks", None)
             try:
-                proxmox.nodes(node).qemu(vmid).delete(**params)
-                return
+                result = proxmox.nodes(node).qemu(vmid).delete(**params)
+                upid = _extract_upid(result)
+                break
             except Exception as exc:
                 last_exc = exc
         except Exception as exc:
@@ -409,17 +441,103 @@ def destroy_qemu_vm(
                 time.sleep(2)
                 continue
             raise
-    if last_exc:
-        raise last_exc
+    else:
+        if last_exc:
+            raise last_exc
+        return upid
+
+    if wait:
+        if upid:
+            wait_for_task(
+                proxmox,
+                node,
+                upid,
+                poll_interval_sec=poll_interval_sec,
+                timeout_sec=timeout_sec,
+                should_cancel=should_cancel,
+                on_tick=on_tick,
+            )
+        else:
+            # No UPID — poll until the guest resource disappears.
+            _wait_until_qemu_gone(
+                proxmox,
+                node,
+                vmid,
+                timeout_sec=timeout_sec,
+                poll_interval_sec=poll_interval_sec,
+                should_cancel=should_cancel,
+            )
+    return upid
+
+
+def _wait_until_qemu_gone(
+    proxmox: ProxmoxAPI,
+    node: str,
+    vmid: int,
+    *,
+    timeout_sec: float = 0.0,
+    poll_interval_sec: float = 3.0,
+    should_cancel: Callable[[], bool] | None = None,
+) -> None:
+    try:
+        timeout = float(timeout_sec)
+    except (TypeError, ValueError):
+        timeout = 0.0
+    deadline = None if timeout <= 0 else time.time() + timeout
+    while deadline is None or time.time() < deadline:
+        if should_cancel is not None and should_cancel():
+            raise TaskCancelled(f"Destroy wait cancelled for VMID {vmid}")
+        guest = find_guest_resource(proxmox, int(vmid))
+        if not guest:
+            return
+        time.sleep(max(0.5, float(poll_interval_sec)))
+    raise TimeoutError(
+        f"QEMU VMID {vmid} on {node} did not disappear within {timeout:.0f}s after delete"
+    )
 
 
 # Guests restored by this tool are tagged so destroy/teardown never touches foreign VMs/LXCs.
 MANAGED_TAG = "restore-engine"
 MANAGED_DESC_PREFIX = "restore-engine:"
+BATCH_TAG_PREFIX = "re-"
+_BATCH_HEX_RE = re.compile(r"[^0-9a-fA-F]")
 
 
 class GuestOwnershipError(RuntimeError):
     """Raised when refusing to destroy a guest not provisioned by restore-engine."""
+
+
+def batch_id_from_plan_run_id(plan_run_id: str) -> str:
+    """Short batch id: first 12 hex chars of the plan run id (UUID-safe)."""
+    hex_only = _BATCH_HEX_RE.sub("", str(plan_run_id or ""))
+    return hex_only[:12].lower()
+
+
+def normalize_batch_id(raw: str) -> str:
+    """Accept ``re-abc…`` or bare hex; return lowercase hex batch id (no prefix)."""
+    text = str(raw or "").strip().lower()
+    if text.startswith(BATCH_TAG_PREFIX):
+        text = text[len(BATCH_TAG_PREFIX) :]
+    text = _BATCH_HEX_RE.sub("", text)
+    if not text:
+        raise ValueError("batch_id is required")
+    return text
+
+
+def batch_tag_for_id(batch_id: str) -> str:
+    """Proxmox tag form ``re-<batch_id>``."""
+    return f"{BATCH_TAG_PREFIX}{normalize_batch_id(batch_id)}"
+
+
+def destroy_task_timeout_sec(cfg: dict[str, Any] | None) -> float:
+    """``worker.destroy_task_timeout_sec``; default 0 = unlimited."""
+    worker = (cfg or {}).get("worker") if isinstance(cfg, dict) else {}
+    if not isinstance(worker, dict):
+        return 0.0
+    try:
+        return max(0.0, float(worker.get("destroy_task_timeout_sec", 0) or 0))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _qemu_tags_from_config(cfg: dict[str, Any]) -> list[str]:
@@ -444,17 +562,74 @@ def _qemu_tags_from_config(cfg: dict[str, Any]) -> list[str]:
     return out
 
 
+def _config_is_managed(cfg: dict[str, Any]) -> bool:
+    tags = {t.lower() for t in _qemu_tags_from_config(cfg)}
+    if MANAGED_TAG.lower() in tags:
+        return True
+    desc = str(cfg.get("description") or "")
+    return MANAGED_DESC_PREFIX in desc
+
+
+def _config_matches_batch(
+    cfg: dict[str, Any],
+    *,
+    batch_id: str = "",
+    plan_run_id: str = "",
+) -> bool:
+    """True when config has batch tag ``re-<id>`` or description ``run=<plan_run_id>``."""
+    want_batch = ""
+    if batch_id:
+        try:
+            want_batch = normalize_batch_id(batch_id)
+        except ValueError:
+            want_batch = ""
+    tags = {t.lower() for t in _qemu_tags_from_config(cfg)}
+    if want_batch and f"{BATCH_TAG_PREFIX}{want_batch}" in tags:
+        return True
+    desc = str(cfg.get("description") or "")
+    run_id = str(plan_run_id or "").strip()
+    if run_id and f"run={run_id}" in desc:
+        return True
+    # Derive plan-run match from batch when only batch is known (description may use full UUID).
+    if want_batch and f"run=" in desc:
+        # Soft match: description run= value's hex prefix equals batch.
+        for part in desc.replace(";", "\n").split("\n"):
+            if "run=" not in part:
+                continue
+            after = part.split("run=", 1)[1]
+            token = after.split(";")[0].strip()
+            if token and batch_id_from_plan_run_id(token) == want_batch:
+                return True
+    return False
+
+
 def qemu_is_managed_by_tool(proxmox: ProxmoxAPI, node: str, vmid: int) -> bool:
     """True when the QEMU guest carries the restore-engine ownership marker."""
     try:
         cfg = get_qemu_config(proxmox, node, int(vmid))
     except Exception:
         return False
-    tags = {t.lower() for t in _qemu_tags_from_config(cfg)}
-    if MANAGED_TAG.lower() in tags:
-        return True
-    desc = str(cfg.get("description") or "")
-    return MANAGED_DESC_PREFIX in desc
+    return _config_is_managed(cfg)
+
+
+def qemu_matches_batch(
+    proxmox: ProxmoxAPI,
+    node: str,
+    vmid: int,
+    *,
+    batch_id: str = "",
+    plan_run_id: str = "",
+) -> bool:
+    """True when guest is tool-managed and matches the batch / plan-run markers."""
+    try:
+        cfg = get_qemu_config(proxmox, node, int(vmid))
+    except Exception:
+        return False
+    if not _config_is_managed(cfg):
+        return False
+    if not batch_id and not plan_run_id:
+        return False
+    return _config_matches_batch(cfg, batch_id=batch_id, plan_run_id=plan_run_id)
 
 
 def mark_qemu_managed_by_tool(
@@ -464,14 +639,30 @@ def mark_qemu_managed_by_tool(
     *,
     job_id: str = "",
     plan_run_id: str = "",
+    batch_id: str = "",
 ) -> None:
-    """Stamp a restored QEMU so later teardown/overwrite can prove tool ownership."""
+    """Stamp a restored QEMU so later teardown/overwrite can prove tool ownership.
+
+    Adds tag ``restore-engine`` and, when a plan run / batch is known, ``re-<batch_id>``.
+    """
     vmid = int(vmid)
     node = str(node).strip()
     cfg = get_qemu_config(proxmox, node, vmid)
     tags = _qemu_tags_from_config(cfg)
-    if MANAGED_TAG not in tags and MANAGED_TAG.lower() not in {t.lower() for t in tags}:
+    tag_lower = {t.lower() for t in tags}
+    if MANAGED_TAG.lower() not in tag_lower:
         tags.append(MANAGED_TAG)
+        tag_lower.add(MANAGED_TAG.lower())
+    resolved_batch = str(batch_id or "").strip()
+    if not resolved_batch and plan_run_id:
+        resolved_batch = batch_id_from_plan_run_id(plan_run_id)
+    if resolved_batch:
+        try:
+            btag = batch_tag_for_id(resolved_batch)
+        except ValueError:
+            btag = ""
+        if btag and btag.lower() not in tag_lower:
+            tags.append(btag)
     meta = f"job={job_id or '-'};run={plan_run_id or '-'}"
     desc = str(cfg.get("description") or "").strip()
     marker = f"{MANAGED_DESC_PREFIX}{meta}"
@@ -485,20 +676,75 @@ def mark_qemu_managed_by_tool(
     proxmox.nodes(node).qemu(vmid).config.put(tags=";".join(tags), description=desc)
 
 
+def list_qemu_matching_batch(
+    proxmox: ProxmoxAPI,
+    *,
+    batch_id: str,
+    plan_run_id: str = "",
+) -> list[dict[str, Any]]:
+    """Scan cluster QEMU guests for dual-tag match (managed + batch)."""
+    want = normalize_batch_id(batch_id)
+    out: list[dict[str, Any]] = []
+    for row in _cluster_vm_resources(proxmox):
+        typ = str(row.get("type") or "").strip().lower() or "qemu"
+        if typ != "qemu":
+            continue
+        try:
+            vmid = int(row.get("vmid"))
+        except (TypeError, ValueError):
+            continue
+        node = str(row.get("node") or "").strip()
+        if not node:
+            continue
+        try:
+            cfg = get_qemu_config(proxmox, node, vmid)
+        except Exception:
+            continue
+        if not _config_is_managed(cfg):
+            continue
+        if not _config_matches_batch(cfg, batch_id=want, plan_run_id=plan_run_id):
+            continue
+        out.append(
+            {
+                "vmid": vmid,
+                "node": node,
+                "name": str(row.get("name") or cfg.get("name") or ""),
+                "status": str(row.get("status") or ""),
+                "batch_id": want,
+                "batch_tag": batch_tag_for_id(want),
+            }
+        )
+    out.sort(key=lambda g: (g["node"], g["vmid"]))
+    return out
+
+
 def destroy_owned_qemu_vm(
     proxmox: ProxmoxAPI,
     node: str,
     vmid: int,
     *,
     allow_run_provenance: bool = False,
+    batch_id: str = "",
+    plan_run_id: str = "",
+    require_batch: bool = False,
     purge: bool = True,
     destroy_unreferenced_disks: bool = True,
+    wait: bool = True,
+    timeout_sec: float = 0.0,
+    poll_interval_sec: float = 3.0,
+    should_cancel: Callable[[], bool] | None = None,
+    on_tick: Callable[[dict[str, Any], list[str]], None] | None = None,
 ) -> str:
     """Destroy a QEMU VM only when restore-engine owns it.
 
     Never destroys LXC. Refuses unmarked foreign QEMU unless ``allow_run_provenance``
     is True (caller already proved this plan-run/job provisioned the VMID).
-    Returns a short reason string for logs (``managed`` / ``run_provenance``).
+
+    When ``require_batch`` is True, ownership alone is not enough: the guest must
+    match ``re-<batch_id>`` or description ``run=<plan_run_id>``, unless
+    ``allow_run_provenance`` covers an unmarked leftover from that run.
+
+    Returns a short reason string for logs (``managed`` / ``run_provenance`` / ``absent``).
     """
     vmid = int(vmid)
     node = str(node).strip()
@@ -512,32 +758,64 @@ def destroy_owned_qemu_vm(
             f"Refusing to destroy VMID {vmid}: unsupported guest type {guest.get('type')!r}"
         )
     if not guest:
-        # Already gone — treat as success for teardown callers.
         return "absent"
-    # Prefer the resource node when known.
     node = str(guest.get("node") or node).strip()
     managed = False
     try:
         managed = qemu_is_managed_by_tool(proxmox, node, vmid)
     except Exception:
         managed = False
+
+    batch_ok = False
+    if batch_id or plan_run_id:
+        try:
+            batch_ok = qemu_matches_batch(
+                proxmox, node, vmid, batch_id=batch_id, plan_run_id=plan_run_id
+            )
+        except Exception:
+            batch_ok = False
+
+    if require_batch:
+        if not (batch_id or plan_run_id):
+            raise GuestOwnershipError(
+                f"Refusing to destroy VMID {vmid}: batch_id or plan_run_id required"
+            )
+        if not batch_ok and not allow_run_provenance:
+            raise GuestOwnershipError(
+                f"Refusing to destroy VMID {vmid} on {node}: does not match batch "
+                f"{batch_tag_for_id(batch_id) if batch_id else '(none)'} / run={plan_run_id or '-'}"
+            )
+        if not managed and not allow_run_provenance:
+            raise GuestOwnershipError(
+                f"Refusing to destroy VMID {vmid} on {node}: not provisioned by restore-engine "
+                f"(missing '{MANAGED_TAG}' marker)."
+            )
+        if not managed and allow_run_provenance and not batch_ok:
+            # Unmarked leftover known from this plan-run's job list.
+            pass
+        elif managed and not batch_ok and not allow_run_provenance:
+            raise GuestOwnershipError(
+                f"Refusing to destroy VMID {vmid} on {node}: managed but wrong batch"
+            )
+
+    destroy_kwargs: dict[str, Any] = {
+        "purge": purge,
+        "destroy_unreferenced_disks": destroy_unreferenced_disks,
+        "wait": wait,
+        "timeout_sec": timeout_sec,
+        "poll_interval_sec": poll_interval_sec,
+        "should_cancel": should_cancel,
+        "on_tick": on_tick,
+    }
     if managed:
-        destroy_qemu_vm(
-            proxmox,
-            node,
-            vmid,
-            purge=purge,
-            destroy_unreferenced_disks=destroy_unreferenced_disks,
-        )
+        if require_batch and not batch_ok and not allow_run_provenance:
+            raise GuestOwnershipError(
+                f"Refusing to destroy VMID {vmid} on {node}: batch mismatch"
+            )
+        destroy_qemu_vm(proxmox, node, vmid, **destroy_kwargs)
         return "managed"
     if allow_run_provenance:
-        destroy_qemu_vm(
-            proxmox,
-            node,
-            vmid,
-            purge=purge,
-            destroy_unreferenced_disks=destroy_unreferenced_disks,
-        )
+        destroy_qemu_vm(proxmox, node, vmid, **destroy_kwargs)
         return "run_provenance"
     raise GuestOwnershipError(
         f"Refusing to destroy VMID {vmid} on {node}: not provisioned by restore-engine "
@@ -840,6 +1118,26 @@ def fetch_task_log(
     return lines, next_start
 
 
+def pve_exitstatus_is_success(exitstatus: str | None) -> bool:
+    """Return True when a stopped PVE task should be treated as successful.
+
+    Proxmox uses ``OK`` for clean success. Soft outcomes such as
+    ``WARNINGS: 1`` (e.g. OVMF start without a persistent EFI disk) still mean
+    the task completed — operators should see the warning in the task log, but
+    restore-engine must not mark the job FAILED.
+    """
+    text = str(exitstatus or "").strip()
+    if not text:
+        return True
+    low = text.lower()
+    if low == "ok":
+        return True
+    # Exact Proxmox soft-success form: "WARNINGS: N"
+    if low.startswith("warnings:"):
+        return True
+    return False
+
+
 def wait_for_task(
     proxmox: ProxmoxAPI,
     node: str,
@@ -857,6 +1155,9 @@ def wait_for_task(
 
     ``on_tick(status, new_log_lines)`` is invoked on each poll while running
     (and once more with final status when stopped, with any remaining log lines).
+
+    Warning-only exit statuses (``WARNINGS: N``) are treated as success; only
+    real task errors raise ``RuntimeError``.
     """
     try:
         timeout = float(timeout_sec)
@@ -881,7 +1182,7 @@ def wait_for_task(
                 pass
         if state == "stopped":
             exitstatus = str(status.get("exitstatus") or "")
-            if exitstatus and exitstatus.lower() != "ok":
+            if not pve_exitstatus_is_success(exitstatus):
                 raise RuntimeError(_explain_pve_task_failure(exitstatus))
             return status
         time.sleep(poll_interval_sec)
@@ -899,3 +1200,87 @@ def _explain_pve_task_failure(exitstatus: str) -> str:
             "credentials, or remove passthrough from the source before backup."
         )
     return msg
+
+
+def ha_resource_sid(vmid: int) -> str:
+    """Canonical HA resource id for a QEMU guest (``vm:100``)."""
+    return f"vm:{int(vmid)}"
+
+
+def list_ha_resource_sids(proxmox: ProxmoxAPI) -> set[str]:
+    """Return HA resource sids currently registered in the cluster."""
+    raw: Any = proxmox.cluster.ha.resources.get()
+    rows = raw if isinstance(raw, list) else (raw.get("data") if isinstance(raw, dict) else None)
+    if not isinstance(rows, list):
+        return set()
+    out: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        sid = str(row.get("sid") or "").strip()
+        if sid:
+            out.add(sid)
+            continue
+        # Some responses expose type + vmid separately.
+        try:
+            vmid = int(row.get("vmid"))
+        except (TypeError, ValueError):
+            continue
+        rtype = str(row.get("type") or "vm").strip().lower() or "vm"
+        out.add(f"{rtype}:{vmid}")
+    return out
+
+
+def qemu_in_ha(proxmox: ProxmoxAPI, vmid: int) -> bool:
+    """True when ``vm:{vmid}`` (or bare VMID shortcut) is already an HA resource."""
+    sid = ha_resource_sid(vmid)
+    bare = str(int(vmid))
+    sids = list_ha_resource_sids(proxmox)
+    return sid in sids or bare in sids
+
+
+def add_qemu_to_ha(
+    proxmox: ProxmoxAPI,
+    vmid: int,
+    *,
+    state: str = "started",
+    group: str = "",
+) -> str:
+    """Register a QEMU guest with HA manager.
+
+    ``state`` should be ``started`` or ``stopped`` (match current power so HA
+    does not unexpectedly boot a powered-off restore). Optional ``group`` is a
+    PVE HA group id.
+
+    Returns ``added`` or ``already``. Raises on API failure.
+    """
+    vmid = int(vmid)
+    want = (state or "started").strip().lower()
+    if want not in {"started", "stopped", "disabled", "ignored"}:
+        want = "started"
+    if qemu_in_ha(proxmox, vmid):
+        return "already"
+    params: dict[str, Any] = {
+        "sid": ha_resource_sid(vmid),
+        "type": "vm",
+        "state": want,
+    }
+    grp = (group or "").strip()
+    if grp:
+        params["group"] = grp
+    proxmox.cluster.ha.resources.post(**params)
+    return "added"
+
+
+def remove_qemu_from_ha(proxmox: ProxmoxAPI, vmid: int) -> str:
+    """Remove a QEMU guest from HA if present. Returns ``removed`` or ``absent``."""
+    vmid = int(vmid)
+    if not qemu_in_ha(proxmox, vmid):
+        return "absent"
+    sid = ha_resource_sid(vmid)
+    try:
+        proxmox.cluster.ha.resources(sid).delete()
+    except Exception:
+        # Some clusters accept the bare VMID path instead of ``vm:N``.
+        proxmox.cluster.ha.resources(str(vmid)).delete()
+    return "removed"

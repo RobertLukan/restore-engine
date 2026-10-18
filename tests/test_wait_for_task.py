@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from pve_client import wait_for_task
+from pve_client import pve_exitstatus_is_success, wait_for_task
 from worker import task_timeout_sec
 
 
@@ -49,6 +49,24 @@ class _FakeProxmox:
         self.nodes = _FakeNodes(task)
 
 
+@pytest.mark.parametrize(
+    ("exitstatus", "ok"),
+    [
+        ("", True),
+        ("OK", True),
+        ("ok", True),
+        ("WARNINGS: 1", True),
+        ("warnings: 2", True),
+        ("WARNINGS: 1 — no efidisk configured", True),
+        ("command failed: storage missing", False),
+        ("TASK ERROR: start failed", False),
+        ("unexpected", False),
+    ],
+)
+def test_pve_exitstatus_is_success(exitstatus: str, ok: bool) -> None:
+    assert pve_exitstatus_is_success(exitstatus) is ok
+
+
 def test_wait_for_task_timeout_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     task = _FakeTask([{"status": "running"}])
     prox = _FakeProxmox(task)
@@ -85,6 +103,32 @@ def test_wait_for_task_zero_timeout_waits_until_stopped(monkeypatch: pytest.Monk
     status = wait_for_task(prox, "pve", "UPID:x", poll_interval_sec=0.01, timeout_sec=0)  # type: ignore[arg-type]
     assert status["status"] == "stopped"
     assert task.calls >= 3
+
+
+def test_wait_for_task_warnings_are_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OVMF start without EFI disk ends as WARNINGS: N — must not fail the job."""
+    task = _FakeTask(
+        [
+            {"status": "running"},
+            {"status": "stopped", "exitstatus": "WARNINGS: 1"},
+        ]
+    )
+    prox = _FakeProxmox(task)
+    monkeypatch.setattr("pve_client.fetch_task_log", lambda *a, **k: ([], 0))
+    monkeypatch.setattr("pve_client.time.sleep", lambda *_a, **_k: None)
+
+    status = wait_for_task(prox, "pve", "UPID:x", poll_interval_sec=0.01, timeout_sec=0)  # type: ignore[arg-type]
+    assert status["exitstatus"] == "WARNINGS: 1"
+
+
+def test_wait_for_task_real_error_still_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    task = _FakeTask([{"status": "stopped", "exitstatus": "command failed: boom"}])
+    prox = _FakeProxmox(task)
+    monkeypatch.setattr("pve_client.fetch_task_log", lambda *a, **k: ([], 0))
+    monkeypatch.setattr("pve_client.time.sleep", lambda *_a, **_k: None)
+
+    with pytest.raises(RuntimeError, match="PVE task failed"):
+        wait_for_task(prox, "pve", "UPID:x", poll_interval_sec=0.01, timeout_sec=0)  # type: ignore[arg-type]
 
 
 def test_task_timeout_sec_defaults_unlimited() -> None:

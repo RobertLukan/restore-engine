@@ -20,9 +20,11 @@ Config schema (new)::
         mounts:
           - datastore: main
             namespace: ""          # root namespace
+            pve_cluster_id: default  # which PVE cluster hosts this PBS storage
             pve_storage: pbs-main
           - datastore: main
             namespace: team-a
+            pve_cluster_id: default
             pve_storage: pbs-main-teamA
 
 Legacy schema (still supported) is a single ``pbs:`` block plus
@@ -33,6 +35,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+
+from clusters import DEFAULT_CLUSTER_ID, default_pve_cluster_id, normalize_mount_cluster_id
 
 
 @dataclass(frozen=True)
@@ -50,6 +54,7 @@ class Source:
     datastore: str
     namespace: str          # "" == root namespace
     pve_storage: str        # PVE storage ID bound to (datastore, namespace)
+    pve_cluster_id: str = DEFAULT_CLUSTER_ID  # which PVE cluster owns pve_storage
 
 
 def _norm_ns(value: Any) -> str:
@@ -66,7 +71,9 @@ def _source_label(server_id: str, datastore: str, namespace: str) -> str:
     return f"{server_id} · {datastore}{ns_part}"
 
 
-def _sources_from_server(server: dict[str, Any], index: int) -> list[Source]:
+def _sources_from_server(
+    server: dict[str, Any], index: int, *, default_cluster_id: str = DEFAULT_CLUSTER_ID
+) -> list[Source]:
     server_id = str(server.get("id") or f"pbs{index + 1}").strip() or f"pbs{index + 1}"
     host = str(server.get("host") or "").strip()
     port = int(server.get("port", 8007) or 8007)
@@ -84,6 +91,9 @@ def _sources_from_server(server: dict[str, Any], index: int) -> list[Source]:
         if not datastore or not pve_storage:
             continue
         namespace = _norm_ns(mount.get("namespace"))
+        cluster_id = normalize_mount_cluster_id(
+            mount.get("pve_cluster_id"), default=default_cluster_id
+        )
         out.append(
             Source(
                 source_id=_make_source_id(server_id, datastore, namespace),
@@ -99,6 +109,7 @@ def _sources_from_server(server: dict[str, Any], index: int) -> list[Source]:
                 datastore=datastore,
                 namespace=namespace,
                 pve_storage=pve_storage,
+                pve_cluster_id=cluster_id,
             )
         )
     return out
@@ -111,6 +122,7 @@ def _legacy_sources(cfg: dict[str, Any]) -> list[Source]:
     pve_storage = str((cfg.get("proxmox") or {}).get("pbs_storage") or "").strip()
     if not host and not datastore:
         return []
+    cluster_id = default_pve_cluster_id(cfg)
     server = {
         "id": "pbs",
         "host": host,
@@ -120,19 +132,29 @@ def _legacy_sources(cfg: dict[str, Any]) -> list[Source]:
         "api_token_secret": pbs.get("api_token_secret", ""),
         "user": pbs.get("user", ""),
         "password": pbs.get("password", ""),
-        "mounts": [{"datastore": datastore, "namespace": "", "pve_storage": pve_storage}],
+        "mounts": [
+            {
+                "datastore": datastore,
+                "namespace": "",
+                "pve_storage": pve_storage,
+                "pve_cluster_id": cluster_id,
+            }
+        ],
     }
-    return _sources_from_server(server, 0)
+    return _sources_from_server(server, 0, default_cluster_id=cluster_id)
 
 
 def load_sources(cfg: dict[str, Any]) -> list[Source]:
     """Return all configured restore sources (new schema first, else legacy)."""
+    default_cluster = default_pve_cluster_id(cfg)
     servers = cfg.get("pbs_servers")
     if isinstance(servers, list) and servers:
         out: list[Source] = []
         for index, server in enumerate(servers):
             if isinstance(server, dict):
-                out.extend(_sources_from_server(server, index))
+                out.extend(
+                    _sources_from_server(server, index, default_cluster_id=default_cluster)
+                )
         if out:
             return out
     return _legacy_sources(cfg)

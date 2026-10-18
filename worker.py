@@ -17,6 +17,7 @@ import yaml
 
 from pve_client import (
     TaskCancelled,
+    add_qemu_to_ha,
     apply_network_isolation,
     connect_proxmox,
     get_qemu_config,
@@ -24,6 +25,7 @@ from pve_client import (
     hostname_matches_pve_name,
     mark_qemu_managed_by_tool,
     MANAGED_TAG,
+    pve_exitstatus_is_success,
     start_qemu_vm,
     stop_qemu_vm,
     submit_restore,
@@ -83,8 +85,35 @@ def append_log(
     r.rpush(job_log_key(cfg, job_id), json.dumps(payload))
 
 
+def note_pve_task_warnings(
+    r: redis.Redis,
+    cfg: dict[str, Any],
+    job_id: str,
+    status: dict[str, Any] | None,
+    *,
+    what: str,
+) -> None:
+    """Record Proxmox soft-success warnings (e.g. WARNINGS: 1 / no efidisk) without failing."""
+    if not status:
+        return
+    exitstatus = str(status.get("exitstatus") or "").strip()
+    if not exitstatus or exitstatus.lower() == "ok":
+        return
+    if pve_exitstatus_is_success(exitstatus):
+        append_log(
+            r,
+            cfg,
+            job_id,
+            "WARN",
+            "RESTORING",
+            f"{what} completed with PVE warnings ({exitstatus}) — job continues",
+        )
+
+
 def set_state(r: redis.Redis, cfg: dict[str, Any], job_id: str, state: RestoreState, **extra: str) -> None:
     mapping = {"state": state.value, "updated_at": utc_now_iso(), **extra}
+    if state in {RestoreState.COMPLETED, RestoreState.FAILED, RestoreState.CANCELLED}:
+        mapping.setdefault("finished_at", utc_now_iso())
     r.hset(redis_job_key(cfg, job_id), mapping=mapping)
     try:
         from job_hygiene import apply_job_ttl
@@ -190,7 +219,12 @@ def process_job(r: redis.Redis, cfg: dict[str, Any], job_id: str) -> None:
             "Wire compression sample unavailable; showing logical non-zero rates",
         )
 
-    proxmox = connect_proxmox(cfg)
+    from clusters import DEFAULT_CLUSTER_ID, default_pve_cluster_id
+
+    job_cluster_id = (data.get("pve_cluster_id") or "").strip() or default_pve_cluster_id(cfg)
+    if not job_cluster_id:
+        job_cluster_id = DEFAULT_CLUSTER_ID
+    proxmox = connect_proxmox(cfg, cluster_id=job_cluster_id)
     upid = submit_restore(
         proxmox,
         node=node,
@@ -261,7 +295,7 @@ def process_job(r: redis.Redis, cfg: dict[str, Any], job_id: str) -> None:
         r.hset(key, mapping=mapping)
 
     try:
-        wait_for_task(
+        restore_status = wait_for_task(
             proxmox,
             node,
             upid,
@@ -270,6 +304,7 @@ def process_job(r: redis.Redis, cfg: dict[str, Any], job_id: str) -> None:
             should_cancel=lambda: cancel_requested(r, cfg, job_id),
             on_tick=on_tick,
         )
+        note_pve_task_warnings(r, cfg, job_id, restore_status, what="PVE restore task")
     except TaskCancelled:
         mark_cancelled(r, cfg, job_id)
         append_log(r, cfg, job_id, "INFO", "CANCELLED", f"PVE restore task {upid} stopped")
@@ -282,21 +317,37 @@ def process_job(r: redis.Redis, cfg: dict[str, Any], job_id: str) -> None:
     stamp_err: Exception | None = None
     for attempt in range(1, 4):
         try:
+            plan_run_id = str(data.get("plan_run_id") or "")
+            batch_id = str(data.get("batch_id") or "").strip()
             mark_qemu_managed_by_tool(
                 proxmox,
                 node,
                 target_vmid,
                 job_id=job_id,
-                plan_run_id=str(data.get("plan_run_id") or ""),
+                plan_run_id=plan_run_id,
+                batch_id=batch_id,
             )
-            r.hset(key, mapping={"managed_marked": "1", "updated_at": utc_now_iso()})
+            stamp_fields: dict[str, str] = {
+                "managed_marked": "1",
+                "updated_at": utc_now_iso(),
+            }
+            if batch_id:
+                stamp_fields["batch_id"] = batch_id
+            elif plan_run_id:
+                from pve_client import batch_id_from_plan_run_id
+
+                derived = batch_id_from_plan_run_id(plan_run_id)
+                if derived:
+                    stamp_fields["batch_id"] = derived
+            r.hset(key, mapping=stamp_fields)
             append_log(
                 r,
                 cfg,
                 job_id,
                 "INFO",
                 "RESTORING",
-                f"Marked VMID {target_vmid} as restore-engine managed",
+                f"Marked VMID {target_vmid} as restore-engine managed"
+                + (f" batch=re-{stamp_fields.get('batch_id', '')}" if stamp_fields.get("batch_id") else ""),
             )
             stamp_err = None
             break
@@ -370,7 +421,7 @@ def process_job(r: redis.Redis, cfg: dict[str, Any], job_id: str) -> None:
                 raise RuntimeError(f"Failed to start VMID {target_vmid}: {exc}") from exc
             if start_upid:
                 try:
-                    wait_for_task(
+                    start_status = wait_for_task(
                         proxmox,
                         node,
                         start_upid,
@@ -378,6 +429,7 @@ def process_job(r: redis.Redis, cfg: dict[str, Any], job_id: str) -> None:
                         timeout_sec=task_timeout,
                         should_cancel=lambda: cancel_requested(r, cfg, job_id),
                     )
+                    note_pve_task_warnings(r, cfg, job_id, start_status, what="VM start")
                 except TaskCancelled:
                     mark_cancelled(r, cfg, job_id)
                     append_log(r, cfg, job_id, "INFO", "CANCELLED", "VM start cancelled")
@@ -467,6 +519,39 @@ def process_job(r: redis.Redis, cfg: dict[str, Any], job_id: str) -> None:
             f"Ensured VMID {target_vmid} is powered off",
         )
 
+    if data.get("add_to_ha", "0") == "1":
+        # Match HA requested state to power so HA does not boot a powered-off guest.
+        ha_state = "started" if power_on else "stopped"
+        ha_group = (data.get("ha_group") or "").strip()
+        append_log(
+            r,
+            cfg,
+            job_id,
+            "INFO",
+            "RESTORING",
+            f"Adding VMID {target_vmid} to HA (state={ha_state}"
+            + (f", group={ha_group}" if ha_group else "")
+            + ")",
+        )
+        try:
+            outcome = add_qemu_to_ha(
+                proxmox, target_vmid, state=ha_state, group=ha_group
+            )
+        except Exception as exc:
+            r.hset(key, mapping={"ha_ok": "0", "updated_at": utc_now_iso()})
+            raise RuntimeError(
+                f"Failed to add VMID {target_vmid} to HA: {exc}"
+            ) from exc
+        r.hset(key, mapping={"ha_ok": "1", "updated_at": utc_now_iso()})
+        append_log(
+            r,
+            cfg,
+            job_id,
+            "INFO",
+            "RESTORING",
+            f"HA {outcome} for VMID {target_vmid} (state={ha_state})",
+        )
+
     set_state(
         r,
         cfg,
@@ -553,33 +638,40 @@ def _current_max_concurrent(cfg: dict[str, Any]) -> int:
 
 
 def worker_loop() -> None:
-    cfg = load_config()
-    r = redis.from_url(cfg["redis"]["url"], decode_responses=True)
-    queue_key = cfg["redis"]["queue_key"]
+    # Redis URL is fixed at process start; PBS/PVE and other keys reload from disk
+    # each loop / job so Settings and config.docker.yaml edits apply without rebuild.
+    boot_cfg = load_config()
+    r = redis.from_url(boot_cfg["redis"]["url"], decode_responses=True)
 
     import concurrency as concurrency_module
     from pbs_client import list_vm_backups
 
     def run_job(job_id: str) -> None:
         try:
-            process_job(r, cfg, job_id)
+            job_cfg = load_config()
+        except Exception:
+            log.exception("Failed to reload config for job %s; using boot config", job_id)
+            job_cfg = boot_cfg
+        try:
+            process_job(r, job_cfg, job_id)
         except Exception as exc:
             log.exception("Job %s failed", job_id)
-            set_state(r, cfg, job_id, RestoreState.FAILED, error=str(exc), progress="0")
-            append_log(r, cfg, job_id, "ERROR", "FAILED", str(exc))
+            set_state(r, job_cfg, job_id, RestoreState.FAILED, error=str(exc), progress="0")
+            append_log(r, job_cfg, job_id, "ERROR", "FAILED", str(exc))
             try:
                 import notifications as notifications_module
 
-                data = r.hgetall(redis_job_key(cfg, job_id)) or {}
-                notifications_module.notify_job_failed(cfg, job=data)
+                data = r.hgetall(redis_job_key(job_cfg, job_id)) or {}
+                notifications_module.notify_job_failed(job_cfg, job=data)
             except Exception:
                 pass
         finally:
-            concurrency_module.release_slot(r, cfg)
+            concurrency_module.release_slot(r, job_cfg)
 
     def _start_scheduled(plan: dict[str, Any], location: dict[str, Any]) -> dict[str, Any]:
         from datetime import datetime, timezone
 
+        cfg = load_config()
         cutoff = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         backups = list_vm_backups(cfg)
         groups: list[dict[str, Any]] = []
@@ -647,13 +739,24 @@ def worker_loop() -> None:
             qga_wait_sec=0,
         )
 
-    log.info("Restore worker started (initial max_concurrent_restores=%s)", _current_max_concurrent(cfg))
+    queue_key = boot_cfg["redis"]["queue_key"]
+    log.info(
+        "Restore worker started (initial max_concurrent_restores=%s)",
+        _current_max_concurrent(boot_cfg),
+    )
     try:
-        concurrency_module.reconcile_slots(r, cfg)
+        concurrency_module.reconcile_slots(r, boot_cfg)
     except Exception:
         log.exception("Concurrency slot reconcile failed at startup")
     last_purge = 0.0
     while True:
+        try:
+            cfg = load_config()
+        except Exception:
+            log.exception("Failed to reload config; retrying")
+            time.sleep(1)
+            continue
+
         concurrency_module.touch_worker_heartbeat(r, cfg, ttl_sec=60)
 
         # Pause: no new claims and no plan enqueue (in-flight keep running).

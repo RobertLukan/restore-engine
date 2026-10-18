@@ -40,7 +40,7 @@ def _patch_happy_path(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     calls: dict[str, Any] = {"submit": 0, "wait": 0, "stamp": 0, "stop": 0}
 
     monkeypatch.setattr(worker, "estimate_wire_compression_for_job", lambda *a, **k: None)
-    monkeypatch.setattr(worker, "connect_proxmox", lambda cfg: object())
+    monkeypatch.setattr(worker, "connect_proxmox", lambda cfg, cluster_id=None: object())
 
     def submit(*_a: Any, **_k: Any) -> str:
         calls["submit"] += 1
@@ -99,7 +99,7 @@ def test_process_job_submit_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     job_id = "job-fail"
     _seed_job(r, job_id)
     monkeypatch.setattr(worker, "estimate_wire_compression_for_job", lambda *a, **k: None)
-    monkeypatch.setattr(worker, "connect_proxmox", lambda cfg: object())
+    monkeypatch.setattr(worker, "connect_proxmox", lambda cfg, cluster_id=None: object())
     monkeypatch.setattr(
         worker,
         "submit_restore",

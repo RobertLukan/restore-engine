@@ -6,6 +6,7 @@ import copy
 import secrets
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -84,10 +85,13 @@ def require_ui_session(request: Request) -> None:
 
 
 def _mount_view(m: dict[str, Any]) -> dict[str, Any]:
+    from clusters import DEFAULT_CLUSTER_ID
+
     return {
         "datastore": str(m.get("datastore", "")),
         "namespace": str(m.get("namespace", "") or ""),
         "pve_storage": str(m.get("pve_storage", "")),
+        "pve_cluster_id": str(m.get("pve_cluster_id") or DEFAULT_CLUSTER_ID).strip() or DEFAULT_CLUSTER_ID,
     }
 
 
@@ -137,12 +141,16 @@ def pbs_servers_view(cfg: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
-def mask_proxmox(p: dict[str, Any]) -> dict[str, Any]:
+def mask_proxmox(p: dict[str, Any], *, cluster_id: str | None = None) -> dict[str, Any]:
+    from clusters import DEFAULT_CLUSTER_ID
+
     tok = bool((p.get("api_token_secret") or "").strip())
     pwd = bool((p.get("password") or "").strip())
+    cid = str(cluster_id or p.get("id") or DEFAULT_CLUSTER_ID).strip() or DEFAULT_CLUSTER_ID
     return {
+        "id": cid,
         "host": p.get("host", ""),
-        "port": int(p.get("port", 8006)),
+        "port": int(p.get("port", 8006) or 8006),
         "verify_ssl": bool(p.get("verify_ssl", True)),
         "default_node": p.get("default_node", ""),
         "api_token_id": p.get("api_token_id", ""),
@@ -157,15 +165,26 @@ def mask_proxmox(p: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def pve_clusters_view(cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    from clusters import load_pve_clusters
+
+    return [mask_proxmox(c, cluster_id=c.get("id")) for c in load_pve_clusters(cfg)]
+
+
 def view_worker(w: dict[str, Any]) -> dict[str, Any]:
     try:
         task_timeout = float(w.get("task_timeout_sec", 0) or 0)
     except (TypeError, ValueError):
         task_timeout = 0.0
+    try:
+        destroy_timeout = float(w.get("destroy_task_timeout_sec", 0) or 0)
+    except (TypeError, ValueError):
+        destroy_timeout = 0.0
     return {
         "max_concurrent_restores": int(w.get("max_concurrent_restores", 2) or 2),
         "task_poll_interval_sec": int(w.get("task_poll_interval_sec", 3) or 3),
         "task_timeout_sec": task_timeout,
+        "destroy_task_timeout_sec": destroy_timeout,
     }
 
 
@@ -177,6 +196,7 @@ class PBSMountModel(BaseModel):
     datastore: str = ""
     namespace: str = ""
     pve_storage: str = ""
+    pve_cluster_id: str = ""
 
 
 class PBSServerModel(BaseModel):
@@ -192,6 +212,7 @@ class PBSServerModel(BaseModel):
 
 
 class ProxmoxPartial(BaseModel):
+    id: str | None = None
     host: str | None = None
     port: int | None = None
     verify_ssl: bool | None = None
@@ -205,10 +226,28 @@ class ProxmoxPartial(BaseModel):
     live_restore_default: bool | None = None
 
 
+class PveClusterModel(BaseModel):
+    """Full PVE cluster card for multi-cluster Settings / wizard."""
+
+    id: str = ""
+    host: str = ""
+    port: int = 8006
+    verify_ssl: bool = True
+    default_node: str = ""
+    api_token_id: str = ""
+    api_token_secret: str = ""
+    user: str = ""
+    password: str = ""
+    storage: str = ""
+    restore_bwlimit: int = 0
+    live_restore_default: bool = False
+
+
 class WorkerPartial(BaseModel):
     max_concurrent_restores: int | None = None
     task_poll_interval_sec: int | None = None
     task_timeout_sec: float | None = None
+    destroy_task_timeout_sec: float | None = None
 
 
 class EmailNotifyPartial(BaseModel):
@@ -243,14 +282,56 @@ class NotificationsPartial(BaseModel):
     events: NotifyEventsPartial | None = None
 
 
+class UiPartial(BaseModel):
+    """Non-secret UI preferences (display timezone, etc.)."""
+
+    timezone: str | None = None
+    plan_run_cleanup_enabled: bool | None = None
+
+
 class CredentialsPut(BaseModel):
     pbs_servers: list[PBSServerModel] | None = None
-    proxmox: ProxmoxPartial | None = None
+    pve_clusters: list[PveClusterModel] | None = None
+    proxmox: ProxmoxPartial | None = None  # legacy single-cluster update
     worker: WorkerPartial | None = None
     notifications: NotificationsPartial | None = None
+    ui: UiPartial | None = None
+
+
+def normalize_ui_timezone(raw: str | None, *, default: str = "UTC") -> str:
+    """Return a validated IANA timezone name, or ``default`` when blank."""
+    text = (raw or "").strip() or default
+    try:
+        ZoneInfo(text)
+    except (ZoneInfoNotFoundError, ValueError, TypeError) as exc:
+        raise ValueError(
+            f"Invalid timezone {text!r}; use an IANA name such as UTC or Europe/Ljubljana"
+        ) from exc
+    return text
+
+
+def plan_run_cleanup_enabled(cfg: dict[str, Any] | None) -> bool:
+    """Opt-in gate for plan-run batch cleanup UI/API (default off)."""
+    ui = (cfg or {}).get("ui") if isinstance(cfg, dict) else {}
+    if not isinstance(ui, dict):
+        return False
+    return bool(ui.get("plan_run_cleanup_enabled", False))
+
+
+def view_ui(ui: dict[str, Any]) -> dict[str, Any]:
+    try:
+        tz = normalize_ui_timezone(str((ui or {}).get("timezone") or "UTC"))
+    except ValueError:
+        tz = "UTC"
+    return {
+        "timezone": tz,
+        "plan_run_cleanup_enabled": bool((ui or {}).get("plan_run_cleanup_enabled", False)),
+    }
 
 
 class ProxmoxTestOverrides(BaseModel):
+    id: str | None = None
+    cluster_id: str | None = None
     host: str | None = None
     port: int | None = None
     verify_ssl: bool | None = None
@@ -259,6 +340,9 @@ class ProxmoxTestOverrides(BaseModel):
     user: str | None = None
     password: str | None = None
     storage: str | None = None
+    default_node: str | None = None
+    restore_bwlimit: int | None = None
+    live_restore_default: bool | None = None
 
 
 router = APIRouter(tags=["ui"])
@@ -347,12 +431,23 @@ def view_notifications(n: dict[str, Any]) -> dict[str, Any]:
 
 @router.get("/api/ui/credentials", dependencies=[Depends(require_ui_session)])
 def get_credentials() -> dict[str, Any]:
+    from clusters import default_pve_cluster_id, get_pve_cluster
+
     cfg = load_yaml()
+    clusters = pve_clusters_view(cfg)
+    # Legacy singular view: default/first cluster (or empty masked block).
+    try:
+        primary = get_pve_cluster(cfg, default_pve_cluster_id(cfg))
+        proxmox = mask_proxmox(primary, cluster_id=primary.get("id"))
+    except KeyError:
+        proxmox = mask_proxmox({})
     return {
         "pbs_servers": pbs_servers_view(cfg),
-        "proxmox": mask_proxmox(cfg.get("proxmox") or {}),
+        "pve_clusters": clusters,
+        "proxmox": proxmox,
         "worker": view_worker(cfg.get("worker") or {}),
         "notifications": view_notifications(cfg.get("notifications") or {}),
+        "ui": view_ui(cfg.get("ui") or {}),
     }
 
 
@@ -397,6 +492,7 @@ def _persist_servers(existing: list[dict[str, Any]], incoming: list[PBSServerMod
                         "datastore": m.datastore.strip(),
                         "namespace": (m.namespace or "").strip().strip("/"),
                         "pve_storage": m.pve_storage.strip(),
+                        "pve_cluster_id": (m.pve_cluster_id or "").strip() or "default",
                     }
                     for m in server.mounts
                     if m.datastore.strip() and m.pve_storage.strip()
@@ -406,8 +502,107 @@ def _persist_servers(existing: list[dict[str, Any]], incoming: list[PBSServerMod
     return out
 
 
+def _find_prior_cluster(
+    existing: list[dict[str, Any]],
+    *,
+    cluster_id: str,
+    raw_id: str,
+    host: str,
+) -> dict[str, Any]:
+    """Resolve the previous cluster dict for secret preservation."""
+    by_id = {str(c.get("id", "")): c for c in existing if isinstance(c, dict)}
+    prior = by_id.get((raw_id or "").strip()) or by_id.get(cluster_id) or {}
+    if prior:
+        return prior
+    host_l = (host or "").strip().lower()
+    if host_l:
+        for c in existing:
+            if isinstance(c, dict) and str(c.get("host") or "").strip().lower() == host_l:
+                return c
+    # Single existing cluster: keep its secrets when the form id was blank/renamed.
+    if len(existing) == 1 and isinstance(existing[0], dict):
+        return existing[0]
+    return {}
+
+
+def _persist_pve_clusters(
+    existing: list[dict[str, Any]], incoming: list[PveClusterModel]
+) -> list[dict[str, Any]]:
+    from clusters import DEFAULT_CLUSTER_ID
+
+    used_ids: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for index, cluster in enumerate(incoming):
+        raw_id = (cluster.id or "").strip()
+        cluster_id = _slugify_server_id(raw_id or cluster.host, f"pve{index + 1}")
+        if index == 0 and not raw_id:
+            cluster_id = DEFAULT_CLUSTER_ID
+        base_id, n = cluster_id, 2
+        while cluster_id in used_ids:
+            cluster_id = f"{base_id}-{n}"
+            n += 1
+        used_ids.add(cluster_id)
+
+        prior = _find_prior_cluster(
+            existing, cluster_id=cluster_id, raw_id=raw_id, host=cluster.host
+        )
+        secret = (cluster.api_token_secret or "").strip()
+        if secret in ("", MASK):
+            secret = str(prior.get("api_token_secret", ""))
+        password = (cluster.password or "").strip()
+        if password in ("", MASK):
+            password = str(prior.get("password", ""))
+
+        row = {
+            "id": cluster_id,
+            "host": cluster.host.strip(),
+            "port": int(cluster.port or 8006),
+            "verify_ssl": bool(cluster.verify_ssl),
+            "default_node": (cluster.default_node or "").strip(),
+            "api_token_id": (cluster.api_token_id or "").strip(),
+            "api_token_secret": secret,
+            "user": (cluster.user or "").strip(),
+            "password": password,
+            "storage": (cluster.storage or "").strip(),
+            "restore_bwlimit": int(cluster.restore_bwlimit or 0),
+            "live_restore_default": bool(cluster.live_restore_default),
+        }
+        # Keep optional timeout from prior when the form does not send it.
+        if prior.get("timeout_sec") is not None:
+            row["timeout_sec"] = prior.get("timeout_sec")
+        out.append(row)
+    return out
+
+
+def _apply_legacy_proxmox_partial(cfg: dict[str, Any], partial: ProxmoxPartial) -> None:
+    """Merge a singular proxmox update into pve_clusters (default/first) + mirror."""
+    from clusters import DEFAULT_CLUSTER_ID, load_pve_clusters, mirror_proxmox_from_clusters
+
+    clusters = load_pve_clusters(cfg)
+    if not clusters:
+        clusters = [{"id": DEFAULT_CLUSTER_ID}]
+    target = clusters[0]
+    for c in clusters:
+        if c["id"] == DEFAULT_CLUSTER_ID:
+            target = c
+            break
+    want_id = (partial.id or "").strip()
+    if want_id:
+        for c in clusters:
+            if c["id"] == want_id:
+                target = c
+                break
+    _merge_partial(target, partial, {"api_token_secret", "password"})
+    # Drop unset id from merge noise if present as None was skipped.
+    target["id"] = str(target.get("id") or DEFAULT_CLUSTER_ID)
+    cfg["pve_clusters"] = clusters
+    mirror_proxmox_from_clusters(cfg)
+
+
 @router.put("/api/ui/credentials", dependencies=[Depends(require_ui_session)])
 def put_credentials(body: CredentialsPut) -> dict[str, str]:
+    from clusters import load_pve_clusters, mirror_proxmox_from_clusters
+
     cfg = load_yaml()
     if body.pbs_servers is not None:
         existing = cfg.get("pbs_servers") if isinstance(cfg.get("pbs_servers"), list) else []
@@ -416,9 +611,12 @@ def put_credentials(body: CredentialsPut) -> dict[str, str]:
         cfg.pop("pbs", None)
         if isinstance(cfg.get("proxmox"), dict):
             cfg["proxmox"].pop("pbs_storage", None)
-    if body.proxmox:
-        px = cfg.setdefault("proxmox", {})
-        _merge_partial(px, body.proxmox, {"api_token_secret", "password"})
+    if body.pve_clusters is not None:
+        existing_clusters = load_pve_clusters(cfg)
+        cfg["pve_clusters"] = _persist_pve_clusters(existing_clusters, body.pve_clusters)
+        mirror_proxmox_from_clusters(cfg)
+    elif body.proxmox:
+        _apply_legacy_proxmox_partial(cfg, body.proxmox)
     if body.worker:
         wk = cfg.setdefault("worker", {})
         _merge_partial(wk, body.worker, set())
@@ -428,6 +626,8 @@ def put_credentials(body: CredentialsPut) -> dict[str, str]:
             wk["task_poll_interval_sec"] = max(1, int(wk["task_poll_interval_sec"]))
         if "task_timeout_sec" in wk:
             wk["task_timeout_sec"] = max(0.0, float(wk["task_timeout_sec"]))
+        if "destroy_task_timeout_sec" in wk:
+            wk["destroy_task_timeout_sec"] = max(0.0, float(wk["destroy_task_timeout_sec"]))
     if body.notifications:
         ncfg = cfg.setdefault("notifications", {})
         if body.notifications.email:
@@ -462,6 +662,16 @@ def put_credentials(body: CredentialsPut) -> dict[str, str]:
                 if value is None:
                     continue
                 ev[key] = value
+    if body.ui is not None:
+        ui_cfg = cfg.setdefault("ui", {})
+        if body.ui.timezone is not None:
+            try:
+                tz = normalize_ui_timezone(body.ui.timezone)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            ui_cfg["timezone"] = tz
+        if body.ui.plan_run_cleanup_enabled is not None:
+            ui_cfg["plan_run_cleanup_enabled"] = bool(body.ui.plan_run_cleanup_enabled)
     save_yaml(cfg)
     return {"ok": "true"}
 
@@ -479,6 +689,8 @@ def patch_worker(body: WorkerPartial) -> dict[str, Any]:
     if "task_timeout_sec" in wk:
         # 0 = unlimited; clamp negatives to 0
         wk["task_timeout_sec"] = max(0.0, float(wk["task_timeout_sec"]))
+    if "destroy_task_timeout_sec" in wk:
+        wk["destroy_task_timeout_sec"] = max(0.0, float(wk["destroy_task_timeout_sec"]))
     save_yaml(cfg)
     return {"ok": True, "worker": view_worker(wk)}
 
@@ -535,11 +747,22 @@ def test_pbs(body: PBSServerModel) -> dict[str, Any]:
                 "user": body.user.strip(),
                 "password": password,
                 "mounts": [
-                    {"datastore": m.datastore.strip(), "namespace": (m.namespace or "").strip().strip("/"),
-                     "pve_storage": m.pve_storage.strip()}
+                    {
+                        "datastore": m.datastore.strip(),
+                        "namespace": (m.namespace or "").strip().strip("/"),
+                        "pve_storage": m.pve_storage.strip(),
+                        "pve_cluster_id": (m.pve_cluster_id or "").strip() or "default",
+                    }
                     for m in body.mounts
                 ]
-                or [{"datastore": "probe", "namespace": "", "pve_storage": "probe"}],
+                or [
+                    {
+                        "datastore": "probe",
+                        "namespace": "",
+                        "pve_storage": "probe",
+                        "pve_cluster_id": "default",
+                    }
+                ],
             }
         ]
     }
@@ -549,30 +772,75 @@ def test_pbs(body: PBSServerModel) -> dict[str, Any]:
 
 @router.post("/api/ui/test/proxmox", dependencies=[Depends(require_ui_session)])
 def test_proxmox(body: ProxmoxTestOverrides | None = None) -> dict[str, Any]:
+    from clusters import DEFAULT_CLUSTER_ID, load_pve_clusters, mirror_proxmox_from_clusters
+
     cfg = copy.deepcopy(load_yaml())
-    px = cfg.setdefault("proxmox", {})
-    _merge_partial(px, body, {"api_token_secret", "password"})
-    ok, message = test_proxmox_connection(cfg)
-    return {"ok": ok, "message": message}
+    cluster_id = ""
+    if body:
+        cluster_id = (body.cluster_id or body.id or "").strip()
+    clusters = load_pve_clusters(cfg)
+    if body and (body.host or body.api_token_id or body.user or body.password or body.api_token_secret):
+        # Form overrides: merge into the named cluster (or a temporary probe entry).
+        if not clusters:
+            clusters = [{"id": cluster_id or DEFAULT_CLUSTER_ID}]
+        target = clusters[0]
+        for c in clusters:
+            if cluster_id and c["id"] == cluster_id:
+                target = c
+                break
+            if not cluster_id and c["id"] == DEFAULT_CLUSTER_ID:
+                target = c
+                break
+        # Merge connection fields only (not cluster_id alias).
+        merge_body = body.model_copy(update={"cluster_id": None})
+        _merge_partial(target, merge_body, {"api_token_secret", "password"})
+        target.pop("cluster_id", None)
+        if cluster_id:
+            target["id"] = cluster_id
+        cfg["pve_clusters"] = clusters
+        mirror_proxmox_from_clusters(cfg)
+        cluster_id = str(target.get("id") or DEFAULT_CLUSTER_ID)
+    ok, message = test_proxmox_connection(cfg, cluster_id=cluster_id or None)
+    return {"ok": ok, "message": message, "cluster_id": cluster_id or DEFAULT_CLUSTER_ID}
 
 
-def _verify_saved(cfg: dict[str, Any]) -> tuple[bool, str, str]:
+def _verify_saved(cfg: dict[str, Any]) -> tuple[bool, bool, bool, str, str]:
+    """Return ``(overall_ok, pbs_ok, pve_ok, pbs_msg, pve_msg)``."""
+    from clusters import load_pve_clusters
+
     pbs_ok, pbs_msg = test_pbs_connection(cfg)
-    pve_ok, pve_msg = test_proxmox_connection(cfg)
-    if pbs_ok and pve_ok:
-        return True, pbs_msg, pve_msg
-    return False, pbs_msg, pve_msg
+    clusters = load_pve_clusters(cfg)
+    if not clusters:
+        return False, pbs_ok, False, pbs_msg, "No Proxmox VE clusters configured"
+    pve_parts: list[str] = []
+    pve_ok = True
+    for c in clusters:
+        ok, msg = test_proxmox_connection(cfg, cluster_id=c["id"])
+        pve_parts.append(f"{c['id']}: {msg}")
+        if not ok:
+            pve_ok = False
+    pve_msg = "; ".join(pve_parts)
+    return (pbs_ok and pve_ok), pbs_ok, pve_ok, pbs_msg, pve_msg
 
 
 @router.post("/api/auth/complete-credentials-check", dependencies=[Depends(require_ui_session)])
 def complete_credentials_check(request: Request) -> dict[str, Any]:
     cfg = load_yaml()
-    ok, pbs_msg, pve_msg = _verify_saved(cfg)
+    ok, pbs_ok, pve_ok, pbs_msg, pve_msg = _verify_saved(cfg)
+    payload = {
+        "ok": ok,
+        "pbs_ok": pbs_ok,
+        "pve_ok": pve_ok,
+        "pbs": pbs_msg,
+        "proxmox": pve_msg,
+        "pbs_message": pbs_msg,
+        "proxmox_message": pve_msg,
+    }
     if ok:
         request.session[SESSION_CREDENTIALS_VERIFIED] = True
-        return {"ok": True, "pbs": pbs_msg, "proxmox": pve_msg}
-    request.session.pop(SESSION_CREDENTIALS_VERIFIED, None)
-    return {"ok": False, "pbs_message": pbs_msg, "proxmox_message": pve_msg}
+    else:
+        request.session.pop(SESSION_CREDENTIALS_VERIFIED, None)
+    return payload
 
 
 @router.post("/api/auth/reopen-credentials", dependencies=[Depends(require_ui_session)])
@@ -582,11 +850,15 @@ def reopen_credentials(request: Request) -> dict[str, str]:
 
 
 @router.get("/api/ui/proxmox-storages", dependencies=[Depends(require_ui_session)])
-def proxmox_storages(node: str) -> dict[str, Any]:
+def proxmox_storages(node: str, cluster_id: str | None = None) -> dict[str, Any]:
     cfg = load_yaml()
     try:
-        proxmox = connect_proxmox(cfg)
-        return {"node": node, "storages": list_node_storages(proxmox, node)}
+        proxmox = connect_proxmox(cfg, cluster_id=cluster_id)
+        return {
+            "node": node,
+            "cluster_id": (cluster_id or "").strip() or None,
+            "storages": list_node_storages(proxmox, node),
+        }
     except Exception as exc:
         raise HTTPException(
             status_code=502,
@@ -595,11 +867,11 @@ def proxmox_storages(node: str) -> dict[str, Any]:
 
 
 @router.get("/api/ui/proxmox-storages-multi", dependencies=[Depends(require_ui_session)])
-def proxmox_storages_multi(nodes: str) -> dict[str, Any]:
+def proxmox_storages_multi(nodes: str, cluster_id: str | None = None) -> dict[str, Any]:
     """Return VM-capable storages for each comma-separated node name."""
     cfg = load_yaml()
     try:
-        proxmox = connect_proxmox(cfg)
+        proxmox = connect_proxmox(cfg, cluster_id=cluster_id)
     except Exception as exc:
         raise HTTPException(
             status_code=502, detail=public_error_message(exc, prefix="Proxmox connect failed")
@@ -615,14 +887,21 @@ def proxmox_storages_multi(nodes: str) -> dict[str, Any]:
         except Exception as exc:
             by_node[name] = []
             errors[name] = public_error_message(exc)
-    return {"by_node": by_node, "errors": errors}
+    return {
+        "by_node": by_node,
+        "errors": errors,
+        "cluster_id": (cluster_id or "").strip() or None,
+    }
 
 
 @router.get("/api/ui/proxmox-nodes", dependencies=[Depends(require_ui_session)])
-def proxmox_nodes() -> dict[str, Any]:
+def proxmox_nodes(cluster_id: str | None = None) -> dict[str, Any]:
     cfg = load_yaml()
-    proxmox = connect_proxmox(cfg)
-    return {"nodes": list_cluster_nodes(proxmox)}
+    proxmox = connect_proxmox(cfg, cluster_id=cluster_id)
+    return {
+        "nodes": list_cluster_nodes(proxmox),
+        "cluster_id": (cluster_id or "").strip() or None,
+    }
 
 
 def health_pbs_component(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -631,5 +910,17 @@ def health_pbs_component(cfg: dict[str, Any]) -> dict[str, Any]:
 
 
 def health_proxmox_component(cfg: dict[str, Any]) -> dict[str, Any]:
-    ok, msg = test_proxmox_connection(cfg)
-    return {"ok": ok, "detail": msg}
+    from clusters import load_pve_clusters
+
+    clusters = load_pve_clusters(cfg)
+    if not clusters:
+        ok, msg = test_proxmox_connection(cfg)
+        return {"ok": ok, "detail": msg}
+    parts: list[str] = []
+    all_ok = True
+    for c in clusters:
+        ok, msg = test_proxmox_connection(cfg, cluster_id=c["id"])
+        parts.append(f"{c['id']}: {msg}")
+        if not ok:
+            all_ok = False
+    return {"ok": all_ok, "detail": "; ".join(parts)}

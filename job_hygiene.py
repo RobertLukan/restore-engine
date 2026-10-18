@@ -79,6 +79,40 @@ def purge_expired_scan(
     return purged
 
 
+def _job_sort_key(job: Any) -> str:
+    """Newest-first key: prefer updated_at, else created_at."""
+    if isinstance(job, dict):
+        return str(job.get("updated_at") or job.get("created_at") or "")
+    return str(getattr(job, "updated_at", None) or getattr(job, "created_at", None) or "")
+
+
+def _job_field(job: Any, name: str, default: Any = "") -> Any:
+    if isinstance(job, dict):
+        return job.get(name, default)
+    return getattr(job, name, default)
+
+
+def job_matches_query(job: Any, query: str) -> bool:
+    """True when ``query`` matches VM name or source/target VMID (substring, case-insensitive)."""
+    needle = (query or "").strip().lower()
+    if not needle:
+        return True
+    name = str(_job_field(job, "vm_name") or "").lower()
+    if needle in name:
+        return True
+    for field in ("proxmox_vmid", "source_vmid"):
+        if needle in str(_job_field(job, field) or "").lower():
+            return True
+    return False
+
+
+def filter_jobs(jobs: list[Any], query: str | None) -> list[Any]:
+    q = (query or "").strip()
+    if not q:
+        return jobs
+    return [j for j in jobs if job_matches_query(j, q)]
+
+
 def collect_jobs(
     r: redis.Redis,
     cfg: dict[str, Any],
@@ -98,12 +132,13 @@ def collect_jobs(
         rec = record_fn(data)
         if state is None or getattr(rec, "state", None) == state or (isinstance(rec, dict) and rec.get("state") == state):
             out.append(rec)
-    return sorted(out, key=lambda job: getattr(job, "created_at", None) or (job.get("created_at") if isinstance(job, dict) else "") or "")
+    # Newest first so the first page (UI default) shows recent restores.
+    return sorted(out, key=_job_sort_key, reverse=True)
 
 
 def paginate(items: list[Any], *, offset: int = 0, limit: int = 50) -> dict[str, Any]:
     offset = max(0, int(offset))
-    limit = max(1, min(500, int(limit)))
+    limit = max(1, min(1000, int(limit)))
     total = len(items)
     slice_ = items[offset : offset + limit]
     return {
@@ -113,3 +148,46 @@ def paginate(items: list[Any], *, offset: int = 0, limit: int = 50) -> dict[str,
         "limit": limit,
         "has_more": offset + limit < total,
     }
+
+
+def purge_terminal_jobs(
+    r: redis.Redis,
+    cfg: dict[str, Any],
+    *,
+    older_than_sec: int | None = None,
+    max_delete: int = 5000,
+) -> dict[str, int]:
+    """Delete finished jobs (and their log lists). Active jobs are never removed.
+
+    ``older_than_sec``: if set, only purge terminal jobs whose updated_at is older
+    than this many seconds. ``None`` means purge all terminal jobs.
+    """
+    prefix = cfg["redis"]["job_key_prefix"]
+    suffix = cfg["redis"]["job_log_suffix"]
+    now = datetime.now(timezone.utc).timestamp()
+    cutoff = None if older_than_sec is None else now - max(0, int(older_than_sec))
+    deleted = 0
+    scanned = 0
+    for key in r.scan_iter(f"{prefix}*", count=200):
+        if key.endswith(suffix):
+            continue
+        scanned += 1
+        data = r.hgetall(key) or {}
+        state = data.get("state") or ""
+        if state not in TERMINAL:
+            continue
+        if cutoff is not None:
+            updated = data.get("updated_at") or data.get("created_at") or ""
+            try:
+                ts = datetime.fromisoformat(updated.replace("Z", "+00:00")).timestamp()
+            except (TypeError, ValueError, AttributeError):
+                continue
+            if ts > cutoff:
+                continue
+        job_id = data.get("job_id") or key[len(prefix) :]
+        r.delete(key)
+        r.delete(f"{prefix}{job_id}{suffix}")
+        deleted += 1
+        if deleted >= max_delete:
+            break
+    return {"scanned": scanned, "deleted": deleted}

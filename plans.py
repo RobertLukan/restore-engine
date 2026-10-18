@@ -160,6 +160,32 @@ def active_plan_runs_key(cfg: dict[str, Any]) -> str:
     return _redis_cfg(cfg).get("active_plan_runs_key", "restore:planruns:active")
 
 
+class PlanRunBusyError(ValueError):
+    """Raised when starting a plan run while another plan run is already RUNNING."""
+
+
+def find_running_plan_run(r: redis.Redis, cfg: dict[str, Any]) -> dict[str, Any] | None:
+    """Return any RUNNING plan run from the active set, or None."""
+    for run_id in r.smembers(active_plan_runs_key(cfg)) or []:
+        run = get_plan_run(r, cfg, str(run_id))
+        if run and run.get("status") == PlanRunStatus.RUNNING.value:
+            return run
+    return None
+
+
+def assert_no_running_plan_run(r: redis.Redis, cfg: dict[str, Any]) -> None:
+    """Enforce a single global active plan run (recovery or drill)."""
+    active = find_running_plan_run(r, cfg)
+    if not active:
+        return
+    label = active.get("plan_name") or active.get("plan_id") or "?"
+    raise PlanRunBusyError(
+        f"Another plan run is already in progress "
+        f"(plan={label}, run_id={active.get('id')}). "
+        "Wait for it to finish or cancel it before starting another."
+    )
+
+
 def _dump(obj: dict[str, Any]) -> str:
     return json.dumps(obj, separators=(",", ":"), sort_keys=True)
 
@@ -365,7 +391,14 @@ def delete_group(r: redis.Redis, cfg: dict[str, Any], group_id: str) -> bool:
 # --- Recovery locations ---
 
 
-def normalize_location(payload: dict[str, Any], *, location_id: str | None = None) -> dict[str, Any]:
+def normalize_location(
+    payload: dict[str, Any],
+    *,
+    location_id: str | None = None,
+    default_cluster_id: str = "default",
+) -> dict[str, Any]:
+    from clusters import normalize_mount_cluster_id
+
     name = (payload.get("name") or "").strip()
     node = (payload.get("node") or "").strip()
     storage = (payload.get("storage") or "").strip()
@@ -437,6 +470,9 @@ def normalize_location(payload: dict[str, Any], *, location_id: str | None = Non
         "isolated": bool(payload.get("isolated", False))
         or _normalize_network_mode(payload.get("network_mode")) in {"unlink", "remap"},
         "http_check_url": str(payload.get("http_check_url") or "").strip(),
+        "pve_cluster_id": normalize_mount_cluster_id(
+            payload.get("pve_cluster_id"), default=default_cluster_id
+        ),
         "created_at": payload.get("created_at") or "",
         "updated_at": payload.get("updated_at") or "",
     }
@@ -446,18 +482,24 @@ def normalize_location(payload: dict[str, Any], *, location_id: str | None = Non
 
 
 def create_location(r: redis.Redis, cfg: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
-    data = normalize_location(payload)
+    from clusters import default_pve_cluster_id
+
+    data = normalize_location(payload, default_cluster_id=default_pve_cluster_id(cfg))
     return _save_entity(
         r, cfg, key=location_key(cfg, data["id"]), index=locations_index(cfg), entity_id=data["id"], data=data
     )
 
 
 def update_location(r: redis.Redis, cfg: dict[str, Any], location_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    from clusters import default_pve_cluster_id
+
     existing = get_location(r, cfg, location_id)
     if not existing:
         raise KeyError(location_id)
     merged = {**existing, **payload, "id": location_id}
-    data = normalize_location(merged, location_id=location_id)
+    data = normalize_location(
+        merged, location_id=location_id, default_cluster_id=default_pve_cluster_id(cfg)
+    )
     data["created_at"] = existing.get("created_at") or ""
     return _save_entity(
         r, cfg, key=location_key(cfg, location_id), index=locations_index(cfg), entity_id=location_id, data=data
@@ -510,6 +552,10 @@ def normalize_plan(payload: dict[str, Any], *, plan_id: str | None = None) -> di
         "group_ids": group_ids,
         "location_id": location_id,
         "halt_on_error": bool(payload.get("halt_on_error", True)),
+        # After each restore in a plan run, register the guest with PVE HA
+        # (cluster/ha/resources). State matches power-on vs powered-off.
+        "add_to_ha": bool(payload.get("add_to_ha", False)),
+        "ha_group": str(payload.get("ha_group") or "").strip(),
         "enabled": bool(payload.get("enabled", True)),
         "verification": verification,
         "schedule_enabled": bool(payload.get("schedule_enabled", False)),
@@ -921,10 +967,30 @@ def run_plan_readiness(
     else:
         ok_item("pbs.connectivity", f"{len(pbs_results or [])} PBS source(s) reachable")
 
-    # PVE connectivity
+    # PVE connectivity (location's cluster when set)
+    from clusters import default_pve_cluster_id
+
+    loc_cluster = ""
+    if location:
+        loc_cluster = str(location.get("pve_cluster_id") or "").strip() or default_pve_cluster_id(cfg)
+    else:
+        loc_cluster = default_pve_cluster_id(cfg)
+
+    def _test_pve(c: dict[str, Any]) -> tuple[bool, str]:
+        try:
+            return test_pve_fn(c, loc_cluster)  # type: ignore[call-arg]
+        except TypeError:
+            return test_pve_fn(c)
+
+    def _connect_pve(c: dict[str, Any]) -> Any:
+        try:
+            return connect_pve_fn(c, loc_cluster)  # type: ignore[call-arg]
+        except TypeError:
+            return connect_pve_fn(c)
+
     proxmox = None
     try:
-        pve_ok, pve_msg = test_pve_fn(cfg)
+        pve_ok, pve_msg = _test_pve(cfg)
     except Exception as exc:
         pve_ok, pve_msg = False, public_error_message(exc)
     if not pve_ok:
@@ -932,7 +998,7 @@ def run_plan_readiness(
     else:
         ok_item("pve.connectivity", pve_msg or "Proxmox VE reachable")
         try:
-            proxmox = connect_pve_fn(cfg)
+            proxmox = _connect_pve(cfg)
         except Exception as exc:
             fail("pve.connect", "Failed to open Proxmox API session", public_error_message(exc))
             proxmox = None
@@ -1288,15 +1354,9 @@ def tick_scheduled_plan_runs(
         location = get_location(r, cfg, str(plan.get("location_id") or ""))
         if not location:
             continue
-        # Skip if this plan already has an active run.
-        active = False
-        for run_id in r.smembers(active_plan_runs_key(cfg)) or []:
-            run = get_plan_run(r, cfg, str(run_id))
-            if run and run.get("plan_id") == plan.get("id") and run.get("status") == PlanRunStatus.RUNNING.value:
-                active = True
-                break
-        if active:
-            continue
+        # Only one plan run at a time (any plan) — skip while another is RUNNING.
+        if find_running_plan_run(r, cfg) is not None:
+            break
         try:
             start_fn(plan, location)
             _save_entity(
@@ -1364,7 +1424,67 @@ def start_plan_run(
     if not any(group_rows):
         raise ValueError("plan resolved to zero backups")
 
+    # Serialize starts so two operators / schedule + API cannot overlap plan runs.
+    lock_key = _redis_cfg(cfg).get("plan_run_start_lock_key", "restore:planruns:start_lock")
+    got_lock = False
+    try:
+        got_lock = bool(r.set(lock_key, "1", nx=True, ex=60))
+    except TypeError:
+        # Minimal fake Redis in tests may not accept nx/ex.
+        if r.get(lock_key):
+            got_lock = False
+        else:
+            r.set(lock_key, "1")
+            got_lock = True
+    if not got_lock:
+        assert_no_running_plan_run(r, cfg)
+        raise PlanRunBusyError(
+            "Another plan start is already in progress. Retry in a moment."
+        )
+    try:
+        assert_no_running_plan_run(r, cfg)
+        return _start_plan_run_unlocked(
+            r,
+            cfg,
+            plan=plan,
+            location=location,
+            cutoff=cutoff,
+            group_rows=group_rows,
+            enqueue_fn=enqueue_fn,
+            drill=drill,
+            auto_teardown=auto_teardown,
+            powered_off=powered_off,
+            power_on=power_on,
+            qga_wait_sec=qga_wait_sec,
+            overwrite=overwrite,
+        )
+    finally:
+        try:
+            r.delete(lock_key)
+        except Exception:
+            pass
+
+
+def _start_plan_run_unlocked(
+    r: redis.Redis,
+    cfg: dict[str, Any],
+    *,
+    plan: dict[str, Any],
+    location: dict[str, Any],
+    cutoff: str,
+    group_rows: list[list[dict[str, Any]]],
+    enqueue_fn: Callable[..., dict[str, Any]],
+    drill: bool = False,
+    auto_teardown: bool = False,
+    powered_off: bool | None = None,
+    power_on: bool = False,
+    qga_wait_sec: int = 0,
+    overwrite: bool = False,
+) -> dict[str, Any]:
     run_id = str(uuid.uuid4())
+    from pve_client import batch_id_from_plan_run_id
+
+    batch_id = batch_id_from_plan_run_id(run_id)
     now = utc_now_iso()
     job_ids_by_group: list[list[str]] = [[] for _ in plan["group_ids"]]
     location_nodes = list(location.get("nodes") or [])
@@ -1401,6 +1521,13 @@ def start_plan_run(
     lab_bridge = str(location.get("lab_bridge") or "").strip()
     http_check = str(location.get("http_check_url") or "").strip()
     do_overwrite = bool(overwrite)
+    do_add_ha = bool(plan.get("add_to_ha", False))
+    ha_group = str(plan.get("ha_group") or "").strip()
+    from clusters import DEFAULT_CLUSTER_ID, default_pve_cluster_id
+
+    loc_cluster = str(location.get("pve_cluster_id") or "").strip() or default_pve_cluster_id(cfg)
+    if not loc_cluster:
+        loc_cluster = DEFAULT_CLUSTER_ID
 
     run = {
         "id": run_id,
@@ -1410,6 +1537,7 @@ def start_plan_run(
         "status": PlanRunStatus.RUNNING.value,
         "location_id": location["id"],
         "location_name": location.get("name", ""),
+        "pve_cluster_id": loc_cluster,
         "node": location["node"],
         "nodes": location_nodes,
         "storage": location["storage"],
@@ -1424,6 +1552,8 @@ def start_plan_run(
         "lab_bridge": lab_bridge,
         "http_check_url": http_check,
         "overwrite": do_overwrite,
+        "add_to_ha": do_add_ha,
+        "ha_group": ha_group,
         "drill": is_drill,
         "auto_teardown": bool(auto_teardown) and is_drill,
         "restore_mode": str(location.get("restore_mode") or "normal").strip().lower() or "normal",
@@ -1431,6 +1561,7 @@ def start_plan_run(
         "group_ids": list(plan["group_ids"]),
         "job_ids_by_group": job_ids_by_group,
         "assigned_targets": [],
+        "batch_id": batch_id,
         "teardown_status": "",
         "teardown_results": [],
         "current_group_index": 0,
@@ -1450,27 +1581,43 @@ def start_plan_run(
     # Persist empty run shell first so jobs can reference it.
     save_plan_run(r, cfg, run)
 
-    result = enqueue_fn(
-        r,
-        cfg,
-        group_rows[start_idx],
-        node=location["node"],
-        nodes=location_nodes,
-        target_storage=location["storage"],
-        storage_by_node=dict(location.get("storage_by_node") or {}),
-        vmid_start=int(location["vmid_start"]),
-        live_restore=live,
-        bwlimit=int(location.get("bwlimit", 0) or 0),
-        restore_mode=str(location.get("restore_mode") or "normal"),
-        plan_run_id=run_id,
-        plan_group_index=start_idx,
-        power_on=do_power_on,
-        qga_wait_sec=qga_sec,
-        network_mode=net_mode,
-        lab_bridge=lab_bridge,
-        overwrite=do_overwrite,
-        http_check_url=http_check,
-    )
+    try:
+        result = enqueue_fn(
+            r,
+            cfg,
+            group_rows[start_idx],
+            node=location["node"],
+            nodes=location_nodes,
+            target_storage=location["storage"],
+            storage_by_node=dict(location.get("storage_by_node") or {}),
+            vmid_start=int(location["vmid_start"]),
+            live_restore=live,
+            bwlimit=int(location.get("bwlimit", 0) or 0),
+            restore_mode=str(location.get("restore_mode") or "normal"),
+            plan_run_id=run_id,
+            batch_id=batch_id,
+            plan_group_index=start_idx,
+            power_on=do_power_on,
+            qga_wait_sec=qga_sec,
+            network_mode=net_mode,
+            lab_bridge=lab_bridge,
+            overwrite=do_overwrite,
+            http_check_url=http_check,
+            add_to_ha=do_add_ha,
+            ha_group=ha_group,
+            pve_cluster_id=loc_cluster,
+        )
+    except Exception as exc:
+        # Avoid leaving a zombie RUNNING lock with zero jobs when enqueue fails.
+        run = {
+            **run,
+            "status": PlanRunStatus.FAILED.value,
+            "error": f"Failed to enqueue first group: {exc}",
+            "finished_at": utc_now_iso(),
+            "updated_at": utc_now_iso(),
+        }
+        save_plan_run(r, cfg, run)
+        raise
     job_ids_by_group[start_idx] = list(result.get("job_ids") or [])
     run["job_ids_by_group"] = job_ids_by_group
     _record_assigned_targets(run, result)
@@ -1574,6 +1721,7 @@ def advance_plan_runs(
                 bwlimit=int(run.get("bwlimit", 0) or 0),
                 restore_mode=str(run.get("restore_mode") or "normal"),
                 plan_run_id=run_id,
+                batch_id=str(run.get("batch_id") or ""),
                 plan_group_index=idx,
                 power_on=bool(run.get("power_on", False)),
                 qga_wait_sec=int(run.get("qga_wait_sec") or 0),
@@ -1581,6 +1729,9 @@ def advance_plan_runs(
                 lab_bridge=str(run.get("lab_bridge") or ""),
                 overwrite=bool(run.get("overwrite", False)),
                 http_check_url=str(run.get("http_check_url") or ""),
+                add_to_ha=bool(run.get("add_to_ha", False)),
+                ha_group=str(run.get("ha_group") or ""),
+                pve_cluster_id=str(run.get("pve_cluster_id") or ""),
             )
             job_ids_by_group[idx] = list(result.get("job_ids") or [])
             run["job_ids_by_group"] = job_ids_by_group
@@ -2058,14 +2209,23 @@ def teardown_plan_run(
     destroy_fn: Callable[..., None] | None = None,
     find_node_fn: Callable[..., str | None] | None = None,
     connect_fn: Callable | None = None,
+    progress_cb: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
-    """Destroy QEMU VMs created by a plan run. Idempotent when already torn down."""
+    """Destroy QEMU VMs created by a plan run. Idempotent when already torn down.
+
+    When the run has a ``batch_id``, destroy requires batch match (or Redis
+    provenance for unmarked leftovers). Per-VM progress is written to the run
+    hash as teardown proceeds (``pending`` → ``destroying`` → ``gone`` / ``failed``).
+    """
     from jobs import job_key as default_job_key
     from pve_client import (
         GuestOwnershipError,
+        batch_id_from_plan_run_id,
         connect_proxmox,
         destroy_owned_qemu_vm,
+        destroy_task_timeout_sec,
         find_qemu_node,
+        remove_qemu_from_ha,
     )
 
     if job_key_fn is None:
@@ -2082,17 +2242,55 @@ def teardown_plan_run(
     if run.get("status") == PlanRunStatus.RUNNING.value:
         raise ValueError("Cannot teardown a RUNNING plan run; cancel or wait for it to finish")
 
+    run_id = str(run.get("id") or "")
+    batch_id = str(run.get("batch_id") or "").strip() or (
+        batch_id_from_plan_run_id(run_id) if run_id else ""
+    )
+    destroy_timeout = destroy_task_timeout_sec(cfg)
+
     targets = collect_plan_run_targets(r, cfg, run, job_key_fn=job_key_fn)
-    results: list[dict[str, Any]] = []
+    results: list[dict[str, Any]] = [
+        {
+            "vmid": int(t["vmid"]),
+            "node": str(t.get("node") or "").strip(),
+            "ok": False,
+            "status": "pending",
+            "error": "",
+        }
+        for t in targets
+    ]
+    run = {
+        **run,
+        "batch_id": batch_id,
+        "teardown_status": "running",
+        "teardown_results": results,
+        "teardown_at": utc_now_iso(),
+    }
+    save_plan_run(r, cfg, run)
+    if progress_cb is not None:
+        progress_cb(run)
+
     proxmox = None
     if targets:
-        connect = connect_fn or connect_proxmox
-        proxmox = connect(cfg)
+        from clusters import default_pve_cluster_id
+
+        run_cluster = str(run.get("pve_cluster_id") or "").strip() or default_pve_cluster_id(cfg)
+        if connect_fn is None:
+
+            def connect(c: dict[str, Any], _cid: str = run_cluster) -> Any:
+                return connect_proxmox(c, cluster_id=_cid)
+
+        else:
+            connect = connect_fn
+        try:
+            proxmox = connect(cfg, run_cluster)  # type: ignore[call-arg]
+        except TypeError:
+            proxmox = connect(cfg)
 
     destroy = destroy_fn or destroy_owned_qemu_vm
     find_node = find_node_fn or find_qemu_node
+    strip_ha = bool(run.get("add_to_ha", False))
 
-    # Jobs for this run that actually started a PVE restore (provenance for unmarked leftovers).
     provenance_vmids: set[int] = set()
     for group_jobs in run.get("job_ids_by_group") or []:
         for jid in group_jobs or []:
@@ -2106,41 +2304,59 @@ def teardown_plan_run(
             except (TypeError, ValueError):
                 continue
 
-    for t in targets:
-        vmid = int(t["vmid"])
-        node = str(t.get("node") or "").strip()
-        entry: dict[str, Any] = {"vmid": vmid, "node": node, "ok": False, "error": ""}
+    for entry in results:
+        vmid = int(entry["vmid"])
+        node = str(entry.get("node") or "").strip()
+        entry["status"] = "destroying"
+        run = {**run, "teardown_results": results}
+        save_plan_run(r, cfg, run)
+        if progress_cb is not None:
+            progress_cb(run)
         try:
             if not node and proxmox is not None:
                 node = find_node(proxmox, vmid) or ""
                 entry["node"] = node
             if not node:
                 entry["error"] = "node unknown"
-                results.append(entry)
+                entry["status"] = "failed"
                 continue
-            # Injected destroy_fn (tests) keeps prior signature; owned destroy gets provenance.
+            if strip_ha and proxmox is not None and destroy_fn is None:
+                try:
+                    remove_qemu_from_ha(proxmox, vmid)
+                except Exception as ha_exc:
+                    entry["ha_remove_error"] = str(ha_exc)
             if destroy_fn is None:
                 destroy(
                     proxmox,
                     node,
                     vmid,
                     allow_run_provenance=(vmid in provenance_vmids),
+                    batch_id=batch_id,
+                    plan_run_id=run_id,
+                    require_batch=bool(batch_id),
+                    timeout_sec=destroy_timeout,
                 )
             else:
                 destroy(proxmox, node, vmid)
             entry["ok"] = True
+            entry["status"] = "gone"
         except GuestOwnershipError as exc:
             entry["error"] = str(exc)
+            entry["status"] = "failed"
         except Exception as exc:
-            # Missing VM is success for teardown (already gone).
             msg = str(exc)
             lower = msg.lower()
             if "does not exist" in lower or "no such" in lower or "not found" in lower or "absent" in lower:
                 entry["ok"] = True
                 entry["error"] = "already gone"
+                entry["status"] = "gone"
             else:
                 entry["error"] = msg
-        results.append(entry)
+                entry["status"] = "failed"
+        run = {**run, "teardown_results": results}
+        save_plan_run(r, cfg, run)
+        if progress_cb is not None:
+            progress_cb(run)
 
     ok_count = sum(1 for x in results if x.get("ok"))
     if not results:
@@ -2159,7 +2375,255 @@ def teardown_plan_run(
         "teardown_at": utc_now_iso(),
     }
     save_plan_run(r, cfg, run)
+    if progress_cb is not None:
+        progress_cb(run)
     return run
+
+
+def cleanup_key(cfg: dict[str, Any], batch_id: str) -> str:
+    from pve_client import normalize_batch_id
+
+    prefix = str((cfg.get("redis") or {}).get("job_key_prefix") or "restore:job:")
+    base = prefix.rsplit("job:", 1)[0] if "job:" in prefix else "restore:"
+    return f"{base}cleanup:{normalize_batch_id(batch_id)}"
+
+
+def get_cleanup_progress(r: redis.Redis, cfg: dict[str, Any], batch_id: str) -> dict[str, Any] | None:
+    import json
+
+    raw = r.hgetall(cleanup_key(cfg, batch_id)) or {}
+    if not raw:
+        return None
+    results_raw = raw.get("results") or "[]"
+    try:
+        results = json.loads(results_raw) if isinstance(results_raw, str) else results_raw
+    except (TypeError, ValueError, json.JSONDecodeError):
+        results = []
+    return {
+        "batch_id": raw.get("batch_id") or batch_id,
+        "batch_tag": raw.get("batch_tag") or "",
+        "status": raw.get("status") or "",
+        "pve_cluster_id": raw.get("pve_cluster_id") or "",
+        "plan_run_id": raw.get("plan_run_id") or "",
+        "results": results if isinstance(results, list) else [],
+        "error": raw.get("error") or "",
+        "started_at": raw.get("started_at") or "",
+        "finished_at": raw.get("finished_at") or "",
+        "updated_at": raw.get("updated_at") or "",
+    }
+
+
+def _save_cleanup_progress(r: redis.Redis, cfg: dict[str, Any], progress: dict[str, Any]) -> None:
+    import json
+
+    from pve_client import batch_tag_for_id, normalize_batch_id
+
+    batch_id = normalize_batch_id(str(progress.get("batch_id") or ""))
+    key = cleanup_key(cfg, batch_id)
+    mapping = {
+        "batch_id": batch_id,
+        "batch_tag": str(progress.get("batch_tag") or batch_tag_for_id(batch_id)),
+        "status": str(progress.get("status") or ""),
+        "pve_cluster_id": str(progress.get("pve_cluster_id") or ""),
+        "plan_run_id": str(progress.get("plan_run_id") or ""),
+        "results": json.dumps(progress.get("results") or []),
+        "error": str(progress.get("error") or ""),
+        "started_at": str(progress.get("started_at") or ""),
+        "finished_at": str(progress.get("finished_at") or ""),
+        "updated_at": utc_now_iso(),
+    }
+    r.hset(key, mapping=mapping)
+    ttl = int((cfg.get("worker") or {}).get("job_ttl_sec") or 1209600)
+    if ttl > 0:
+        r.expire(key, ttl)
+
+
+def preview_cleanup_by_batch(
+    r: redis.Redis,
+    cfg: dict[str, Any],
+    *,
+    batch_id: str,
+    pve_cluster_id: str = "",
+    plan_run_id: str = "",
+    connect_fn: Callable | None = None,
+    list_fn: Callable | None = None,
+) -> dict[str, Any]:
+    """Live PVE scan (+ optional Redis plan-run targets) for a batch cleanup preview."""
+    from clusters import default_pve_cluster_id
+    from pve_client import (
+        batch_tag_for_id,
+        connect_proxmox,
+        list_qemu_matching_batch,
+        normalize_batch_id,
+    )
+
+    want = normalize_batch_id(batch_id)
+    cluster = str(pve_cluster_id or "").strip() or default_pve_cluster_id(cfg)
+    if connect_fn is None:
+
+        def connect(c: dict[str, Any], _cid: str = cluster) -> Any:
+            return connect_proxmox(c, cluster_id=_cid)
+
+    else:
+        connect = connect_fn
+    try:
+        proxmox = connect(cfg, cluster)  # type: ignore[call-arg]
+    except TypeError:
+        proxmox = connect(cfg)
+    scanner = list_fn or list_qemu_matching_batch
+    guests = scanner(proxmox, batch_id=want, plan_run_id=plan_run_id)
+    sample = guests[:20]
+    return {
+        "batch_id": want,
+        "batch_tag": batch_tag_for_id(want),
+        "pve_cluster_id": cluster,
+        "count": len(guests),
+        "guests": guests,
+        "sample": sample,
+        "plan_run_id": plan_run_id or "",
+    }
+
+
+def execute_cleanup_by_batch(
+    r: redis.Redis,
+    cfg: dict[str, Any],
+    *,
+    batch_id: str,
+    pve_cluster_id: str = "",
+    plan_run_id: str = "",
+    connect_fn: Callable | None = None,
+    list_fn: Callable | None = None,
+    destroy_fn: Callable[..., Any] | None = None,
+) -> dict[str, Any]:
+    """Sequentially destroy QEMU guests matching the batch (dual-tag gate)."""
+    from clusters import default_pve_cluster_id
+    from pve_client import (
+        GuestOwnershipError,
+        batch_tag_for_id,
+        connect_proxmox,
+        destroy_owned_qemu_vm,
+        destroy_task_timeout_sec,
+        list_qemu_matching_batch,
+        normalize_batch_id,
+        remove_qemu_from_ha,
+    )
+
+    want = normalize_batch_id(batch_id)
+    cluster = str(pve_cluster_id or "").strip() or default_pve_cluster_id(cfg)
+    now = utc_now_iso()
+    progress: dict[str, Any] = {
+        "batch_id": want,
+        "batch_tag": batch_tag_for_id(want),
+        "status": "running",
+        "pve_cluster_id": cluster,
+        "plan_run_id": plan_run_id or "",
+        "results": [],
+        "error": "",
+        "started_at": now,
+        "finished_at": "",
+    }
+    _save_cleanup_progress(r, cfg, progress)
+
+    if connect_fn is None:
+
+        def connect(c: dict[str, Any], _cid: str = cluster) -> Any:
+            return connect_proxmox(c, cluster_id=_cid)
+
+    else:
+        connect = connect_fn
+    try:
+        proxmox = connect(cfg, cluster)  # type: ignore[call-arg]
+    except TypeError:
+        proxmox = connect(cfg)
+
+    scanner = list_fn or list_qemu_matching_batch
+    guests = scanner(proxmox, batch_id=want, plan_run_id=plan_run_id)
+    results: list[dict[str, Any]] = [
+        {
+            "vmid": int(g["vmid"]),
+            "node": str(g.get("node") or ""),
+            "name": str(g.get("name") or ""),
+            "ok": False,
+            "status": "pending",
+            "error": "",
+        }
+        for g in guests
+    ]
+    progress["results"] = results
+    _save_cleanup_progress(r, cfg, progress)
+
+    destroy = destroy_fn or destroy_owned_qemu_vm
+    destroy_timeout = destroy_task_timeout_sec(cfg)
+
+    for entry in results:
+        entry["status"] = "destroying"
+        progress["results"] = results
+        _save_cleanup_progress(r, cfg, progress)
+        vmid = int(entry["vmid"])
+        node = str(entry.get("node") or "")
+        try:
+            try:
+                remove_qemu_from_ha(proxmox, vmid)
+            except Exception:
+                pass
+            if destroy_fn is None:
+                destroy(
+                    proxmox,
+                    node,
+                    vmid,
+                    batch_id=want,
+                    plan_run_id=plan_run_id,
+                    require_batch=True,
+                    allow_run_provenance=False,
+                    timeout_sec=destroy_timeout,
+                )
+            else:
+                destroy(proxmox, node, vmid, batch_id=want, plan_run_id=plan_run_id)
+            entry["ok"] = True
+            entry["status"] = "gone"
+        except GuestOwnershipError as exc:
+            entry["error"] = str(exc)
+            entry["status"] = "failed"
+        except Exception as exc:
+            msg = str(exc)
+            lower = msg.lower()
+            if "does not exist" in lower or "no such" in lower or "not found" in lower or "absent" in lower:
+                entry["ok"] = True
+                entry["error"] = "already gone"
+                entry["status"] = "gone"
+            else:
+                entry["error"] = msg
+                entry["status"] = "failed"
+        progress["results"] = results
+        _save_cleanup_progress(r, cfg, progress)
+
+    ok_count = sum(1 for x in results if x.get("ok"))
+    if not results:
+        status = "completed"
+    elif ok_count == len(results):
+        status = "completed"
+    elif ok_count == 0:
+        status = "failed"
+    else:
+        status = "partial"
+    progress["status"] = status
+    progress["finished_at"] = utc_now_iso()
+    _save_cleanup_progress(r, cfg, progress)
+
+    # Mirror onto matching plan run when known.
+    if plan_run_id:
+        run = get_plan_run(r, cfg, plan_run_id)
+        if run:
+            run = {
+                **run,
+                "batch_id": want,
+                "teardown_status": status,
+                "teardown_results": results,
+                "teardown_at": progress["finished_at"],
+            }
+            save_plan_run(r, cfg, run)
+
+    return progress
 
 
 def cancel_plan_run(

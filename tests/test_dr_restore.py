@@ -51,7 +51,7 @@ def _row(vmid: int) -> dict[str, Any]:
 
 
 def test_enqueue_dr_uses_source_vmid(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("jobs.connect_proxmox", lambda cfg: object())
+    monkeypatch.setattr("jobs.connect_proxmox", lambda cfg, cluster_id=None: object())
     monkeypatch.setattr("jobs.qemu_vmids_in_use_cluster", lambda px: {200, 201})
     r = FakeRedis()
     result = enqueue_restores(
@@ -65,7 +65,8 @@ def test_enqueue_dr_uses_source_vmid(monkeypatch: pytest.MonkeyPatch) -> None:
         bwlimit=0,
         restore_mode="dr",
     )
-    assert result["proxmox_vmids_assigned"] == [109, 110]
+    # Equal sizes → higher VMID first (largest-first tie-break); source VMIDs kept.
+    assert result["proxmox_vmids_assigned"] == [110, 109]
     assert result["restore_mode"] == "dr"
     jobs = list(r.hashes.values())
     assert {j["proxmox_vmid"] for j in jobs} == {"109", "110"}
@@ -76,7 +77,7 @@ def test_enqueue_dr_uses_source_vmid(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_enqueue_dr_fails_when_vmid_in_use(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("jobs.connect_proxmox", lambda cfg: object())
+    monkeypatch.setattr("jobs.connect_proxmox", lambda cfg, cluster_id=None: object())
     monkeypatch.setattr("jobs.qemu_vmids_in_use_cluster", lambda px: {109})
     r = FakeRedis()
     with pytest.raises(RuntimeError, match="VMID 109 already exists"):
@@ -94,7 +95,7 @@ def test_enqueue_dr_fails_when_vmid_in_use(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_enqueue_dr_overwrite_refuses_lxc(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("jobs.connect_proxmox", lambda cfg: object())
+    monkeypatch.setattr("jobs.connect_proxmox", lambda cfg, cluster_id=None: object())
     monkeypatch.setattr("jobs.qemu_vmids_in_use_cluster", lambda px: {109})
     monkeypatch.setattr(
         "jobs.find_guest_resource",
@@ -117,7 +118,7 @@ def test_enqueue_dr_overwrite_refuses_lxc(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_enqueue_dr_overwrite_refuses_foreign(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("jobs.connect_proxmox", lambda cfg: object())
+    monkeypatch.setattr("jobs.connect_proxmox", lambda cfg, cluster_id=None: object())
     monkeypatch.setattr("jobs.qemu_vmids_in_use_cluster", lambda px: {109})
     monkeypatch.setattr(
         "jobs.find_guest_resource",
@@ -141,7 +142,7 @@ def test_enqueue_dr_overwrite_refuses_foreign(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_enqueue_dr_rejects_duplicate_source_vmids(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("jobs.connect_proxmox", lambda cfg: object())
+    monkeypatch.setattr("jobs.connect_proxmox", lambda cfg, cluster_id=None: object())
     monkeypatch.setattr("jobs.qemu_vmids_in_use_cluster", lambda px: set())
     r = FakeRedis()
     with pytest.raises(RuntimeError, match="duplicate source VMID"):

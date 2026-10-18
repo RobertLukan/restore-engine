@@ -31,6 +31,42 @@ def job_key(cfg: dict[str, Any], job_id: str) -> str:
     return f"{cfg['redis']['job_key_prefix']}{job_id}"
 
 
+def _row_schedule_bytes(row: dict[str, Any]) -> int:
+    """Best available size proxy for longest-job-first enqueue ordering."""
+    for key in ("nonzero_bytes", "size_bytes"):
+        try:
+            val = int(row.get(key) or 0)
+        except (TypeError, ValueError):
+            val = 0
+        if val > 0:
+            return val
+    return 0
+
+
+def _row_vmid(row: dict[str, Any]) -> int:
+    try:
+        return int(row.get("vmid") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def sort_rows_largest_first(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Order rows largest-first to shorten wall-clock recovery under concurrency.
+
+    Prefers ``nonzero_bytes`` when present, else ``size_bytes``. Tie-break: higher
+    VMID first (deterministic). Does not mutate the input list.
+    """
+    return sorted(rows, key=lambda row: (_row_schedule_bytes(row), _row_vmid(row)), reverse=True)
+
+
+def enqueue_largest_first_enabled(cfg: dict[str, Any]) -> bool:
+    """Default on; set ``worker.enqueue_largest_first: false`` for legacy call-order."""
+    worker = cfg.get("worker") or {}
+    if "enqueue_largest_first" not in worker:
+        return True
+    return bool(worker.get("enqueue_largest_first"))
+
+
 def active_restore_counts_by_node(r: redis.Redis, cfg: dict[str, Any]) -> dict[str, int]:
     """Count PENDING/RESTORING jobs per target node (for load-balanced placement)."""
     prefix = cfg["redis"]["job_key_prefix"]
@@ -64,6 +100,7 @@ def enqueue_restores(
     bwlimit: int,
     restore_mode: str = "normal",
     plan_run_id: str = "",
+    batch_id: str = "",
     plan_group_index: int | None = None,
     power_on: bool = False,
     qga_wait_sec: int = 0,
@@ -71,6 +108,9 @@ def enqueue_restores(
     lab_bridge: str = "",
     overwrite: bool = False,
     http_check_url: str = "",
+    add_to_ha: bool = False,
+    ha_group: str = "",
+    pve_cluster_id: str = "",
 ) -> dict[str, Any]:
     """Allocate target VMIDs and enqueue one restore job per row.
 
@@ -92,10 +132,17 @@ def enqueue_restores(
     ``target_storage`` as fallback — so node-local ZFS mirrors can differ per host.
 
     Raises RuntimeError on Proxmox list / VMID allocation / DR conflicts.
+
+    When ``worker.enqueue_largest_first`` is true (default), ``rows`` are sorted
+    largest-first before VMID/node assignment so big VMs claim concurrency slots
+    and least-loaded nodes first. Plan group barriers remain sequential.
     """
     mode = (restore_mode or "normal").strip().lower()
     if mode not in {"normal", "dr"}:
         raise RuntimeError(f"restore_mode must be 'normal' or 'dr', got {restore_mode!r}")
+
+    if rows and enqueue_largest_first_enabled(cfg):
+        rows = sort_rows_largest_first(list(rows))
 
     do_power_on = bool(power_on) or bool(live_restore)
     try:
@@ -124,7 +171,24 @@ def enqueue_restores(
     for cand in candidates:
         resolve_storage_for_node(cand, storage_by_node=by_node, default_storage=default_storage)
 
-    proxmox = connect_proxmox(cfg)
+    from clusters import DEFAULT_CLUSTER_ID, default_pve_cluster_id
+
+    cluster_ids = {
+        str(row.get("pve_cluster_id") or "").strip() or DEFAULT_CLUSTER_ID for row in rows
+    }
+    explicit = (pve_cluster_id or "").strip()
+    if explicit:
+        cluster_ids = {explicit}
+    elif len(cluster_ids) > 1:
+        raise RuntimeError(
+            "Cannot enqueue backups that map to different PVE clusters in one batch; "
+            f"got {sorted(cluster_ids)}"
+        )
+    elif not cluster_ids:
+        cluster_ids = {default_pve_cluster_id(cfg)}
+    resolved_cluster_id = next(iter(cluster_ids)) or default_pve_cluster_id(cfg)
+
+    proxmox = connect_proxmox(cfg, cluster_id=resolved_cluster_id)
     try:
         in_use = qemu_vmids_in_use_cluster(proxmox)
     except Exception as exc:
@@ -233,6 +297,9 @@ def enqueue_restores(
             "overwrite": "1" if overwrite else "0",
             "http_check_url": str(http_check_url or "").strip(),
             "http_check_ok": "",
+            "add_to_ha": "1" if add_to_ha else "0",
+            "ha_group": str(ha_group or "").strip(),
+            "ha_ok": "",
             "bwlimit": str(int(bwlimit or 0)),
             "restore_mode": mode,
             "unique": "1" if unique_flag else "0",
@@ -244,7 +311,9 @@ def enqueue_restores(
             "created_at": now,
             "updated_at": now,
             "plan_run_id": plan_run_id or "",
+            "batch_id": batch_id or "",
             "plan_group_index": "" if plan_group_index is None else str(plan_group_index),
+            "pve_cluster_id": resolved_cluster_id,
         }
         r.hset(job_key(cfg, job_id), mapping=mapping)
         r.rpush(cfg["redis"]["queue_key"], job_id)
@@ -261,4 +330,5 @@ def enqueue_restores(
         "restore_mode": mode,
         "power_on": do_power_on,
         "qga_wait_sec": qga_sec,
+        "pve_cluster_id": resolved_cluster_id,
     }

@@ -23,3 +23,15 @@ def test_public_error_message_uses_class_name_only():
         assert public_error_message(exc) == "ValueError"
         assert public_error_message(exc, prefix="failed") == "failed: ValueError"
         assert "secret" not in public_error_message(exc)
+
+
+def test_public_error_message_adds_safe_network_hint():
+    import errno
+
+    try:
+        raise OSError(errno.EHOSTUNREACH, "No route to host")
+    except OSError as exc:
+        msg = public_error_message(exc)
+        assert "OSError" in msg
+        assert "no route to host" in msg
+        assert "secret" not in msg

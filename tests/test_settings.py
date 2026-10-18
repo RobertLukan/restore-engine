@@ -26,6 +26,8 @@ def test_credentials_include_worker_and_restore_defaults(client: TestClient) -> 
     assert data["worker"]["max_concurrent_restores"] == 1  # from minimal_config fixture
     assert data["proxmox"]["restore_bwlimit"] == 0
     assert data["proxmox"]["live_restore_default"] is False
+    assert data["ui"]["plan_run_cleanup_enabled"] is False
+    assert "destroy_task_timeout_sec" in data["worker"]
 
 
 def test_restore_defaults_expose_perf_settings(client: TestClient) -> None:
@@ -50,6 +52,7 @@ def test_put_worker_and_defaults_persist(
         json={
             "worker": {"max_concurrent_restores": 5},
             "proxmox": {"restore_bwlimit": 40960, "live_restore_default": True},
+            "ui": {"plan_run_cleanup_enabled": True},
         },
     )
     assert r.status_code == 200
@@ -58,6 +61,9 @@ def test_put_worker_and_defaults_persist(
     assert saved["worker"]["max_concurrent_restores"] == 5
     assert saved["proxmox"]["restore_bwlimit"] == 40960
     assert saved["proxmox"]["live_restore_default"] is True
+    assert saved["ui"]["plan_run_cleanup_enabled"] is True
+    data = client.get("/api/ui/credentials").json()
+    assert data["ui"]["plan_run_cleanup_enabled"] is True
 
 
 def test_put_pbs_servers_preserves_masked_secret_and_drops_legacy(
@@ -155,3 +161,58 @@ def test_put_worker_clamps_to_minimum_one(
     assert r.status_code == 200
     saved = yaml.safe_load(tmp_cfg.read_text())
     assert saved["worker"]["max_concurrent_restores"] == 1
+
+
+def test_credentials_expose_pve_clusters_and_put_persists(
+    client: TestClient, ui_module: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _login(client)
+    data = client.get("/api/ui/credentials").json()
+    assert "pve_clusters" in data
+    assert isinstance(data["pve_clusters"], list)
+    assert data["pve_clusters"] or data["proxmox"]
+
+    tmp_cfg = tmp_path / "config.yaml"
+    shutil.copy(ui_module.CONFIG_PATH, tmp_cfg)
+    monkeypatch.setattr(ui_module, "CONFIG_PATH", tmp_cfg)
+    mask = ui_module.MASK
+
+    r = client.put(
+        "/api/ui/credentials",
+        json={
+            "pve_clusters": [
+                {
+                    "id": "default",
+                    "host": "10.1.1.1",
+                    "port": 8006,
+                    "verify_ssl": False,
+                    "default_node": "pve1",
+                    "storage": "local-lvm",
+                    "api_token_id": "root@pam!t",
+                    "api_token_secret": mask,
+                    "user": "",
+                    "password": "",
+                },
+                {
+                    "id": "dr",
+                    "host": "10.2.2.2",
+                    "port": 8006,
+                    "verify_ssl": False,
+                    "default_node": "dr1",
+                    "storage": "ceph",
+                    "api_token_id": "root@pam!t",
+                    "api_token_secret": "new-dr-secret",
+                    "user": "",
+                    "password": "",
+                },
+            ]
+        },
+    )
+    assert r.status_code == 200
+    saved = yaml.safe_load(tmp_cfg.read_text())
+    assert len(saved["pve_clusters"]) == 2
+    assert saved["pve_clusters"][1]["id"] == "dr"
+    assert saved["pve_clusters"][1]["api_token_secret"] == "new-dr-secret"
+    # Legacy mirror of default/first cluster
+    assert saved["proxmox"]["host"] == "10.1.1.1"
+    assert "id" not in saved["proxmox"]

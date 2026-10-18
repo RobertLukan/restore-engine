@@ -21,3 +21,6 @@ restore-engine-offline*.tar.gz
 # macOS junk (breaks Grafana provisioning if copied to Linux)
 .DS_Store
 ._*
+
+# local PBS VPN proxy target
+.pbs-proxy-target

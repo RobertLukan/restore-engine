@@ -13,7 +13,7 @@ from tests.test_plans import CFG, FakeRedis
 
 
 def test_enqueue_power_on_and_qga_flags(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("jobs.connect_proxmox", lambda _cfg: object())
+    monkeypatch.setattr("jobs.connect_proxmox", lambda _cfg, cluster_id=None: object())
     monkeypatch.setattr("jobs.qemu_vmids_in_use_cluster", lambda _px: set())
     r = FakeRedis()
     rows = [
@@ -48,7 +48,7 @@ def test_enqueue_power_on_and_qga_flags(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_qga_implies_power_on(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("jobs.connect_proxmox", lambda _cfg: object())
+    monkeypatch.setattr("jobs.connect_proxmox", lambda _cfg, cluster_id=None: object())
     monkeypatch.setattr("jobs.qemu_vmids_in_use_cluster", lambda _px: set())
     r = FakeRedis()
     rows = [

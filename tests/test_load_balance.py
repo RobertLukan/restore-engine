@@ -91,7 +91,7 @@ def test_enqueue_load_balances_across_nodes(monkeypatch: pytest.MonkeyPatch) -> 
         for i in (10, 11, 12, 13)
     ]
 
-    monkeypatch.setattr("jobs.connect_proxmox", lambda cfg: object())
+    monkeypatch.setattr("jobs.connect_proxmox", lambda cfg, cluster_id=None: object())
     monkeypatch.setattr("jobs.qemu_vmids_in_use_cluster", lambda prox: {3500})
 
     # Seed one active job on pve1 so new work prefers pve2 first.
@@ -142,7 +142,7 @@ def test_enqueue_storage_by_node(monkeypatch: pytest.MonkeyPatch) -> None:
         }
         for i in (1, 2)
     ]
-    monkeypatch.setattr("jobs.connect_proxmox", lambda cfg: object())
+    monkeypatch.setattr("jobs.connect_proxmox", lambda cfg, cluster_id=None: object())
     monkeypatch.setattr("jobs.qemu_vmids_in_use_cluster", lambda prox: set())
 
     result = enqueue_restores(

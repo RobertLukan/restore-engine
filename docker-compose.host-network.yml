@@ -1,0 +1,8 @@
+# Deprecated: host networking is now the default in docker-compose.yml.
+# Kept as a no-op include so old docs/scripts keep working.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.host-network.yml up -d
+#
+# Equivalent to: docker compose up -d
+
+services: {}

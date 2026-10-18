@@ -1,110 +1,81 @@
-# Copy to config.docker.yaml (gitignored) and edit before use. Never commit real secrets.
-# Docker Compose mounts config.docker.yaml over the image default at /app/config.docker.yaml.
-
 ui:
-  password: "change-me-dashboard"
-  # Required when password is set; API refuses startup if missing, <32 chars, or dev placeholder.
-  session_secret: "change-me-use-a-long-random-string-at-least-32-chars"
-
+  password: change-me-dashboard
+  session_secret: change-me-use-a-long-random-string-at-least-32-chars
+  timezone: UTC
+  # Opt-in: show Plans Cleanup UI and allow /api/cleanup/* (default false).
+  plan_run_cleanup_enabled: false
 pbs_servers:
-  - id: main
-    host: "10.0.0.10"
-    port: 8007
-    verify_ssl: false
-    # Prefer token when set; otherwise username/password ticket auth.
-    api_token_id: ""
-    api_token_secret: ""
-    user: "root@pam"
-    password: "CHANGE_ME"
-    mounts:
-      - datastore: "main"
-        namespace: ""
-        pve_storage: "pbs-main"
-
-proxmox:
-  host: "10.0.0.20"
+- id: main
+  host: 10.0.0.10
+  port: 8007
+  verify_ssl: false
+  api_token_id: ''
+  api_token_secret: ''
+  user: root@pam
+  password: CHANGE_ME
+  mounts:
+  - datastore: main
+    namespace: ''
+    pve_cluster_id: default
+    pve_storage: pbs-main
+pve_clusters:
+- id: default
+  host: 10.0.0.20
   port: 8006
   verify_ssl: false
-  # HTTP timeout for API calls (proxmoxer default is 5s — too short when the
-  # node is busy, e.g. after resolving tags for hundreds of backups).
   timeout_sec: 30
   default_node: pve
-  api_token_id: ""
-  api_token_secret: ""
+  api_token_id: ''
+  api_token_secret: ''
   user: root@pam
-  password: "CHANGE_ME"
+  password: CHANGE_ME
   storage: local-lvm
   restore_bwlimit: 0
   live_restore_default: false
-
 redis:
-  url: redis://redis:6379/0
+  url: redis://127.0.0.1:6380/0
   queue_key: restore:queue
-  job_key_prefix: "restore:job:"
+  job_key_prefix: 'restore:job:'
   job_log_suffix: :log
-  tag_cache_prefix: "restore:tagcache:"
-
+  tag_cache_prefix: 'restore:tagcache:'
 worker:
   task_poll_interval_sec: 3
-  # Max seconds to wait for a PVE restore/start task. 0 = no limit (required for
-  # multi-TiB restores that run longer than a few hours). Previous default was 7200.
   task_timeout_sec: 0
+  # Destroy/disk-purge wait; 0 = unlimited (safe for multi-TiB guests).
+  destroy_task_timeout_sec: 0
   max_concurrent_restores: 2
+  enqueue_largest_first: true
   plan_check_interval_sec: 86400
   report_retain: 20
   job_ttl_sec: 1209600
   audit_retain: 2000
-  # When true, POST /api/plans/{id}/run rejects plans that are not VERIFIED
-  # unless allow_unverified=true is sent. Keep false for lab convenience;
-  # set true for production (see README "Production checklist").
   require_verified_to_run: false
-  # Default QGA wait when UI enables "Wait for guest agent" (seconds).
   qga_wait_sec_default: 120
-
-# Optional Grafana embed + API snapshot (see docs/infra-metrics.md).
-# Enable Compose profile: docker compose --profile observability up -d
 monitoring:
   enabled: true
   api_snapshot: true
   grafana:
-    # Browser-reachable URL (not docker DNS). Example:
-    # base_url: "http://<utility-host>:3002"
-    base_url: ""
+    base_url: ''
     dashboards:
-      - id: infra
-        title: "Infra"
-        uid: "restore-infra"
-        path: "/d/restore-infra/restore-infra?orgId=1&kiosk&theme=dark"
-
-# Optional automation tokens (Authorization: Bearer <token>).
-# role: operator (full) | viewer (GET only)
-# ui:
-#   password: "change-me"
-#   session_secret: "long-random-string"
-#   api_tokens:
-#     - name: ci
-#       token: "long-random-secret"
-#       role: operator
-
-# Optional plans section (same require_verified_to_run key is also read here).
-# plans:
-#   require_verified_to_run: true
-
+    - id: infra
+      title: Infra
+      uid: restore-infra
+      path: /d/restore-infra/restore-infra?orgId=1&kiosk&theme=dark
 notifications:
   email:
     enabled: false
-    host: ""
+    host: ''
     port: 587
     tls: true
     ssl: false
-    username: ""
-    password: ""
-    from: "restore-engine@example.com"
+    username: ''
+    password: ''
+    from: restore-engine@example.com
     to: []
   webhook:
     enabled: false
-    url: ""
-    secret: ""
+    url: ''
+    secret: ''
   events:
     check_failed: true
     plan_run_terminal: true

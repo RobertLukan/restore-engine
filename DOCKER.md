@@ -1,16 +1,25 @@
 # Docker (isolated / air-gapped testing)
 
-Stack: **Redis**, **FastAPI UI + API**, **restore worker**. All three talk only on the internal Docker network except port **8001** published for the browser (host → container `8000`).
+Stack: **Redis**, **FastAPI UI + API**, **restore worker**.
+
+**Default networking:** api + worker use **`network_mode: host`** so they share the Linux host’s VPN/LAN routes to PBS/PVE. Redis is published on **`127.0.0.1:6380`**. Config `redis.url` must be `redis://127.0.0.1:6380/0`. UI: **http://127.0.0.1:8000**.
+
+**Docker Desktop (Mac):** host networking is the Linux VM, **not** the Mac VPN. For a Mac lab with VPN PBS, run `./scripts/lab-mac.sh` (Redis in Docker, api/worker on the Mac). Do not point PBS at `host.docker.internal` unless you intentionally run a host TCP proxy.
+
+**Bridge override** (old isolated mode, UI on :8001):  
+`docker compose -f docker-compose.yml -f docker-compose.bridge.yml up -d` with `redis.url: redis://redis:6379/0`.
 
 ## Ports (do not confuse)
 
 | Port | Service |
 |------|---------|
-| **8001** | restore-engine dashboard (Compose `ports:` default) |
+| **8000** | restore-engine dashboard (host-network default) |
+| **8001** | dashboard when using `docker-compose.bridge.yml` |
+| **6380** | Redis published to the host (maps to container 6379) |
 | **8006** | Proxmox VE API (`proxmox.port` in config) |
 | **8007** | Proxmox Backup Server API (`pbs_servers[].port` in config) |
 
-Change the **left** side of `ports:` in `docker-compose.yml` if another host port suits your site (e.g. `8007:8000` locally). Do not use **8007** as the public default — that is PBS’s usual API port.
+Do not use **8007** as the public dashboard port — that is PBS’s usual API port.
 
 ## Apple Silicon (M1/M2/M3) → Intel / AMD64 servers
 
@@ -98,6 +107,8 @@ Lab Netdata install script: `deploy/observability/install-netdata-pve.sh`. Full 
 Compose mounts a named volume **`redis-data`** on the bundled Redis service and enables AOF (`--appendonly yes`) so plan inventory, jobs, and reports survive container restarts.
 
 **Run one or more workers safely.** Concurrent restore slots are counted in Redis (`restore:concurrency:slots`), so multiple worker replicas share the same `worker.max_concurrent_restores` cap. Prefer a single worker unless you intentionally scale out; the Compose worker healthcheck watches the Redis heartbeat key.
+
+**Enqueue order.** By default (`worker.enqueue_largest_first: true`), each enqueue batch (UI restore-selected / tag-group, or one plan group) is sorted **largest-first** using `nonzero_bytes` when present else PBS `size_bytes`, so concurrency slots finish sooner. Plan **groups** remain sequential barriers. Set `enqueue_largest_first: false` for legacy call/VMID order. Normal-mode sequential VMIDs from `vmid_start` follow this size order within the batch.
 
 ## Redis already on the server (host) vs Redis in Docker
 

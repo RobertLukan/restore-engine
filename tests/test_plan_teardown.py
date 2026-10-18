@@ -207,6 +207,9 @@ def test_start_plan_run_drill_forces_powered_off() -> None:
     assert run["auto_teardown"] is True
     assert captured.get("live_restore") is False
     assert run["assigned_targets"] == [{"vmid": 300, "node": "pve1"}]
+    assert run.get("batch_id")
+    assert len(run["batch_id"]) == 12
+    assert captured.get("batch_id") == run["batch_id"]
 
 
 def test_require_verified_flag() -> None:

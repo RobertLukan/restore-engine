@@ -23,8 +23,19 @@ class FakeRedis:
     def get(self, key: str) -> str | None:
         return self.kv.get(key)
 
-    def set(self, key: str, value: str) -> bool:
+    def set(
+        self,
+        key: str,
+        value: str,
+        nx: bool = False,
+        ex: int | None = None,
+        **_kwargs: Any,
+    ) -> bool:
+        if nx and key in self.kv:
+            return False
         self.kv[key] = value
+        if ex is not None:
+            self.ttls[key] = int(ex)
         return True
 
     def delete(self, key: str) -> int:

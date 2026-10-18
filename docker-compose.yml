@@ -1,34 +1,31 @@
-# Default app image from GitHub Container Registry (override tag or build locally).
-#   RESTORE_ENGINE_IMAGE_TAG=0.2.0 docker compose pull && docker compose up -d
-#   docker compose up --build -d    # local build instead of pull
+# Default: api + worker use host networking (Linux lab / LXC — share host VPN/LAN routes).
+#   docker compose up -d
+#   UI: http://127.0.0.1:8000
+#   config.docker.yaml → redis.url: redis://127.0.0.1:6379/0
+#
+# Bridge network (isolated, old default) — Docker Desktop Mac or locked-down hosts:
+#   docker compose -f docker-compose.yml -f docker-compose.bridge.yml up -d
+#   UI: http://127.0.0.1:8001  · redis.url: redis://redis:6379/0
+#
+# Docker Desktop on Mac: host networking is the Linux VM, NOT the Mac VPN.
+# For Mac lab with VPN PBS, use: ./scripts/lab-mac.sh
 #
 # Offline / air-gap: see DOCKER.md and scripts/build-offline-bundle.sh
 #
-# Override config (recommended for real secrets):
-#   cp config.docker.example.yaml config.docker.yaml
-#   # edit config.docker.yaml — keep redis.url host as "redis"
-#   docker compose up -d
-#
-# Uncomment the api/worker volumes section to mount ./config.docker.yaml
-#
-# Build on Apple Silicon but deploy on Intel/AMD64 Linux: keep `platform: linux/amd64` below.
-# For native ARM64 builds on Mac (local test only), comment out all `platform` lines.
-#
-# Optional observability (Grafana + Prometheus + OTel Collector):
+# Optional observability:
 #   docker compose --profile observability up -d
-#   Grafana http://localhost:3002  (admin / see GRAFANA_ADMIN_PASSWORD)
-#   Point PVE/PBS Metric Server OpenTelemetry at <host>:4318
-#   See docs/infra-metrics.md
-# Host ports avoid clashing with a typical second Grafana (:3000/:3001) on the same box.
+#   Grafana http://localhost:3002
 
 services:
-  # In-container Redis only (not published to the host by default). Safe alongside a
-  # separate Redis already installed on the host — see DOCKER.md "Redis already on the server".
   redis:
     image: redis:7-alpine
     platform: linux/amd64
     restart: unless-stopped
     networks: [restore]
+    ports:
+      # Published for host-networked api/worker. Use 6380 to avoid clashing with a
+      # host Redis already on :6379 (common on Mac). config → redis://127.0.0.1:6380/0
+      - "127.0.0.1:6380:6379"
     volumes:
       - redis-data:/data
     command: ["redis-server", "--appendonly", "yes"]
@@ -50,9 +47,7 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    networks: [restore]
-    ports:
-      - "8001:8000"
+    network_mode: host
     environment:
       RESTORE_ENGINE_CONFIG: /app/config.docker.yaml
     command: >
@@ -81,7 +76,7 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    networks: [restore]
+    network_mode: host
     environment:
       RESTORE_ENGINE_CONFIG: /app/config.docker.yaml
     command: ["python", "worker.py"]
@@ -126,8 +121,8 @@ services:
       - ./deploy/observability/otel/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     ports:
-      - "4317:4317"   # OTLP gRPC (PVE/PBS Metric Server)
-      - "4318:4318"   # OTLP HTTP
+      - "4317:4317"
+      - "4318:4318"
 
   grafana:
     profiles: [observability]

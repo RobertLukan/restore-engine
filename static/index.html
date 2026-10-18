@@ -307,6 +307,45 @@
       margin-bottom: 0.5rem;
     }
     .subcard .subcard-head strong { font-size: 0.9rem; }
+    .wizard-steps {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+    .wizard-steps .wiz-step {
+      flex: 1;
+      min-width: 7rem;
+      text-align: center;
+      padding: 0.45rem 0.5rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      font-size: 0.8rem;
+      color: var(--muted);
+      background: rgba(15, 20, 25, 0.35);
+    }
+    .wizard-steps .wiz-step.active {
+      border-color: var(--accent, #3b82f6);
+      color: var(--text);
+      background: rgba(59, 130, 246, 0.12);
+    }
+    .wizard-steps .wiz-step.done {
+      border-color: var(--ok);
+      color: var(--ok);
+    }
+    .wizard-pane { display: none; }
+    .wizard-pane.show { display: block; }
+    #setup-wizard-modal .modal { max-width: 42rem; width: min(42rem, 96vw); max-height: 90vh; overflow: auto; }
+    .mount-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr auto;
+      gap: 0.4rem;
+      align-items: end;
+      margin-bottom: 0.45rem;
+    }
+    @media (max-width: 720px) {
+      .mount-row { grid-template-columns: 1fr 1fr; }
+    }
     .risk-chip {
       display: inline-block;
       font-size: 0.7rem;
@@ -1115,6 +1154,7 @@
           <div class="sidebar-section-label">Operate</div>
           <button type="button" class="nav active" id="nav-backups" title="Backups"><span class="nav-ico">▣</span><span class="nav-label">Backups</span></button>
           <button type="button" class="nav" id="nav-jobs" title="Restores"><span class="nav-ico">▶</span><span class="nav-label">Restores</span></button>
+          <button type="button" class="nav" id="nav-cleanup" title="Cleanup"><span class="nav-ico">⌫</span><span class="nav-label">Cleanup</span></button>
           <div class="sidebar-section-label">Recovery</div>
           <button type="button" class="nav" id="nav-locations" title="Locations"><span class="nav-ico">⌖</span><span class="nav-label">Locations</span></button>
           <button type="button" class="nav" id="nav-groups" title="Groups"><span class="nav-ico">⧉</span><span class="nav-label">Groups</span></button>
@@ -1226,6 +1266,7 @@
               <button type="button" class="secondary tiny" id="btn-queue-pause">Pause</button>
               <button type="button" class="secondary tiny" id="btn-queue-resume">Resume</button>
               <button type="button" class="danger tiny" id="btn-queue-stop">Stop pending</button>
+              <button type="button" class="secondary tiny" id="btn-jobs-purge" title="Delete finished job records and their logs">Clear finished</button>
             </div>
             <div id="jobs-pause-banner" class="banner hidden" style="margin-bottom:0.75rem;"></div>
             <details class="hint-details">
@@ -1234,6 +1275,7 @@
                 Live restore progress is the PVE restore task (data stream), not guest boot readiness.
                 Live jobs report <code>transferred X of Y (P%)</code>; normal jobs use PBS <code>progress/zeroes</code>.
                 Est. wire ≈ virtual × fidx sparsity × compression (live) or (read − zeroes) × compression (normal).
+                Pending jobs are queued <strong>largest-first</strong> within each batch (ad-hoc or one plan group) to shorten overall recovery time; plan groups still run in order.
               </p>
             </details>
           </div>
@@ -1244,8 +1286,15 @@
               <h3>Jobs</h3>
               <span id="jobs-list-status" class="hint" style="margin:0;"></span>
             </div>
+            <div class="panel-body" style="padding-bottom:0.5rem;">
+              <label for="jobs-search" class="hint" style="display:block; margin:0 0 0.35rem;">Search by VM name or VMID</label>
+              <input id="jobs-search" type="search" placeholder="e.g. web-01 or 105" autocomplete="off" style="margin:0; width:100%; max-width:22rem;" />
+            </div>
             <div id="jobs-list" class="entity-list" style="max-height:min(70vh,42rem); padding:0; gap:0; background:#121a24;"></div>
             <p class="empty-state hidden" id="jobs-empty" style="padding:1rem 1.1rem;">No restore jobs yet.</p>
+            <div class="panel-body" id="jobs-list-more-wrap" hidden style="padding-top:0.5rem;">
+              <button type="button" class="secondary tiny" id="btn-jobs-load-more">Load more</button>
+            </div>
             <table class="vm-table hidden" id="jobs-table" hidden><tbody id="jobs-tbody"></tbody></table>
           </div>
           <div class="panel" style="margin-bottom:0;">
@@ -1416,13 +1465,16 @@
               </div>
               <div id="plans-panel-history" class="hidden plans-tab-body">
                 <div class="plans-section-label">Plan runs</div>
-                <p class="hint" style="margin:0 0 0.55rem;">Recent executions. Refresh while a run is active.</p>
-                <div class="actions" style="margin-bottom:0.75rem;">
+                <p class="hint" style="margin:0 0 0.55rem;">
+                  Recent executions. Refresh while a run is active.
+                  To destroy restored guests, use the <button type="button" class="secondary tiny help-goto" data-view="cleanup">Cleanup</button> tab.
+                </p>
+                <div class="actions" style="margin-bottom:0.75rem; flex-wrap:wrap; gap:0.5rem; align-items:center;">
                   <button type="button" class="secondary" id="btn-refresh-plan-runs">Refresh runs</button>
                 </div>
                 <div class="plans-groups-wrap" style="overflow-x:auto; margin-bottom:1.15rem;">
                   <table class="vm-table" id="plan-runs-table">
-                    <thead><tr><th>Plan</th><th>Status</th><th>Jobs</th><th>Started</th><th>Finished</th><th></th></tr></thead>
+                    <thead><tr><th>Plan</th><th>Batch</th><th>Status</th><th>Jobs</th><th>Started</th><th>Finished</th><th></th></tr></thead>
                     <tbody id="plan-runs-tbody"></tbody>
                   </table>
                 </div>
@@ -1439,6 +1491,68 @@
                   </table>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="view-cleanup" class="hidden">
+        <div class="view-header">
+          <h2>Cleanup</h2>
+          <p class="subtitle">Destroy QEMU guests left by plan runs, one batch at a time.</p>
+        </div>
+        <div class="banner warn show" id="cleanup-danger-banner" style="margin-bottom:0.85rem;">
+          <strong>Destructive action.</strong>
+          Cleanup permanently deletes matching VMs and their disks on Proxmox.
+          Large disks can take several minutes each. Proceed with caution — only destroy batches you intend to remove.
+        </div>
+        <div class="panel" id="cleanup-disabled-panel" hidden style="display:none;">
+          <div class="panel-head"><h3>Cleanup is disabled</h3></div>
+          <div class="panel-body">
+            <p class="hint" style="margin-top:0;">
+              Enable <strong>Plan-run batch cleanup</strong> under Settings, then return here.
+              Guests are still stamped with <code>re-…</code> batch tags while this is off.
+            </p>
+            <button type="button" class="secondary" id="btn-cleanup-goto-settings">Open Settings</button>
+          </div>
+        </div>
+        <div class="panel" id="cleanup-enabled-panel">
+          <div class="panel-head">
+            <h3>Plan runs</h3>
+            <div class="panel-actions">
+              <button type="button" class="secondary tiny" id="btn-refresh-cleanup-runs">Refresh</button>
+            </div>
+          </div>
+          <div class="panel-body">
+            <p class="hint" style="margin-top:0;">
+              Finished runs with a batch ID can be cleaned up. Only guests tagged
+              <code>restore-engine</code> <em>and</em> the matching <code>re-…</code> batch are destroyed.
+            </p>
+            <div class="plans-groups-wrap" style="overflow-x:auto; margin-bottom:1rem;">
+              <table class="vm-table" id="cleanup-runs-table">
+                <thead>
+                  <tr>
+                    <th>Plan</th>
+                    <th>Batch</th>
+                    <th>Status</th>
+                    <th>Jobs</th>
+                    <th>Started</th>
+                    <th>Cleanup</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="cleanup-runs-tbody"></tbody>
+              </table>
+            </div>
+            <div id="cleanup-run-detail" class="hint" style="margin-bottom:1rem;"></div>
+            <div class="section-label">Orphan cleanup by batch ID</div>
+            <p class="hint" style="margin-top:0;">
+              Use when the plan-run row is gone but Proxmox still has tagged guests. Paste <code>re-…</code> from the guest tags.
+            </p>
+            <div class="actions" style="flex-wrap:wrap; gap:0.5rem; align-items:center; margin-bottom:0;">
+              <label for="orphan-batch-id" class="hint" style="margin:0">Batch ID</label>
+              <input id="orphan-batch-id" placeholder="re-a1b2c3d4e5f6" style="width:12rem;" />
+              <button type="button" class="danger tiny" id="btn-orphan-cleanup">Preview destroy</button>
             </div>
           </div>
         </div>
@@ -1612,59 +1726,68 @@
           <div class="panel-head">
             <h3>Connection settings</h3>
             <div class="panel-actions">
-              <button type="button" class="secondary tiny" id="btn-test-pve">Test Proxmox</button>
+              <button type="button" class="secondary tiny" id="btn-open-setup-wizard">Setup wizard</button>
               <button type="button" class="secondary tiny" id="btn-test-email">Test email</button>
               <button type="button" class="primary tiny" id="btn-save-credentials">Save settings</button>
             </div>
           </div>
           <div class="panel-body">
+            <div class="section-label">Proxmox VE clusters</div>
+            <p class="hint">
+              One card per Proxmox VE cluster. Restore jobs and locations bind to a single cluster.
+            </p>
+            <div id="pve-clusters"></div>
+            <div class="actions" style="margin-bottom:0.85rem;">
+              <button type="button" class="secondary" id="btn-add-pve-cluster">+ Add PVE cluster</button>
+            </div>
+
             <div class="section-label">Proxmox Backup Servers</div>
             <p class="hint">
-              Add one entry per server. Each server can have several datastores/namespaces; each maps to the
-              PVE storage ID that references it (the storage must already exist on Proxmox VE).
+              Add one entry per server. Each mount maps a datastore/namespace to a PBS-type storage on a PVE cluster.
             </p>
             <div id="pbs-servers"></div>
             <div class="actions" style="margin-bottom:0.85rem;">
               <button type="button" class="secondary" id="btn-add-pbs-server">+ Add PBS server</button>
             </div>
 
-            <div class="section-label">Proxmox VE</div>
+            <div class="section-label">Display</div>
             <div class="form-panel">
-              <div class="row">
-                <div><label>Host</label><input id="pve-host" /></div>
-                <div><label>Port</label><input id="pve-port" type="number" /></div>
+              <p class="hint" style="margin-top:0;">
+                Timestamps in Restores (and elsewhere in the UI) are shown in this timezone. Stored values stay UTC.
+              </p>
+              <label for="ui-timezone">Timezone (IANA)</label>
+              <input id="ui-timezone" list="ui-timezone-list" placeholder="UTC" />
+              <datalist id="ui-timezone-list">
+                <option value="UTC"></option>
+                <option value="Europe/Ljubljana"></option>
+                <option value="Europe/Berlin"></option>
+                <option value="Europe/London"></option>
+                <option value="America/New_York"></option>
+                <option value="America/Chicago"></option>
+                <option value="America/Los_Angeles"></option>
+                <option value="Asia/Tokyo"></option>
+              </datalist>
+            </div>
+
+            <div class="section-label">Plan run cleanup</div>
+            <div class="form-panel">
+              <p class="hint" style="margin-top:0;">
+                Opt-in: unlock the <strong>Cleanup</strong> sidebar tab (destroy restored drill/recovery guests by batch).
+                Restored guests are still stamped with <code>re-…</code> tags when this is off.
+              </p>
+              <div class="inline">
+                <input type="checkbox" id="ui-plan-run-cleanup-enabled" />
+                <label for="ui-plan-run-cleanup-enabled" style="margin:0">Enable plan-run batch cleanup</label>
               </div>
-              <label>API token ID (optional if using password)</label><input id="pve-token-id" placeholder="root@pam!restore" />
-              <label>API token secret</label><input id="pve-token-secret" type="password" />
-              <div class="row">
-                <div><label>User (optional if using token)</label><input id="pve-user" placeholder="root@pam" /></div>
-                <div><label>Password</label><input id="pve-password" type="password" /></div>
-              </div>
-              <p class="hint">Auth: API token preferred when both are set; otherwise username/password.</p>
-              <label>Default node</label><input id="pve-node" />
-              <label>Default target storage</label><input id="pve-storage" placeholder="local-lvm" />
-              <div class="inline"><input type="checkbox" id="pve-verify-ssl" /><label style="margin:0">Verify TLS</label></div>
             </div>
 
             <div class="section-label">Restore performance</div>
             <div class="form-panel">
               <p class="hint" style="margin-top:0;">
-                Concurrency applies to the worker within a few seconds. Bandwidth and live restore pre-fill the restore dialog.
+                Concurrency applies to the worker within a few seconds. Per-cluster bandwidth and live-restore defaults are on each PVE card above.
               </p>
-              <div class="row">
-                <div>
-                  <label>Max concurrent restores</label>
-                  <input id="worker-max-concurrent" type="number" min="1" step="1" />
-                </div>
-                <div>
-                  <label>Default bandwidth limit (KiB/s, 0 = unlimited)</label>
-                  <input id="pve-restore-bwlimit" type="number" min="0" step="1024" />
-                </div>
-              </div>
-              <div class="inline" style="margin-bottom:0;">
-                <input type="checkbox" id="pve-live-restore-default" />
-                <label for="pve-live-restore-default" style="margin:0">Live restore by default</label>
-              </div>
+              <label>Max concurrent restores</label>
+              <input id="worker-max-concurrent" type="number" min="1" step="1" />
             </div>
 
             <div class="section-label">Email notifications</div>
@@ -1751,7 +1874,7 @@
               <li>
                 <div>
                   <h4>Connect PBS and PVE</h4>
-                  <p>In Settings, add your Proxmox Backup Server(s) and Proxmox VE target. Test the connection before listing backups.</p>
+                  <p>Use the setup wizard (or Settings) to add Proxmox VE cluster(s) and PBS mounts. Test and verify before listing backups.</p>
                 </div>
                 <button type="button" class="secondary tiny help-goto" data-view="credentials">Open Settings</button>
               </li>
@@ -1782,6 +1905,13 @@
                   <p>Ad-hoc restores from Backups and plan jobs both appear under Restores. Pause the queue, tune concurrency, and open job details for logs.</p>
                 </div>
                 <button type="button" class="secondary tiny help-goto" data-view="jobs">Open Restores</button>
+              </li>
+              <li>
+                <div>
+                  <h4>Clean up restored guests</h4>
+                  <p>After a drill or inspection, use <strong>Cleanup</strong> to destroy one batch at a time. Destructive — enable under Settings first.</p>
+                </div>
+                <button type="button" class="secondary tiny help-goto" data-view="cleanup">Open Cleanup</button>
               </li>
               <li>
                 <div>
@@ -2044,6 +2174,13 @@
         <label for="plan-enabled" style="margin:0">Enabled</label>
       </div>
       <div class="inline" style="margin-top:0.5rem;">
+        <input type="checkbox" id="plan-add-ha" />
+        <label for="plan-add-ha" style="margin:0">Add VMs to HA after restore</label>
+      </div>
+      <p class="hint">When checked, each restored guest is registered with Proxmox HA (started if powered on, stopped otherwise). Optional HA group id below.</p>
+      <label for="plan-ha-group">HA group (optional)</label>
+      <input id="plan-ha-group" placeholder="leave blank for default / any node" />
+      <div class="inline" style="margin-top:0.5rem;">
         <input type="checkbox" id="plan-schedule" />
         <label for="plan-schedule" style="margin:0">Schedule automatic runs</label>
         <input type="checkbox" id="plan-schedule-drill" checked style="margin-left:1rem;" />
@@ -2101,6 +2238,44 @@
     </div>
   </div>
 
+  <div id="setup-wizard-modal" class="modal-backdrop">
+    <div class="modal">
+      <h3>Connection setup</h3>
+      <p class="hint">Connect Proxmox VE, map PBS mounts, then verify. You can re-run this anytime.</p>
+      <div class="wizard-steps">
+        <div class="wiz-step active" data-wiz="1">1. PVE cluster</div>
+        <div class="wiz-step" data-wiz="2">2. PBS mounts</div>
+        <div class="wiz-step" data-wiz="3">3. Verify</div>
+      </div>
+      <div id="wiz-pane-1" class="wizard-pane show">
+        <div id="wiz-pve-host-form"></div>
+        <div class="actions" style="margin-top:0.75rem;">
+          <button type="button" class="secondary" id="wiz-test-pve">Test PVE</button>
+          <button type="button" class="primary" id="wiz-next-1">Next</button>
+          <button type="button" class="secondary" id="wiz-cancel-1">Cancel</button>
+        </div>
+      </div>
+      <div id="wiz-pane-2" class="wizard-pane">
+        <div id="wiz-pbs-servers"></div>
+        <div class="actions" style="margin:0.5rem 0;">
+          <button type="button" class="secondary tiny" id="wiz-add-pbs">+ Add PBS server</button>
+        </div>
+        <div class="actions" style="margin-top:0.75rem;">
+          <button type="button" class="secondary" id="wiz-back-2">Back</button>
+          <button type="button" class="primary" id="wiz-next-2">Next</button>
+        </div>
+      </div>
+      <div id="wiz-pane-3" class="wizard-pane">
+        <p class="hint">Save credentials and verify PBS + all PVE clusters. On success, the backup list unlocks.</p>
+        <div id="wiz-verify-status" class="hint">Not verified yet.</div>
+        <div class="actions" style="margin-top:0.75rem;">
+          <button type="button" class="secondary" id="wiz-back-3">Back</button>
+          <button type="button" class="primary" id="wiz-verify">Save &amp; verify</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="location-edit-modal" class="modal-backdrop">
     <div class="modal modal-entity-edit">
       <h3 id="location-edit-modal-title">Create location</h3>
@@ -2108,13 +2283,20 @@
       <div class="row">
         <div><label>Name</label><input id="loc-name" placeholder="Primary DR" /></div>
         <div>
-          <label for="loc-nodes">Nodes (Ctrl/Cmd multi-select)</label>
-          <select id="loc-nodes" multiple size="4"></select>
+          <label for="loc-pve-cluster">PVE cluster</label>
+          <select id="loc-pve-cluster"></select>
         </div>
       </div>
       <div class="row">
+        <div>
+          <label for="loc-nodes">Nodes (Ctrl/Cmd multi-select)</label>
+          <select id="loc-nodes" multiple size="4"></select>
+        </div>
         <div><label>Extra nodes (comma-separated, optional)</label><input id="loc-nodes-extra" placeholder="pve3, pve4" /></div>
+      </div>
+      <div class="row">
         <div><label>VMID start</label><input id="loc-vmid-start" type="number" min="100" value="100" /></div>
+        <div></div>
       </div>
       <label>Storage per node</label>
       <div id="loc-storage-by-node" class="storage-by-node-panel">
@@ -2194,6 +2376,30 @@
       <div class="actions" style="margin-top:0.75rem;">
         <button type="button" class="primary" id="btn-save-assurance-policy">Save policy</button>
         <button type="button" class="secondary" id="btn-close-assurance-edit">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="cleanup-modal" class="modal-backdrop">
+    <div class="modal modal-wide">
+      <h3 id="cleanup-modal-title">Cleanup batch</h3>
+      <p class="hint" id="cleanup-modal-summary"></p>
+      <div id="cleanup-preview-panel">
+        <p class="hint" id="cleanup-preview-warn" style="margin-top:0;">
+          Large disks can take several minutes each. Cleanup waits until Proxmox finishes reclaim.
+        </p>
+        <pre id="cleanup-preview-list" class="hint" style="max-height:12rem; overflow:auto; white-space:pre-wrap;"></pre>
+        <div class="actions" style="margin-top:0.75rem;">
+          <button type="button" class="danger" id="btn-cleanup-confirm">Permanently destroy matching VMs</button>
+          <button type="button" class="secondary" id="btn-cleanup-cancel">Cancel</button>
+        </div>
+      </div>
+      <div id="cleanup-progress-panel" hidden style="display:none;">
+        <p class="hint" id="cleanup-progress-status" style="margin-top:0;"></p>
+        <pre id="cleanup-progress-list" class="hint" style="max-height:14rem; overflow:auto; white-space:pre-wrap;"></pre>
+        <div class="actions" style="margin-top:0.75rem;">
+          <button type="button" class="secondary" id="btn-cleanup-close">Close</button>
+        </div>
       </div>
     </div>
   </div>
@@ -2394,6 +2600,8 @@
     }
 
     let cachedClusterNodes = [];
+    let cachedClusterNodesId = "";
+    let cachedPveClusters = [];
 
     function getSelectedNodes(selectId) {
       const sel = document.getElementById(selectId);
@@ -2401,21 +2609,25 @@
       return Array.from(sel.selectedOptions).map((o) => o.value).filter(Boolean);
     }
 
-    async function ensureClusterNodes() {
-      if (cachedClusterNodes.length) return cachedClusterNodes;
+    async function ensureClusterNodes(clusterId) {
+      const cid = (clusterId || "").trim();
+      if (cachedClusterNodes.length && cachedClusterNodesId === cid) return cachedClusterNodes;
       try {
-        const data = await api("/api/ui/proxmox-nodes");
+        const q = cid ? "?cluster_id=" + encodeURIComponent(cid) : "";
+        const data = await api("/api/ui/proxmox-nodes" + q);
         cachedClusterNodes = data.nodes || [];
+        cachedClusterNodesId = cid;
       } catch (_) {
         cachedClusterNodes = [];
+        cachedClusterNodesId = cid;
       }
       return cachedClusterNodes;
     }
 
-    async function fillNodeSelect(selectId, preferred) {
+    async function fillNodeSelect(selectId, preferred, clusterId) {
       const sel = document.getElementById(selectId);
       if (!sel) return;
-      const nodes = await ensureClusterNodes();
+      const nodes = await ensureClusterNodes(clusterId);
       const prefer = Array.isArray(preferred)
         ? preferred.map((n) => String(n).trim()).filter(Boolean)
         : (preferred ? [String(preferred).trim()] : []);
@@ -2488,7 +2700,7 @@
       return parts.join(" · ");
     }
 
-    async function renderStorageByNode(containerId, nodes, preferredByNode, defaultStorage) {
+    async function renderStorageByNode(containerId, nodes, preferredByNode, defaultStorage, clusterId) {
       const container = document.getElementById(containerId);
       if (!container) return;
       const previous = collectStorageByNode(containerId);
@@ -2502,8 +2714,10 @@
       let byNode = {};
       let errors = {};
       try {
+        const cid = (clusterId || "").trim();
+        const q = cid ? "&cluster_id=" + encodeURIComponent(cid) : "";
         const data = await api(
-          "/api/ui/proxmox-storages-multi?nodes=" + encodeURIComponent(nodes.join(","))
+          "/api/ui/proxmox-storages-multi?nodes=" + encodeURIComponent(nodes.join(",")) + q
         );
         byNode = data.by_node || {};
         errors = data.errors || {};
@@ -2925,7 +3139,7 @@
     }
 
     function showView(name) {
-      ["backups", "jobs", "credentials", "groups", "locations", "plans", "assurance", "compliance", "audit", "infra", "help"].forEach((v) => {
+      ["backups", "jobs", "cleanup", "credentials", "groups", "locations", "plans", "assurance", "compliance", "audit", "infra", "help"].forEach((v) => {
         const view = document.getElementById("view-" + v);
         const nav = document.getElementById("nav-" + v);
         if (view) view.classList.toggle("hidden", v !== name);
@@ -2935,12 +3149,12 @@
       if (mainEl) {
         mainEl.classList.toggle(
           "plans-wide",
-          name === "plans" || name === "groups" || name === "locations" || name === "assurance" || name === "jobs" || name === "help"
+          name === "plans" || name === "groups" || name === "locations" || name === "assurance" || name === "jobs" || name === "cleanup" || name === "help"
         );
       }
       if (name === "jobs") startJobsPoll();
       else stopJobsPoll();
-      if (name === "plans" || name === "assurance" || name === "compliance") startPlanRunsPoll();
+      if (name === "plans" || name === "assurance" || name === "compliance" || name === "cleanup") startPlanRunsPoll();
       else stopPlanRunsPoll();
       if (name === "infra") {
         loadInfraPage();
@@ -3006,7 +3220,7 @@
       [
         "restore-modal", "plan-edit-modal", "group-edit-modal", "location-edit-modal",
         "assurance-edit-modal", "planrun-modal", "plancheck-modal", "job-detail-modal",
-        "group-from-selection-modal", "taggroup-modal",
+        "group-from-selection-modal", "taggroup-modal", "cleanup-modal",
       ].forEach(wireModalChrome);
       document.addEventListener("keydown", (ev) => {
         if (ev.key !== "Escape") return;
@@ -3022,6 +3236,7 @@
         return;
       }
       if (name === "jobs") { showView("jobs"); loadJobs(); return; }
+      if (name === "cleanup") { showView("cleanup"); loadCleanupPage(); return; }
       if (name === "infra") { showView("infra"); return; }
       if (name === "groups") { showView("groups"); loadGroups(); return; }
       if (name === "locations") { showView("locations"); loadLocations(); return; }
@@ -3059,12 +3274,20 @@
       credentialsVerified = !!status.credentials_verified;
       showApp();
       refreshHealth();
+      // Prefs (timezone / cleanup flag) for Restores timestamps even when not on Settings.
+      try {
+        const prefs = await api("/api/ui/credentials");
+        displayTimezone = ((prefs.ui || {}).timezone) || "UTC";
+        planRunCleanupEnabled = !!((prefs.ui || {}).plan_run_cleanup_enabled);
+        syncCleanupUiVisibility();
+      } catch (_) {}
       if (credentialsVerified) {
         showView("backups");
         loadBackupList();
       } else {
         showView("credentials");
-        loadCredentialsForm();
+        await loadCredentialsForm();
+        openSetupWizard();
       }
     }
 
@@ -3088,6 +3311,7 @@
 
     document.getElementById("nav-backups").onclick = () => gotoView("backups");
     document.getElementById("nav-jobs").onclick = () => gotoView("jobs");
+    document.getElementById("nav-cleanup").onclick = () => gotoView("cleanup");
     document.getElementById("nav-infra").onclick = () => gotoView("infra");
     document.getElementById("nav-groups").onclick = () => gotoView("groups");
     document.getElementById("nav-locations").onclick = () => gotoView("locations");
@@ -3098,6 +3322,7 @@
     document.querySelectorAll(".help-goto").forEach((btn) => {
       btn.onclick = () => gotoView(btn.dataset.view);
     });
+    document.getElementById("btn-cleanup-goto-settings").onclick = () => gotoView("credentials");
     initSidebarChrome();
     initModalA11y();
     document.getElementById("btn-refresh-assurance").onclick = () => loadAssurancePage();
@@ -3111,25 +3336,82 @@
       await api("/api/auth/reopen-credentials", { method: "POST", body: "{}" });
       credentialsVerified = false;
       showView("credentials");
-      loadCredentialsForm();
+      await loadCredentialsForm();
+      openSetupWizard();
     };
+
+    function clusterOptionsHtml(selected) {
+      const clusters = cachedPveClusters.length
+        ? cachedPveClusters
+        : [{ id: "default" }];
+      const sel = (selected || "default").trim() || "default";
+      return clusters.map((c) => {
+        const id = c.id || "default";
+        return '<option value="' + escapeHtml(id) + '"' + (id === sel ? " selected" : "") + ">" +
+          escapeHtml(id) + (c.host ? " (" + escapeHtml(c.host) + ")" : "") + "</option>";
+      }).join("");
+    }
+
+    function refreshMountClusterSelects(root) {
+      const scope = root || document;
+      scope.querySelectorAll(".m-pve-cluster").forEach((sel) => {
+        const cur = sel.value || "default";
+        sel.innerHTML = clusterOptionsHtml(cur);
+      });
+    }
+
+    async function loadPbsStorageOptions(clusterId, node) {
+      const cid = (clusterId || "default").trim();
+      const n = (node || "").trim();
+      if (!n) return [];
+      try {
+        const data = await api(
+          "/api/ui/proxmox-storages?node=" + encodeURIComponent(n) +
+          "&cluster_id=" + encodeURIComponent(cid)
+        );
+        return (data.storages || []).filter((s) => String(s.type || "").toLowerCase() === "pbs");
+      } catch (_) {
+        return [];
+      }
+    }
 
     function mountRowEl(mount) {
       const el = document.createElement("div");
       el.className = "mount-row";
       el.innerHTML =
         '<div><label class="mini">Datastore</label><input class="m-datastore" placeholder="main" /></div>' +
-        '<div><label class="mini">Namespace (blank = root)</label><input class="m-namespace" placeholder="" /></div>' +
-        '<div><label class="mini">PVE storage ID</label><input class="m-pve-storage" placeholder="pbs-main" /></div>' +
+        '<div><label class="mini">Namespace</label><input class="m-namespace" placeholder="" /></div>' +
+        '<div><label class="mini">PVE cluster</label><select class="m-pve-cluster"></select></div>' +
+        '<div><label class="mini">PVE storage (PBS)</label>' +
+        '<input class="m-pve-storage" list="" placeholder="pbs-main" />' +
+        '<datalist class="m-pve-storage-list"></datalist></div>' +
         '<div><button type="button" class="danger tiny m-remove">Remove</button></div>';
       el.querySelector(".m-datastore").value = (mount && mount.datastore) || "";
       el.querySelector(".m-namespace").value = (mount && mount.namespace) || "";
-      el.querySelector(".m-pve-storage").value = (mount && mount.pve_storage) || "";
+      const clusterSel = el.querySelector(".m-pve-cluster");
+      clusterSel.innerHTML = clusterOptionsHtml((mount && mount.pve_cluster_id) || "default");
+      const storageInput = el.querySelector(".m-pve-storage");
+      const listEl = el.querySelector(".m-pve-storage-list");
+      const listId = "pbs-stor-" + Math.random().toString(36).slice(2, 9);
+      listEl.id = listId;
+      storageInput.setAttribute("list", listId);
+      storageInput.value = (mount && mount.pve_storage) || "";
+      async function refreshStorageList() {
+        const cid = clusterSel.value || "default";
+        const cluster = cachedPveClusters.find((c) => c.id === cid) || {};
+        const node = cluster.default_node || "";
+        const storages = await loadPbsStorageOptions(cid, node);
+        listEl.innerHTML = storages.map((s) =>
+          '<option value="' + escapeHtml(s.id) + '"></option>'
+        ).join("");
+      }
+      clusterSel.onchange = () => refreshStorageList();
+      refreshStorageList();
       el.querySelector(".m-remove").onclick = () => el.remove();
       return el;
     }
 
-    function serverCardEl(server) {
+    function serverCardEl(server, mountsContainerSelector) {
       server = server || {};
       const card = document.createElement("div");
       card.className = "subcard pbs-server";
@@ -3151,7 +3433,7 @@
         "</div>" +
         '<p class="hint">Auth: API token preferred when both are set; otherwise username/password ticket login.</p>' +
         '<div class="inline"><input type="checkbox" class="s-verify-ssl" /><label style="margin:0">Verify TLS</label></div>' +
-        '<label class="mini">Datastores / namespaces → PVE storage</label>' +
+        '<label class="mini">Datastores / namespaces → PVE cluster + storage</label>' +
         '<div class="s-mounts"></div>' +
         '<div class="actions" style="margin:0.25rem 0 0.25rem;">' +
         '<button type="button" class="link s-add-mount">+ Add datastore/namespace</button>' +
@@ -3189,6 +3471,7 @@
       const mounts = [...card.querySelectorAll(".mount-row")].map((row) => ({
         datastore: row.querySelector(".m-datastore").value.trim(),
         namespace: row.querySelector(".m-namespace").value.trim(),
+        pve_cluster_id: (row.querySelector(".m-pve-cluster") || {}).value || "default",
         pve_storage: row.querySelector(".m-pve-storage").value.trim(),
       }));
       return {
@@ -3204,30 +3487,161 @@
       };
     }
 
-    function collectPbsServers() {
-      return [...document.querySelectorAll("#pbs-servers .pbs-server")].map(readServerCard);
+    function collectPbsServers(rootSelector) {
+      const root = document.querySelector(rootSelector || "#pbs-servers");
+      if (!root) return [];
+      return [...root.querySelectorAll(".pbs-server")].map(readServerCard);
+    }
+
+    function pveClusterCardEl(cluster) {
+      cluster = cluster || {};
+      const card = document.createElement("div");
+      card.className = "subcard pve-cluster";
+      card.innerHTML =
+        '<div class="subcard-head"><strong>PVE cluster</strong>' +
+        '<button type="button" class="danger tiny c-remove">Remove cluster</button></div>' +
+        '<div class="row">' +
+        '<div><label>ID</label><input class="c-id" placeholder="default" /></div>' +
+        '<div><label>Host</label><input class="c-host" /></div>' +
+        "</div>" +
+        '<div class="row">' +
+        '<div><label>Port</label><input class="c-port" type="number" /></div>' +
+        '<div><label>API token ID</label><input class="c-token-id" placeholder="root@pam!restore" /></div>' +
+        "</div>" +
+        '<label>API token secret</label><input class="c-token-secret" type="password" />' +
+        '<div class="row">' +
+        '<div><label>User</label><input class="c-user" placeholder="root@pam" /></div>' +
+        '<div><label>Password</label><input class="c-password" type="password" /></div>' +
+        "</div>" +
+        '<div class="row">' +
+        '<div><label>Default node</label><input class="c-node" /></div>' +
+        '<div><label>Default target storage</label><input class="c-storage" placeholder="local-lvm" /></div>' +
+        "</div>" +
+        '<div class="row">' +
+        '<div><label>Bandwidth limit (KiB/s)</label><input class="c-bwlimit" type="number" min="0" step="1024" /></div>' +
+        '<div class="inline" style="align-items:flex-end;padding-bottom:0.35rem;">' +
+        '<input type="checkbox" class="c-live" id="" /><label class="c-live-label" style="margin:0">Live restore default</label></div>' +
+        "</div>" +
+        '<div class="inline"><input type="checkbox" class="c-verify-ssl" /><label style="margin:0">Verify TLS</label></div>' +
+        '<div class="actions" style="margin:0.35rem 0 0;">' +
+        '<button type="button" class="secondary tiny c-test">Test this cluster</button>' +
+        '<button type="button" class="secondary tiny c-load-nodes">Load nodes → default</button>' +
+        "</div>";
+      card.querySelector(".c-id").value = cluster.id || "";
+      card.querySelector(".c-host").value = cluster.host || "";
+      card.querySelector(".c-port").value = cluster.port || 8006;
+      card.querySelector(".c-token-id").value = cluster.api_token_id || "";
+      card.querySelector(".c-token-secret").value = "";
+      card.querySelector(".c-token-secret").placeholder = cluster.api_token_secret_set ? "********" : "";
+      card.querySelector(".c-user").value = cluster.user || "";
+      card.querySelector(".c-password").value = "";
+      card.querySelector(".c-password").placeholder = cluster.password_set ? "********" : "";
+      card.querySelector(".c-node").value = cluster.default_node || "";
+      card.querySelector(".c-storage").value = cluster.storage || "";
+      card.querySelector(".c-bwlimit").value = cluster.restore_bwlimit ?? 0;
+      card.querySelector(".c-live").checked = !!cluster.live_restore_default;
+      card.querySelector(".c-verify-ssl").checked = !!cluster.verify_ssl;
+      card.querySelector(".c-remove").onclick = () => {
+        card.remove();
+        syncCachedClustersFromDom();
+        refreshMountClusterSelects();
+      };
+      card.querySelector(".c-id").onchange = () => {
+        syncCachedClustersFromDom();
+        refreshMountClusterSelects();
+      };
+      card.querySelector(".c-test").onclick = async () => {
+        const gb = document.getElementById("global-banner");
+        try {
+          const body = readPveClusterCard(card);
+          const res = await api("/api/ui/test/proxmox", {
+            method: "POST",
+            body: JSON.stringify({ ...body, cluster_id: body.id }),
+          });
+          banner(gb, res.ok ? "ok" : "err", res.message);
+        } catch (e) {
+          banner(gb, "err", e.message);
+        }
+      };
+      card.querySelector(".c-load-nodes").onclick = async () => {
+        const gb = document.getElementById("global-banner");
+        try {
+          await api("/api/ui/credentials", { method: "PUT", body: JSON.stringify({ pve_clusters: collectPveClusters() }) });
+          const cid = card.querySelector(".c-id").value.trim() || "default";
+          cachedClusterNodes = [];
+          cachedClusterNodesId = "";
+          const nodes = await ensureClusterNodes(cid);
+          if (nodes.length && !card.querySelector(".c-node").value.trim()) {
+            card.querySelector(".c-node").value = nodes[0].node || nodes[0];
+          }
+          const node = card.querySelector(".c-node").value.trim();
+          if (node) {
+            const data = await api(
+              "/api/ui/proxmox-storages?node=" + encodeURIComponent(node) +
+              "&cluster_id=" + encodeURIComponent(cid)
+            );
+            const disks = (data.storages || []).filter((s) => s.usable_for_vm_disks);
+            if (disks.length && !card.querySelector(".c-storage").value.trim()) {
+              card.querySelector(".c-storage").value = disks[0].id;
+            }
+          }
+          banner(gb, "ok", "Loaded " + nodes.length + " node(s) for " + cid);
+        } catch (e) {
+          banner(gb, "err", e.message);
+        }
+      };
+      return card;
+    }
+
+    function readPveClusterCard(card) {
+      return {
+        id: card.querySelector(".c-id").value.trim(),
+        host: card.querySelector(".c-host").value.trim(),
+        port: Number(card.querySelector(".c-port").value || 8006),
+        api_token_id: card.querySelector(".c-token-id").value.trim(),
+        api_token_secret: card.querySelector(".c-token-secret").value,
+        user: card.querySelector(".c-user").value.trim(),
+        password: card.querySelector(".c-password").value,
+        default_node: card.querySelector(".c-node").value.trim(),
+        storage: card.querySelector(".c-storage").value.trim(),
+        verify_ssl: card.querySelector(".c-verify-ssl").checked,
+        restore_bwlimit: Number(card.querySelector(".c-bwlimit").value || 0),
+        live_restore_default: card.querySelector(".c-live").checked,
+      };
+    }
+
+    function collectPveClusters(rootSelector) {
+      const root = document.querySelector(rootSelector || "#pve-clusters");
+      if (!root) return [];
+      return [...root.querySelectorAll(".pve-cluster")].map(readPveClusterCard);
+    }
+
+    function syncCachedClustersFromDom() {
+      cachedPveClusters = collectPveClusters().map((c) => ({
+        id: c.id || "default",
+        host: c.host || "",
+        default_node: c.default_node || "",
+      }));
+      if (!cachedPveClusters.length) cachedPveClusters = [{ id: "default" }];
     }
 
     async function loadCredentialsForm() {
       const data = await api("/api/ui/credentials");
+      const clusters = data.pve_clusters && data.pve_clusters.length
+        ? data.pve_clusters
+        : (data.proxmox && data.proxmox.host ? [data.proxmox] : [{}]);
+      cachedPveClusters = clusters.map((c) => ({
+        id: c.id || "default",
+        host: c.host || "",
+        default_node: c.default_node || "",
+      }));
+      const pveContainer = document.getElementById("pve-clusters");
+      pveContainer.innerHTML = "";
+      clusters.forEach((c) => pveContainer.appendChild(pveClusterCardEl(c)));
       const servers = data.pbs_servers || [];
       const container = document.getElementById("pbs-servers");
       container.innerHTML = "";
       (servers.length ? servers : [{ mounts: [{}] }]).forEach((s) => container.appendChild(serverCardEl(s)));
-      const pve = data.proxmox || {};
-      document.getElementById("pve-host").value = pve.host || "";
-      document.getElementById("pve-port").value = pve.port || 8006;
-      document.getElementById("pve-token-id").value = pve.api_token_id || "";
-      document.getElementById("pve-token-secret").value = "";
-      document.getElementById("pve-token-secret").placeholder = pve.api_token_secret_set ? "********" : "";
-      document.getElementById("pve-user").value = pve.user || "";
-      document.getElementById("pve-password").value = "";
-      document.getElementById("pve-password").placeholder = pve.password_set ? "********" : "";
-      document.getElementById("pve-node").value = pve.default_node || "";
-      document.getElementById("pve-storage").value = pve.storage || "";
-      document.getElementById("pve-verify-ssl").checked = !!pve.verify_ssl;
-      document.getElementById("pve-restore-bwlimit").value = pve.restore_bwlimit ?? 0;
-      document.getElementById("pve-live-restore-default").checked = !!pve.live_restore_default;
       const worker = data.worker || {};
       document.getElementById("worker-max-concurrent").value = worker.max_concurrent_restores ?? 2;
       const n = data.notifications || {};
@@ -3251,23 +3665,22 @@
       document.getElementById("notify-webhook-url").value = wh.url || "";
       document.getElementById("notify-webhook-secret").value = "";
       document.getElementById("notify-webhook-secret").placeholder = wh.secret_set ? "********" : "";
+      const uiPrefs = data.ui || {};
+      displayTimezone = uiPrefs.timezone || "UTC";
+      document.getElementById("ui-timezone").value = displayTimezone;
+      planRunCleanupEnabled = !!uiPrefs.plan_run_cleanup_enabled;
+      const cleanupCb = document.getElementById("ui-plan-run-cleanup-enabled");
+      if (cleanupCb) cleanupCb.checked = planRunCleanupEnabled;
+      syncCleanupUiVisibility();
     }
 
     function credBody() {
       return {
         pbs_servers: collectPbsServers(),
-        proxmox: {
-          host: document.getElementById("pve-host").value.trim(),
-          port: Number(document.getElementById("pve-port").value || 8006),
-          api_token_id: document.getElementById("pve-token-id").value.trim(),
-          api_token_secret: document.getElementById("pve-token-secret").value,
-          user: document.getElementById("pve-user").value.trim(),
-          password: document.getElementById("pve-password").value,
-          default_node: document.getElementById("pve-node").value.trim(),
-          storage: document.getElementById("pve-storage").value.trim(),
-          verify_ssl: document.getElementById("pve-verify-ssl").checked,
-          restore_bwlimit: Number(document.getElementById("pve-restore-bwlimit").value || 0),
-          live_restore_default: document.getElementById("pve-live-restore-default").checked,
+        pve_clusters: collectPveClusters(),
+        ui: {
+          timezone: document.getElementById("ui-timezone").value.trim() || "UTC",
+          plan_run_cleanup_enabled: !!document.getElementById("ui-plan-run-cleanup-enabled").checked,
         },
         worker: {
           max_concurrent_restores: Number(document.getElementById("worker-max-concurrent").value || 2),
@@ -3299,25 +3712,26 @@
     }
 
     document.getElementById("btn-add-pbs-server").onclick = () => {
+      syncCachedClustersFromDom();
       document.getElementById("pbs-servers").appendChild(serverCardEl({ mounts: [{}] }));
+    };
+    document.getElementById("btn-add-pve-cluster").onclick = () => {
+      document.getElementById("pve-clusters").appendChild(pveClusterCardEl({ id: "" }));
+      syncCachedClustersFromDom();
+      refreshMountClusterSelects();
     };
 
     document.getElementById("btn-save-credentials").onclick = async () => {
       const gb = document.getElementById("global-banner");
       try {
         await api("/api/ui/credentials", { method: "PUT", body: JSON.stringify(credBody()) });
+        planRunCleanupEnabled = !!document.getElementById("ui-plan-run-cleanup-enabled").checked;
+        syncCleanupUiVisibility();
         banner(gb, "ok", "Settings saved.");
-        loadCredentialsForm();
-      } catch (e) {
-        banner(gb, "err", e.message);
-      }
-    };
-
-    document.getElementById("btn-test-pve").onclick = async () => {
-      const gb = document.getElementById("global-banner");
-      try {
-        const res = await api("/api/ui/test/proxmox", { method: "POST", body: JSON.stringify(credBody().proxmox) });
-        banner(gb, res.ok ? "ok" : "err", res.message);
+        await loadCredentialsForm();
+        if (document.getElementById("view-jobs") && !document.getElementById("view-jobs").classList.contains("hidden")) {
+          loadJobs();
+        }
       } catch (e) {
         banner(gb, "err", e.message);
       }
@@ -3343,7 +3757,13 @@
         await api("/api/ui/credentials", { method: "PUT", body: JSON.stringify(credBody()) });
         const res = await api("/api/auth/complete-credentials-check", { method: "POST", body: "{}" });
         if (!res.ok) {
-          banner(gb, "err", (res.pbs_message || "") + " " + (res.proxmox_message || ""));
+          const lines = [];
+          if (res.pbs_ok === false) lines.push("PBS: " + (res.pbs_message || res.pbs || "failed"));
+          if (res.pve_ok === false) lines.push("PVE: " + (res.proxmox_message || res.proxmox || "failed"));
+          if (!lines.length) {
+            lines.push((res.pbs_message || "") + " " + (res.proxmox_message || ""));
+          }
+          banner(gb, "err", lines.join(" · "));
           return;
         }
         credentialsVerified = true;
@@ -3354,6 +3774,174 @@
         banner(gb, "err", e.message);
       }
     };
+
+    /* ---- Setup wizard ---- */
+    let wizardStep = 1;
+
+    function setWizardStep(step) {
+      wizardStep = step;
+      document.querySelectorAll("#setup-wizard-modal .wiz-step").forEach((el) => {
+        const n = Number(el.dataset.wiz);
+        el.classList.toggle("active", n === step);
+        el.classList.toggle("done", n < step);
+      });
+      document.querySelectorAll("#setup-wizard-modal .wizard-pane").forEach((pane) => {
+        pane.classList.toggle("show", pane.id === "wiz-pane-" + step);
+      });
+    }
+
+    function openSetupWizard() {
+      const hostForm = document.getElementById("wiz-pve-host-form");
+      const clusters = collectPveClusters();
+      const first = clusters[0] || { id: "default" };
+      hostForm.innerHTML = "";
+      const card = pveClusterCardEl(first);
+      const rm = card.querySelector(".c-remove");
+      if (rm) rm.remove();
+      hostForm.appendChild(card);
+      const pbsRoot = document.getElementById("wiz-pbs-servers");
+      pbsRoot.innerHTML = "";
+      const servers = collectPbsServers();
+      (servers.length ? servers : [{ mounts: [{}] }]).forEach((s) => pbsRoot.appendChild(serverCardEl(s)));
+      document.getElementById("wiz-verify-status").textContent = "Not verified yet.";
+      setWizardStep(1);
+      document.getElementById("setup-wizard-modal").classList.add("show");
+    }
+
+    function closeSetupWizard() {
+      document.getElementById("setup-wizard-modal").classList.remove("show");
+    }
+
+    function wizardCredBody() {
+      const base = credBody();
+      const wizClusters = collectPveClusters("#wiz-pve-host-form");
+      const settingsClusters = collectPveClusters("#pve-clusters");
+      let merged = settingsClusters.slice();
+      if (wizClusters.length) {
+        const w = wizClusters[0];
+        const idx = merged.findIndex((c) => (c.id || "default") === (w.id || "default"));
+        if (idx >= 0) merged[idx] = w;
+        else if (!merged.length) merged = [w];
+        else merged[0] = w;
+      }
+      base.pve_clusters = merged.length ? merged : wizClusters;
+      base.pbs_servers = collectPbsServers("#wiz-pbs-servers");
+      return base;
+    }
+
+    document.getElementById("btn-open-setup-wizard").onclick = () => openSetupWizard();
+    document.getElementById("wiz-cancel-1").onclick = () => closeSetupWizard();
+    document.getElementById("wiz-add-pbs").onclick = () => {
+      syncCachedClustersFromDom();
+      const wizC = collectPveClusters("#wiz-pve-host-form");
+      if (wizC.length) {
+        cachedPveClusters = wizC.map((c) => ({
+          id: c.id || "default",
+          host: c.host || "",
+          default_node: c.default_node || "",
+        }));
+      }
+      document.getElementById("wiz-pbs-servers").appendChild(serverCardEl({ mounts: [{}] }));
+    };
+    document.getElementById("wiz-test-pve").onclick = async () => {
+      const gb = document.getElementById("global-banner");
+      try {
+        const body = collectPveClusters("#wiz-pve-host-form")[0] || {};
+        const res = await api("/api/ui/test/proxmox", {
+          method: "POST",
+          body: JSON.stringify({ ...body, cluster_id: body.id || "default" }),
+        });
+        if (res.ok) {
+          // Persist what we just tested so step 3 Verify uses the same secrets
+          // (blank password fields would otherwise keep a stale saved secret).
+          const toSave = wizardCredBody().pve_clusters;
+          await api("/api/ui/credentials", { method: "PUT", body: JSON.stringify({ pve_clusters: toSave }) });
+          banner(gb, "ok", res.message + " Saved.");
+        } else {
+          banner(gb, "err", res.message);
+        }
+      } catch (e) {
+        banner(gb, "err", e.message);
+      }
+    };
+    document.getElementById("wiz-next-1").onclick = async () => {
+      const gb = document.getElementById("global-banner");
+      try {
+        const body = wizardCredBody();
+        await api("/api/ui/credentials", { method: "PUT", body: JSON.stringify({ pve_clusters: body.pve_clusters }) });
+        cachedPveClusters = (body.pve_clusters || []).map((c) => ({
+          id: c.id || "default",
+          host: c.host || "",
+          default_node: c.default_node || "",
+        }));
+        // Sync Settings cards so later full saves do not overwrite wizard values with stale blanks.
+        const pveContainer = document.getElementById("pve-clusters");
+        if (pveContainer) {
+          pveContainer.innerHTML = "";
+          (body.pve_clusters || []).forEach((c) => pveContainer.appendChild(pveClusterCardEl(c)));
+        }
+        refreshMountClusterSelects(document.getElementById("wiz-pbs-servers"));
+        setWizardStep(2);
+      } catch (e) {
+        banner(gb, "err", e.message);
+      }
+    };
+    document.getElementById("wiz-back-2").onclick = () => setWizardStep(1);
+    document.getElementById("wiz-next-2").onclick = async () => {
+      const gb = document.getElementById("global-banner");
+      try {
+        const body = wizardCredBody();
+        await api("/api/ui/credentials", {
+          method: "PUT",
+          body: JSON.stringify({ pve_clusters: body.pve_clusters, pbs_servers: body.pbs_servers }),
+        });
+        setWizardStep(3);
+      } catch (e) {
+        banner(gb, "err", e.message);
+      }
+    };
+    document.getElementById("wiz-back-3").onclick = () => setWizardStep(2);
+    document.getElementById("wiz-verify").onclick = async () => {
+      const gb = document.getElementById("global-banner");
+      const status = document.getElementById("wiz-verify-status");
+      try {
+        const body = wizardCredBody();
+        await api("/api/ui/credentials", { method: "PUT", body: JSON.stringify(body) });
+        const res = await api("/api/auth/complete-credentials-check", { method: "POST", body: "{}" });
+        if (!res.ok) {
+          const lines = [];
+          if (res.pbs_ok === false) {
+            lines.push("PBS failed: " + (res.pbs_message || res.pbs || "unreachable"));
+          } else if (res.pbs_ok === true) {
+            lines.push("PBS ok: " + (res.pbs_message || res.pbs || "reachable"));
+          }
+          if (res.pve_ok === false) {
+            lines.push("PVE failed: " + (res.proxmox_message || res.proxmox || "unreachable"));
+          } else if (res.pve_ok === true) {
+            lines.push("PVE ok: " + (res.proxmox_message || res.proxmox || "reachable"));
+          }
+          if (!lines.length) {
+            lines.push((res.pbs_message || res.pbs || "") + " " + (res.proxmox_message || res.proxmox || ""));
+          }
+          status.textContent = lines.join(" · ");
+          banner(gb, "err", status.textContent);
+          return;
+        }
+        credentialsVerified = true;
+        status.textContent = "Verified. Opening backups…";
+        banner(gb, "ok", "Connections verified. Backup list unlocked.");
+        closeSetupWizard();
+        await loadCredentialsForm();
+        showView("backups");
+        loadBackupList();
+      } catch (e) {
+        status.textContent = e.message;
+        banner(gb, "err", e.message);
+      }
+    };
+    document.getElementById("setup-wizard-modal").addEventListener("click", (ev) => {
+      if (ev.target.id === "setup-wizard-modal") closeSetupWizard();
+    });
 
     function groupBackupsByVmid(rows) {
       /** Mirror of backup_inventory.group_backups_by_vmid — one group per VMID, newest first. */
@@ -4039,6 +4627,189 @@
       return h + "h " + m + "m";
     }
 
+    /** IANA timezone for UI timestamps (from ui.timezone / Settings). */
+    let displayTimezone = "UTC";
+    let planRunCleanupEnabled = false;
+    let cleanupModalState = { batch_id: "", plan_run_id: "", pve_cluster_id: "", preview: null };
+    let cleanupPollTimer = null;
+
+    function syncCleanupUiVisibility() {
+      const enabled = document.getElementById("cleanup-enabled-panel");
+      const disabled = document.getElementById("cleanup-disabled-panel");
+      if (!enabled || !disabled) return;
+      if (planRunCleanupEnabled) {
+        enabled.hidden = false;
+        enabled.style.display = "";
+        disabled.hidden = true;
+        disabled.style.display = "none";
+      } else {
+        enabled.hidden = true;
+        enabled.style.display = "none";
+        disabled.hidden = false;
+        disabled.style.display = "";
+      }
+    }
+
+    function loadCleanupPage() {
+      syncCleanupUiVisibility();
+      if (planRunCleanupEnabled) loadCleanupRuns();
+    }
+
+    function formatBatchTag(batchId) {
+      const raw = String(batchId || "").trim();
+      if (!raw) return "";
+      return raw.startsWith("re-") ? raw : ("re-" + raw);
+    }
+
+    function closeCleanupModal() {
+      if (cleanupPollTimer) {
+        clearInterval(cleanupPollTimer);
+        cleanupPollTimer = null;
+      }
+      document.getElementById("cleanup-modal").classList.remove("show");
+    }
+
+    function showCleanupProgress(progress) {
+      const preview = document.getElementById("cleanup-preview-panel");
+      const prog = document.getElementById("cleanup-progress-panel");
+      preview.hidden = true;
+      preview.style.display = "none";
+      prog.hidden = false;
+      prog.style.display = "block";
+      const status = progress.status || "running";
+      const tag = progress.batch_tag || formatBatchTag(progress.batch_id);
+      document.getElementById("cleanup-progress-status").textContent =
+        "Cleanup " + status + " for " + tag +
+        (status === "running" ? " — large disks can take several minutes per VM." : "");
+      const lines = (progress.results || []).map((row) => {
+        const st = row.status || (row.ok ? "gone" : "failed");
+        return "VMID " + row.vmid + " @" + (row.node || "?") + " — " + st +
+          (row.error ? " (" + row.error + ")" : "");
+      });
+      document.getElementById("cleanup-progress-list").textContent =
+        lines.length ? lines.join("\n") : "(waiting for first VM…)";
+      if (status !== "running" && cleanupPollTimer) {
+        clearInterval(cleanupPollTimer);
+        cleanupPollTimer = null;
+        loadCleanupRuns();
+        loadPlanRuns();
+      }
+    }
+
+    async function openCleanupPreview(opts) {
+      if (!planRunCleanupEnabled) {
+        banner(document.getElementById("global-banner"), "err",
+          "Plan-run batch cleanup is disabled. Enable it under Settings.");
+        return;
+      }
+      const batchRaw = String(opts.batch_id || "").trim();
+      if (!batchRaw) {
+        banner(document.getElementById("global-banner"), "err", "Batch ID required.");
+        return;
+      }
+      try {
+        const preview = await api("/api/cleanup/preview", {
+          method: "POST",
+          body: JSON.stringify({
+            batch_id: batchRaw,
+            plan_run_id: opts.plan_run_id || "",
+            pve_cluster_id: opts.pve_cluster_id || "",
+          }),
+        });
+        cleanupModalState = {
+          batch_id: preview.batch_id,
+          plan_run_id: opts.plan_run_id || "",
+          pve_cluster_id: opts.pve_cluster_id || preview.pve_cluster_id || "",
+          preview,
+        };
+        document.getElementById("cleanup-modal-title").textContent =
+          "Cleanup " + (preview.batch_tag || formatBatchTag(preview.batch_id));
+        document.getElementById("cleanup-modal-summary").textContent =
+          preview.count + " QEMU guest(s) match this batch on cluster " +
+          (preview.pve_cluster_id || "default") + ".";
+        const sample = (preview.sample || preview.guests || []).slice(0, 20);
+        document.getElementById("cleanup-preview-list").textContent = sample.length
+          ? sample.map((g) =>
+              "VMID " + g.vmid + " @" + (g.node || "?") +
+              (g.name ? " (" + g.name + ")" : "")
+            ).join("\n") + (preview.count > sample.length ? "\n…" : "")
+          : "(none found)";
+        const previewPanel = document.getElementById("cleanup-preview-panel");
+        const progPanel = document.getElementById("cleanup-progress-panel");
+        previewPanel.hidden = false;
+        previewPanel.style.display = "block";
+        progPanel.hidden = true;
+        progPanel.style.display = "none";
+        document.getElementById("btn-cleanup-confirm").disabled = preview.count === 0;
+        document.getElementById("cleanup-modal").classList.add("show");
+      } catch (e) {
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    }
+
+    async function startCleanupExecute() {
+      const st = cleanupModalState;
+      if (!st.batch_id) return;
+      try {
+        const progress = await api("/api/cleanup/execute", {
+          method: "POST",
+          body: JSON.stringify({
+            batch_id: st.batch_id,
+            plan_run_id: st.plan_run_id || "",
+            pve_cluster_id: st.pve_cluster_id || "",
+          }),
+        });
+        showCleanupProgress(progress);
+        if (cleanupPollTimer) clearInterval(cleanupPollTimer);
+        cleanupPollTimer = setInterval(async () => {
+          try {
+            const p = await api("/api/cleanup/" + encodeURIComponent(st.batch_id));
+            showCleanupProgress(p);
+          } catch (e) {
+            /* keep last progress */
+          }
+        }, 3000);
+      } catch (e) {
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    }
+
+    function formatDisplayTime(iso) {
+      if (!iso) return "—";
+      const d = new Date(iso);
+      if (!Number.isFinite(d.getTime())) {
+        const s = String(iso);
+        return s.length >= 19 ? s.slice(0, 19) : (s || "—");
+      }
+      try {
+        return new Intl.DateTimeFormat(undefined, {
+          timeZone: displayTimezone || "UTC",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false,
+        }).format(d);
+      } catch (_) {
+        const s = String(iso);
+        return s.length >= 19 ? s.slice(0, 19) : s;
+      }
+    }
+
+    function jobStartedAt(job) {
+      return (job && (job.restore_started_at || job.created_at)) || "";
+    }
+
+    function jobFinishedAt(job) {
+      if (!job) return "";
+      if (job.finished_at) return job.finished_at;
+      const st = String(job.state || "").toUpperCase();
+      if (st === "COMPLETED" || st === "FAILED" || st === "CANCELLED") return job.updated_at || "";
+      return "";
+    }
+
     let lastJobsStats = { paused: false, active: 0, pending: 0, max_concurrent: 2 };
 
     async function refreshJobsStats(jobs) {
@@ -4112,11 +4883,13 @@
       document.getElementById("jobs-detail-kv").innerHTML =
         "<dt>Node</dt><dd>" + escapeHtml(job.proxmox_node || "—") + "</dd>" +
         "<dt>Source</dt><dd>" + escapeHtml(job.source_label || "—") + " · VMID " + escapeHtml(String(job.source_vmid || "—")) + "</dd>" +
+        "<dt>Started</dt><dd>" + escapeHtml(formatDisplayTime(jobStartedAt(job))) + "</dd>" +
+        "<dt>Finished</dt><dd>" + escapeHtml(formatDisplayTime(jobFinishedAt(job))) + "</dd>" +
         "<dt>Progress</dt><dd>" + escapeHtml(String(job.progress ?? 0)) + "%</dd>" +
         "<dt>Speed</dt><dd>" + escapeHtml(formatRateBps(job.speed_bps)) + "</dd>" +
         "<dt>Est. wire</dt><dd>" + escapeHtml(formatWireRate(job.network_speed_bps)) + "</dd>" +
         "<dt>ETA / Duration</dt><dd>" + escapeHtml(etaOrDur) + "</dd>" +
-        "<dt>Updated</dt><dd>" + escapeHtml((job.updated_at || "").slice(0, 19) || "—") + "</dd>" +
+        "<dt>Updated</dt><dd>" + escapeHtml(formatDisplayTime(job.updated_at)) + "</dd>" +
         (job.error ? ("<dt>Error</dt><dd>" + escapeHtml(job.error) + "</dd>") : "");
       const stopBtn = document.getElementById("btn-jobs-detail-stop");
       if (stopBtn) {
@@ -4134,8 +4907,8 @@
     }
 
     function jobDurationLabel(job) {
-      const start = job.restore_started_at || job.created_at;
-      const end = job.updated_at;
+      const start = jobStartedAt(job);
+      const end = jobFinishedAt(job) || job.updated_at;
       if (!start || !end) return "—";
       try {
         const a = Date.parse(start);
@@ -4167,6 +4940,10 @@
           : "—"],
         ["Live restore", job.live_restore ? "yes" : "no"],
         ["Power on", job.power_on ? "yes" : "no"],
+        ["Add to HA", job.add_to_ha
+          ? (job.ha_ok === "1" ? ("yes · ok" + (job.ha_group ? " · group " + job.ha_group : ""))
+            : (job.ha_ok === "0" ? "yes · failed" : "yes · pending"))
+          : "no"],
         ["Network", job.network_mode || "none"],
         ["HTTP check", job.http_check_ok === "1" ? "ok" : (job.http_check_url ? (job.http_check_ok === "0" ? "failed" : "pending") : "—")],
         ["QGA", job.qga_ok === "1" ? ("ok · " + (job.qga_waited_sec || "") + "s") : (job.qga_wait_sec ? (job.qga_ok === "0" ? "failed" : "pending · " + job.qga_wait_sec + "s") : "—")],
@@ -4189,9 +4966,11 @@
         ["Est. wire speed", formatWireRate(job.network_speed_bps)],
         ["ETA", formatEtaSec(job.eta_sec)],
         ["Duration", jobDurationLabel(job)],
-        ["Created", (job.created_at || "").slice(0, 19) || "—"],
-        ["Restore started", (job.restore_started_at || "").slice(0, 19) || "—"],
-        ["Updated", (job.updated_at || "").slice(0, 19) || "—"],
+        ["Started", formatDisplayTime(jobStartedAt(job))],
+        ["Finished", formatDisplayTime(jobFinishedAt(job))],
+        ["Created", formatDisplayTime(job.created_at)],
+        ["Restore started", formatDisplayTime(job.restore_started_at)],
+        ["Updated", formatDisplayTime(job.updated_at)],
         ["PVE UPID", job.pve_upid || "—"],
         ["Last PVE status", job.pve_status_text || "—"],
         ["Plan run", job.plan_run_id || "—"],
@@ -4217,7 +4996,7 @@
             div.textContent = entry.raw;
           } else {
             const level = (entry.level || "").toUpperCase();
-            const meta = [(entry.ts || "").slice(0, 19), level, entry.stage || ""].filter(Boolean).join(" ");
+            const meta = [formatDisplayTime(entry.ts), level, entry.stage || ""].filter(Boolean).join(" ");
             const span = document.createElement("span");
             span.className = "job-log-meta";
             span.textContent = meta + "  ";
@@ -4294,32 +5073,58 @@
       }
     };
 
-    async function loadJobs() {
+    let jobsListOffset = 0;
+    const JOBS_PAGE_SIZE = 500;
+    let jobsHasMore = false;
+    let jobsSearchQuery = "";
+    let jobsSearchTimer = null;
+
+    async function loadJobs(opts) {
+      const append = !!(opts && opts.append);
       const statusEl = document.getElementById("jobs-list-status");
       const listEl = document.getElementById("jobs-list");
       const empty = document.getElementById("jobs-empty");
+      const moreWrap = document.getElementById("jobs-list-more-wrap");
       try {
-        const page = await api("/api/jobs?limit=200");
+        if (!append) jobsListOffset = 0;
+        const qParam = jobsSearchQuery
+          ? "&q=" + encodeURIComponent(jobsSearchQuery)
+          : "";
+        const page = await api(
+          "/api/jobs?limit=" + JOBS_PAGE_SIZE + "&offset=" + encodeURIComponent(String(jobsListOffset)) + qParam
+        );
         const jobs = Array.isArray(page) ? page : (page.items || []);
-        jobsById = Object.fromEntries(jobs.map((j) => [j.job_id, j]));
-        const stats = await refreshJobsStats(jobs);
-        const total = Array.isArray(page) ? jobs.length : (page.total != null ? page.total : jobs.length);
-        if (statusEl) statusEl.textContent = total ? total + " job(s)" + (page.has_more ? " (showing " + jobs.length + ")" : "") : "";
+        jobsHasMore = !!(page && page.has_more);
+        if (append) {
+          for (const j of jobs) jobsById[j.job_id] = j;
+        } else {
+          jobsById = Object.fromEntries(jobs.map((j) => [j.job_id, j]));
+        }
+        const allShown = Object.values(jobsById);
+        const stats = await refreshJobsStats(allShown);
+        const total = Array.isArray(page) ? allShown.length : (page.total != null ? page.total : allShown.length);
+        if (statusEl) {
+          const matchHint = jobsSearchQuery ? " matching “" + jobsSearchQuery + "”" : "";
+          statusEl.textContent = total
+            ? total + " job(s)" + matchHint + (allShown.length < total || jobsHasMore ? " (showing " + allShown.length + ")" : "")
+            : (jobsSearchQuery ? "No jobs" + matchHint : "");
+        }
+        if (moreWrap) moreWrap.hidden = !jobsHasMore;
         const busy = (stats.active || 0) > 0 || !!stats.paused;
         if (jobsPollTimer) {
           clearInterval(jobsPollTimer);
-          jobsPollTimer = setInterval(loadJobs, busy ? 2000 : 5000);
+          jobsPollTimer = setInterval(() => loadJobs(), busy ? 2000 : 5000);
         }
         listEl.innerHTML = "";
-        if (!jobs.length) {
+        if (!allShown.length) {
           empty.classList.remove("hidden");
           selectedJobId = "";
           renderSelectedJobDetail();
           return;
         }
         empty.classList.add("hidden");
-        if (!selectedJobId || !jobsById[selectedJobId]) selectedJobId = jobs[0].job_id;
-        const ordered = [...jobs].sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+        const ordered = [...allShown].sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+        if (!selectedJobId || !jobsById[selectedJobId]) selectedJobId = ordered[0].job_id;
         for (const job of ordered) {
           const row = document.createElement("div");
           row.className = "job-row" + (job.job_id === selectedJobId ? " selected" : "");
@@ -4377,6 +5182,7 @@
             }
           };
         });
+        jobsListOffset = allShown.length;
         renderSelectedJobDetail();
         if (openJobDetailId && document.getElementById("job-detail-modal").classList.contains("show")) {
           const still = jobsById[openJobDetailId];
@@ -4507,6 +5313,14 @@
     }
 
     document.getElementById("btn-refresh-jobs").onclick = loadJobs;
+    document.getElementById("jobs-search").addEventListener("input", () => {
+      const next = (document.getElementById("jobs-search").value || "").trim();
+      if (jobsSearchTimer) clearTimeout(jobsSearchTimer);
+      jobsSearchTimer = setTimeout(() => {
+        jobsSearchQuery = next;
+        loadJobs();
+      }, 280);
+    });
     document.getElementById("btn-apply-concurrency").onclick = async () => {
       const n = Number(document.getElementById("jobs-max-concurrent").value || 2);
       try {
@@ -4552,6 +5366,19 @@
         banner(document.getElementById("global-banner"), "err", e.message);
       }
     };
+    document.getElementById("btn-jobs-purge").onclick = async () => {
+      if (!confirm("Delete all finished restore jobs and their logs (COMPLETED / FAILED / CANCELLED)? Active and pending jobs are kept.")) return;
+      try {
+        const res = await api("/api/jobs/purge", { method: "POST", body: "{}" });
+        const n = (res && res.deleted) || 0;
+        banner(document.getElementById("global-banner"), "ok", "Cleared " + n + " finished job(s).");
+        selectedJobId = "";
+        loadJobs();
+      } catch (e) {
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    };
+    document.getElementById("btn-jobs-load-more").onclick = () => loadJobs({ append: true });
 
     let planRunsPollTimer = null;
     let cachedGroups = [];
@@ -4854,6 +5681,35 @@
       }
     };
 
+    async function fillLocationClusterSelect(preferred) {
+      const sel = document.getElementById("loc-pve-cluster");
+      if (!sel) return "default";
+      try {
+        const data = await api("/api/ui/credentials");
+        cachedPveClusters = (data.pve_clusters || []).map((c) => ({
+          id: c.id || "default",
+          host: c.host || "",
+          default_node: c.default_node || "",
+        }));
+        if (!cachedPveClusters.length && data.proxmox) {
+          cachedPveClusters = [{
+            id: data.proxmox.id || "default",
+            host: data.proxmox.host || "",
+            default_node: data.proxmox.default_node || "",
+          }];
+        }
+      } catch (_) {}
+      if (!cachedPveClusters.length) cachedPveClusters = [{ id: "default" }];
+      const want = (preferred || cachedPveClusters[0].id || "default").trim() || "default";
+      sel.innerHTML = clusterOptionsHtml(want);
+      return sel.value || want;
+    }
+
+    function locationClusterId() {
+      const sel = document.getElementById("loc-pve-cluster");
+      return (sel && sel.value) || "default";
+    }
+
     function resetLocationForm() {
       document.getElementById("loc-edit-id").value = "";
       document.getElementById("loc-name").value = "";
@@ -4873,14 +5729,21 @@
       const hint = document.getElementById("loc-mode-dr-hint");
       hint.hidden = true;
       hint.style.display = "none";
-      return fillNodeSelect("loc-nodes", "").then(() => loadLocationStorages());
+      return fillLocationClusterSelect("").then((cid) => {
+        cachedClusterNodes = [];
+        cachedClusterNodesId = "";
+        return fillNodeSelect("loc-nodes", "", cid).then(() => loadLocationStorages());
+      });
     }
 
     async function fillLocationForm(loc) {
       document.getElementById("loc-edit-id").value = loc.id;
       document.getElementById("loc-name").value = loc.name;
+      const cid = await fillLocationClusterSelect(loc.pve_cluster_id || "default");
       const nodes = (loc.nodes && loc.nodes.length) ? loc.nodes : [loc.node];
-      await fillNodeSelect("loc-nodes", nodes);
+      cachedClusterNodes = [];
+      cachedClusterNodesId = "";
+      await fillNodeSelect("loc-nodes", nodes, cid);
       document.getElementById("loc-nodes-extra").value = "";
       document.getElementById("loc-vmid-start").value = loc.vmid_start;
       document.getElementById("loc-bwlimit").value = loc.bwlimit || 0;
@@ -4925,16 +5788,18 @@
 
     async function loadLocationStorages(preferredByNode) {
       const nodes = collectLocationNodes();
+      const cid = locationClusterId();
       let defaultStorage = "";
       try {
-        const defs = await api("/api/restore-defaults");
+        const defs = await api("/api/restore-defaults?cluster_id=" + encodeURIComponent(cid));
         defaultStorage = defs.storage || "";
       } catch (_) {}
       await renderStorageByNode(
         "loc-storage-by-node",
         nodes,
         preferredByNode || {},
-        defaultStorage
+        defaultStorage,
+        cid
       );
     }
 
@@ -4962,6 +5827,7 @@
       const vmid = loc.restore_mode === "dr" ? "source VMIDs" : String(loc.vmid_start || "—");
       document.getElementById("locations-detail-kv").innerHTML =
         "<dt>Name</dt><dd>" + escapeHtml(loc.name || "—") + "</dd>" +
+        "<dt>PVE cluster</dt><dd>" + escapeHtml(loc.pve_cluster_id || "default") + "</dd>" +
         "<dt>Nodes</dt><dd>" + escapeHtml(locationNodesDisplay(loc) || "—") + "</dd>" +
         "<dt>Storage</dt><dd>" + escapeHtml(locationStorageDisplay(loc) || "—") + "</dd>" +
         "<dt>Mode</dt><dd>" + escapeHtml(mode) + "</dd>" +
@@ -5043,6 +5909,12 @@
     document.getElementById("location-edit-modal").addEventListener("click", (ev) => {
       if (ev.target.id === "location-edit-modal") closeLocationEditModal();
     });
+    document.getElementById("loc-pve-cluster").onchange = async () => {
+      cachedClusterNodes = [];
+      cachedClusterNodesId = "";
+      await fillNodeSelect("loc-nodes", getSelectedNodes("loc-nodes"), locationClusterId());
+      await loadLocationStorages();
+    };
     document.getElementById("loc-nodes").onchange = () => loadLocationStorages();
     document.getElementById("loc-nodes-extra").onchange = () => loadLocationStorages();
     document.getElementById("loc-nodes-extra").onblur = () => loadLocationStorages();
@@ -5059,6 +5931,7 @@
       }
       const body = {
         name: document.getElementById("loc-name").value.trim(),
+        pve_cluster_id: locationClusterId(),
         node: nodes[0],
         nodes,
         storage: storageByNode[nodes[0]],
@@ -5096,6 +5969,8 @@
       document.getElementById("plan-name").value = "";
       document.getElementById("plan-halt").checked = true;
       document.getElementById("plan-enabled").checked = true;
+      document.getElementById("plan-add-ha").checked = false;
+      document.getElementById("plan-ha-group").value = "";
       document.getElementById("plan-schedule").checked = false;
       document.getElementById("plan-schedule-drill").checked = true;
       document.getElementById("plan-schedule-hours").value = "0";
@@ -5228,6 +6103,8 @@
       document.getElementById("plan-location").value = p.location_id;
       document.getElementById("plan-halt").checked = !!p.halt_on_error;
       document.getElementById("plan-enabled").checked = !!p.enabled;
+      document.getElementById("plan-add-ha").checked = !!p.add_to_ha;
+      document.getElementById("plan-ha-group").value = p.ha_group || "";
       document.getElementById("plan-schedule").checked = !!p.schedule_enabled;
       document.getElementById("plan-schedule-drill").checked = p.schedule_drill !== false;
       document.getElementById("plan-schedule-hours").value = p.schedule_interval_hours || 0;
@@ -6177,6 +7054,8 @@
         group_ids,
         halt_on_error: document.getElementById("plan-halt").checked,
         enabled: document.getElementById("plan-enabled").checked,
+        add_to_ha: document.getElementById("plan-add-ha").checked,
+        ha_group: document.getElementById("plan-ha-group").value.trim(),
         schedule_enabled: document.getElementById("plan-schedule").checked,
         schedule_interval_hours: Number(document.getElementById("plan-schedule-hours").value || 0),
         schedule_drill: document.getElementById("plan-schedule-drill").checked,
@@ -6491,29 +7370,29 @@
       try {
         const runs = await api("/api/plan-runs?limit=20");
         const tbody = document.getElementById("plan-runs-tbody");
+        if (!tbody) return;
         tbody.innerHTML = "";
         for (const run of runs) {
           const tr = document.createElement("tr");
           const rto = run.rto || (run.finished_at ? "" : "—");
           const kind = run.drill ? " · drill" : "";
           const td = run.teardown_status ? (" · tear " + run.teardown_status) : "";
+          const batchTag = formatBatchTag(run.batch_id || "");
           const dl = run.report_id
             ? (' <button type="button" class="secondary tiny btn-run-report" data-id="' + escapeHtml(run.report_id) + '">Report</button>')
             : "";
           const cancelBtn = run.status === "RUNNING"
             ? (' <button type="button" class="danger tiny btn-run-cancel" data-id="' + escapeHtml(run.id) + '">Cancel</button>')
             : "";
-          const tearBtn = (run.status !== "RUNNING" && run.teardown_status !== "completed")
-            ? (' <button type="button" class="secondary tiny btn-run-teardown" data-id="' + escapeHtml(run.id) + '">Teardown</button>')
-            : "";
           tr.innerHTML =
             "<td>" + escapeHtml(run.plan_name || run.plan_id) + "</td>" +
+            "<td><code>" + escapeHtml(batchTag || "—") + "</code></td>" +
             "<td>" + escapeHtml(run.status) + kind + td + (rto && run.finished_at ? (" · RTO " + escapeHtml(String(rto))) : "") + "</td>" +
             "<td>" + escapeHtml((run.completed_jobs || 0) + "/" + (run.job_count || 0)) + "</td>" +
             "<td>" + escapeHtml((run.started_at || "").slice(0, 19)) + "</td>" +
             "<td>" + escapeHtml((run.finished_at || "").slice(0, 19)) + "</td>" +
             '<td class="actions-cell"><button type="button" class="secondary tiny btn-run-detail" data-id="' + escapeHtml(run.id) + '">Detail</button>' +
-            cancelBtn + tearBtn + dl + "</td>";
+            cancelBtn + dl + "</td>";
           tbody.appendChild(tr);
         }
         tbody.querySelectorAll(".btn-run-detail").forEach((btn) => {
@@ -6525,8 +7404,10 @@
                 (j.error ? " (" + j.error + ")" : "")
               );
               const targets = (run.assigned_targets || []).map((t) => t.vmid + "@" + (t.node || "?")).join(", ");
+              const batchTag = formatBatchTag(run.batch_id || "");
               document.getElementById("plan-run-detail").textContent =
                 (lines.length ? lines.join(" · ") : "No jobs yet") +
+                (batchTag ? " · batch " + batchTag : "") +
                 (targets ? " · VMs " + targets : "") +
                 (run.rto ? " · RTO " + run.rto : "") +
                 (run.teardown_status ? " · teardown " + run.teardown_status : "") +
@@ -6549,29 +7430,88 @@
               });
               banner(document.getElementById("global-banner"), "ok", "Plan run cancelled.");
               loadPlanRuns();
+              loadCleanupRuns();
             } catch (e) {
               banner(document.getElementById("global-banner"), "err", e.message);
             }
           };
         });
-        tbody.querySelectorAll(".btn-run-teardown").forEach((btn) => {
+      } catch (e) {
+        banner(document.getElementById("global-banner"), "err", e.message);
+      }
+    }
+
+    async function loadCleanupRuns() {
+      if (!planRunCleanupEnabled) {
+        syncCleanupUiVisibility();
+        return;
+      }
+      try {
+        syncCleanupUiVisibility();
+        const runs = await api("/api/plan-runs?limit=40");
+        const tbody = document.getElementById("cleanup-runs-tbody");
+        if (!tbody) return;
+        tbody.innerHTML = "";
+        for (const run of runs) {
+          const tr = document.createElement("tr");
+          const kind = run.drill ? "drill" : "recovery";
+          const batchTag = formatBatchTag(run.batch_id || "");
+          const tear = run.teardown_status || "—";
+          const canClean = !!(batchTag &&
+            run.status !== "RUNNING" &&
+            tear !== "completed" &&
+            tear !== "running");
+          const cleanupBtn = canClean
+            ? ('<button type="button" class="danger tiny btn-cleanup-run" data-id="' +
+               escapeHtml(run.id) + '" data-batch="' + escapeHtml(batchTag) +
+               '" data-cluster="' + escapeHtml(run.pve_cluster_id || "") + '">Destroy batch</button>')
+            : '<span class="hint">' + escapeHtml(
+                tear === "completed" ? "cleaned" :
+                tear === "running" ? "in progress" :
+                run.status === "RUNNING" ? "run active" :
+                !batchTag ? "no batch" : "—"
+              ) + "</span>";
+          tr.innerHTML =
+            "<td>" + escapeHtml(run.plan_name || run.plan_id) +
+            ' <span class="hint">(' + kind + ")</span></td>" +
+            "<td><code>" + escapeHtml(batchTag || "—") + "</code></td>" +
+            "<td>" + escapeHtml(run.status) + "</td>" +
+            "<td>" + escapeHtml((run.completed_jobs || 0) + "/" + (run.job_count || 0)) + "</td>" +
+            "<td>" + escapeHtml((run.started_at || "").slice(0, 19)) + "</td>" +
+            "<td>" + escapeHtml(tear) + "</td>" +
+            '<td class="actions-cell">' +
+            '<button type="button" class="secondary tiny btn-cleanup-detail" data-id="' +
+            escapeHtml(run.id) + '">Detail</button> ' + cleanupBtn + "</td>";
+          tbody.appendChild(tr);
+        }
+        if (!runs.length) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = '<td colspan="7" class="hint">No plan runs yet.</td>';
+          tbody.appendChild(tr);
+        }
+        tbody.querySelectorAll(".btn-cleanup-detail").forEach((btn) => {
           btn.onclick = async () => {
-            if (!confirm("Destroy all QEMU VMs created by this plan run?")) return;
             try {
-              const run = await api("/api/plan-runs/" + encodeURIComponent(btn.dataset.id) + "/teardown", {
-                method: "POST",
-                body: JSON.stringify({}),
-              });
-              banner(
-                document.getElementById("global-banner"),
-                run.teardown_status === "completed" ? "ok" : "err",
-                "Teardown " + (run.teardown_status || "done")
-              );
-              loadPlanRuns();
+              const run = await api("/api/plan-runs/" + encodeURIComponent(btn.dataset.id));
+              const batchTag = formatBatchTag(run.batch_id || "");
+              const targets = (run.assigned_targets || []).map((t) => t.vmid + "@" + (t.node || "?")).join(", ");
+              document.getElementById("cleanup-run-detail").textContent =
+                (run.plan_name || run.plan_id) +
+                (batchTag ? " · batch " + batchTag : "") +
+                " · " + (run.status || "") +
+                (targets ? " · VMs " + targets : "") +
+                (run.teardown_status ? " · cleanup " + run.teardown_status : "");
             } catch (e) {
               banner(document.getElementById("global-banner"), "err", e.message);
             }
           };
+        });
+        tbody.querySelectorAll(".btn-cleanup-run").forEach((btn) => {
+          btn.onclick = () => openCleanupPreview({
+            batch_id: btn.dataset.batch,
+            plan_run_id: btn.dataset.id,
+            pve_cluster_id: btn.dataset.cluster || "",
+          });
         });
       } catch (e) {
         banner(document.getElementById("global-banner"), "err", e.message);
@@ -6583,11 +7523,15 @@
         document.getElementById("nav-assurance").classList.contains("active");
       const onCompliance = document.getElementById("nav-compliance") &&
         document.getElementById("nav-compliance").classList.contains("active");
+      const onCleanup = document.getElementById("nav-cleanup") &&
+        document.getElementById("nav-cleanup").classList.contains("active");
       if (onAssurance) {
         loadAssuranceDashboard();
         loadAssuranceDrillRuns();
       } else if (onCompliance) {
         loadCompliancePage();
+      } else if (onCleanup) {
+        loadCleanupPage();
       } else {
         loadPlanRuns();
       }
@@ -6605,6 +7549,14 @@
     }
 
     document.getElementById("btn-refresh-plan-runs").onclick = loadPlanRuns;
+    document.getElementById("btn-refresh-cleanup-runs").onclick = loadCleanupPage;
+    document.getElementById("btn-orphan-cleanup").onclick = () => {
+      const raw = document.getElementById("orphan-batch-id").value.trim();
+      openCleanupPreview({ batch_id: raw });
+    };
+    document.getElementById("btn-cleanup-cancel").onclick = closeCleanupModal;
+    document.getElementById("btn-cleanup-close").onclick = closeCleanupModal;
+    document.getElementById("btn-cleanup-confirm").onclick = startCleanupExecute;
 
     initAuth().catch((e) => {
       showLogin();

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -145,22 +146,37 @@ def _resolve_tags(
         pending.append(row)
 
     if pending:
-        proxmox = connect_proxmox(cfg)
+        from collections import defaultdict
 
-        def fetch(row: dict[str, Any]) -> tuple[str, str, list[str], str]:
+        from clusters import DEFAULT_CLUSTER_ID
+
+        by_cluster: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for row in pending:
+            cid = str(row.get("pve_cluster_id") or "").strip() or DEFAULT_CLUSTER_ID
+            by_cluster[cid].append(row)
+
+        for cid, cluster_rows in by_cluster.items():
             try:
-                text = extract_vm_config(proxmox, node, row["_volid"])
-                return row["backup_id"], row["_volid"], parse_tags(text), ""
+                proxmox = connect_proxmox(cfg, cluster_id=cid)
             except Exception as exc:
-                return row["backup_id"], row["_volid"], [], str(exc)
+                for row in cluster_rows:
+                    errors[row["backup_id"]] = str(exc)
+                continue
 
-        with ThreadPoolExecutor(max_workers=5) as pool:
-            for backup_id, volid, tags, err in pool.map(fetch, pending):
-                if err:
-                    errors[backup_id] = err
-                    continue
-                r.set(tag_cache_key(cfg, volid), ";".join(tags))
-                result[backup_id] = tags
+            def fetch(row: dict[str, Any], _px: Any = proxmox) -> tuple[str, str, list[str], str]:
+                try:
+                    text = extract_vm_config(_px, node, row["_volid"])
+                    return row["backup_id"], row["_volid"], parse_tags(text), ""
+                except Exception as exc:
+                    return row["backup_id"], row["_volid"], [], str(exc)
+
+            with ThreadPoolExecutor(max_workers=5) as pool:
+                for backup_id, volid, tags, err in pool.map(fetch, cluster_rows):
+                    if err:
+                        errors[backup_id] = err
+                        continue
+                    r.set(tag_cache_key(cfg, volid), ";".join(tags))
+                    result[backup_id] = tags
     return result, errors
 
 
@@ -209,6 +225,7 @@ def _enqueue_restores(
     bwlimit: int,
     restore_mode: str = "normal",
     plan_run_id: str = "",
+    batch_id: str = "",
     plan_group_index: int | None = None,
     power_on: bool = False,
     qga_wait_sec: int = 0,
@@ -216,6 +233,9 @@ def _enqueue_restores(
     lab_bridge: str = "",
     overwrite: bool = False,
     http_check_url: str = "",
+    add_to_ha: bool = False,
+    ha_group: str = "",
+    pve_cluster_id: str = "",
 ) -> dict[str, Any]:
     """API wrapper around jobs.enqueue_restores (maps errors to HTTP)."""
     try:
@@ -232,6 +252,7 @@ def _enqueue_restores(
             bwlimit=bwlimit,
             restore_mode=restore_mode,
             plan_run_id=plan_run_id,
+            batch_id=batch_id,
             plan_group_index=plan_group_index,
             power_on=power_on,
             qga_wait_sec=qga_wait_sec,
@@ -239,6 +260,9 @@ def _enqueue_restores(
             lab_bridge=lab_bridge,
             overwrite=overwrite,
             http_check_url=http_check_url,
+            add_to_ha=add_to_ha,
+            ha_group=ha_group,
+            pve_cluster_id=pve_cluster_id,
         )
     except RuntimeError as exc:
         msg = str(exc)
@@ -342,11 +366,16 @@ class JobRecord(BaseModel):
     overwrite: bool = False
     http_check_url: str = ""
     http_check_ok: str = ""
+    add_to_ha: bool = False
+    ha_group: str = ""
+    ha_ok: str = ""
+    pve_cluster_id: str = ""
     progress: int = 0
     error: str = ""
     created_at: str = ""
     updated_at: str = ""
     restore_started_at: str = ""
+    finished_at: str = ""
     bytes_done: int = 0
     bytes_total: int = 0
     speed_bps: int = 0
@@ -389,12 +418,22 @@ def list_backups(offset: int = 0, limit: int | None = None) -> Any:
 
 
 @api.get("/restore-defaults")
-def restore_defaults(proxmox_node: str | None = None) -> dict[str, Any]:
+def restore_defaults(
+    proxmox_node: str | None = None,
+    cluster_id: str | None = None,
+) -> dict[str, Any]:
+    from clusters import default_pve_cluster_id, get_pve_cluster
+
     cfg = load_config()
-    px = cfg.get("proxmox") or {}
+    cid = (cluster_id or "").strip() or default_pve_cluster_id(cfg)
+    try:
+        px = get_pve_cluster(cfg, cid)
+    except KeyError:
+        px = cfg.get("proxmox") or {}
     node = (proxmox_node or px.get("default_node") or "").strip()
     worker_cfg = cfg.get("worker") or {}
     out: dict[str, Any] = {
+        "pve_cluster_id": cid,
         "storage": px.get("storage", "local-lvm"),
         "default_node": px.get("default_node", ""),
         "next_free_proxmox_vmid": 100,
@@ -407,7 +446,7 @@ def restore_defaults(proxmox_node: str | None = None) -> dict[str, Any]:
     }
     # VMIDs are cluster-global; prefer cluster resource list over a single node.
     try:
-        used = qemu_vmids_in_use_cluster(connect_proxmox(cfg))
+        used = qemu_vmids_in_use_cluster(connect_proxmox(cfg, cluster_id=cid))
         out["next_free_proxmox_vmid"] = max(max(used) + 1 if used else 100, 100)
     except Exception:
         pass
@@ -805,6 +844,12 @@ class PlanTeardownRequest(BaseModel):
     force: bool = False
 
 
+class CleanupBatchRequest(BaseModel):
+    batch_id: str = Field(..., min_length=1)
+    pve_cluster_id: str = ""
+    plan_run_id: str = ""
+
+
 class PlanCheckRequest(BaseModel):
     at_or_before: str | None = None
 
@@ -815,6 +860,8 @@ class PlanMembersPreviewRequest(BaseModel):
 
 
 def _http_value_error(exc: ValueError) -> HTTPException:
+    if isinstance(exc, plans_module.PlanRunBusyError):
+        return HTTPException(status_code=409, detail=str(exc))
     return HTTPException(status_code=400, detail=str(exc))
 
 
@@ -1223,6 +1270,108 @@ def api_teardown_plan_run(run_id: str, body: PlanTeardownRequest | None = None) 
     return plans_module.aggregate_plan_run(r, cfg, updated, job_key_fn=job_key)
 
 
+def _require_plan_run_cleanup_enabled(cfg: dict[str, Any]) -> None:
+    if not ui_module.plan_run_cleanup_enabled(cfg):
+        raise HTTPException(
+            status_code=403,
+            detail="Plan-run batch cleanup is disabled. Enable it under Settings → Plan run cleanup.",
+        )
+
+
+@api.post("/cleanup/preview")
+def api_cleanup_preview(body: CleanupBatchRequest) -> dict[str, Any]:
+    """Preview QEMU guests matching a batch tag (dual-tag gate)."""
+    cfg = load_config()
+    _require_plan_run_cleanup_enabled(cfg)
+    r = redis_client()
+    try:
+        return plans_module.preview_cleanup_by_batch(
+            r,
+            cfg,
+            batch_id=body.batch_id,
+            pve_cluster_id=body.pve_cluster_id,
+            plan_run_id=body.plan_run_id,
+        )
+    except ValueError as exc:
+        raise _http_value_error(exc) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail=public_error_message(exc, prefix="Cleanup preview failed")
+        ) from exc
+
+
+@api.post("/cleanup/execute")
+def api_cleanup_execute(body: CleanupBatchRequest) -> dict[str, Any]:
+    """Start async batch cleanup; poll GET /api/cleanup/{batch_id} for progress."""
+    cfg = load_config()
+    _require_plan_run_cleanup_enabled(cfg)
+    r = redis_client()
+    try:
+        from pve_client import batch_tag_for_id, normalize_batch_id
+
+        want = normalize_batch_id(body.batch_id)
+    except ValueError as exc:
+        raise _http_value_error(exc) from exc
+
+    existing = plans_module.get_cleanup_progress(r, cfg, want)
+    if existing and existing.get("status") == "running":
+        return existing
+
+    # Seed a running record immediately so the UI can poll.
+    seed = {
+        "batch_id": want,
+        "batch_tag": batch_tag_for_id(want),
+        "status": "running",
+        "pve_cluster_id": body.pve_cluster_id or "",
+        "plan_run_id": body.plan_run_id or "",
+        "results": [],
+        "error": "",
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "finished_at": "",
+    }
+    plans_module._save_cleanup_progress(r, cfg, seed)
+
+    def _run() -> None:
+        try:
+            plans_module.execute_cleanup_by_batch(
+                redis_client(),
+                load_config(),
+                batch_id=want,
+                pve_cluster_id=body.pve_cluster_id,
+                plan_run_id=body.plan_run_id,
+            )
+        except Exception as exc:  # pragma: no cover - surfaced via progress hash
+            fail = plans_module.get_cleanup_progress(redis_client(), load_config(), want) or seed
+            fail = {
+                **fail,
+                "status": "failed",
+                "error": public_error_message(exc, prefix="Cleanup failed"),
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+            }
+            plans_module._save_cleanup_progress(redis_client(), load_config(), fail)
+
+    threading.Thread(target=_run, daemon=True, name=f"cleanup-{want}").start()
+    return plans_module.get_cleanup_progress(r, cfg, want) or seed
+
+
+@api.get("/cleanup/{batch_id}")
+def api_cleanup_progress(batch_id: str) -> dict[str, Any]:
+    """Return progress for an in-flight or finished batch cleanup."""
+    cfg = load_config()
+    _require_plan_run_cleanup_enabled(cfg)
+    r = redis_client()
+    try:
+        from pve_client import normalize_batch_id
+
+        want = normalize_batch_id(batch_id)
+    except ValueError as exc:
+        raise _http_value_error(exc) from exc
+    progress = plans_module.get_cleanup_progress(r, cfg, want)
+    if not progress:
+        raise HTTPException(status_code=404, detail="Cleanup job not found")
+    return progress
+
+
 @api.get("/reports")
 def api_list_reports(
     plan_id: str | None = None,
@@ -1429,11 +1578,16 @@ def _hash_to_record(data: dict[str, str]) -> JobRecord:
         overwrite=data.get("overwrite", "0") == "1",
         http_check_url=data.get("http_check_url", ""),
         http_check_ok=data.get("http_check_ok", ""),
+        add_to_ha=data.get("add_to_ha", "0") == "1",
+        ha_group=data.get("ha_group", ""),
+        ha_ok=data.get("ha_ok", ""),
+        pve_cluster_id=data.get("pve_cluster_id", ""),
         progress=safe_int(data.get("progress"), 0),
         error=data.get("error", ""),
         created_at=data.get("created_at", ""),
         updated_at=data.get("updated_at", ""),
         restore_started_at=data.get("restore_started_at", ""),
+        finished_at=data.get("finished_at", ""),
         bytes_done=safe_int(data.get("bytes_done"), 0),
         bytes_total=safe_int(data.get("bytes_total"), 0),
         speed_bps=safe_int(data.get("speed_bps"), 0),
@@ -1493,16 +1647,57 @@ def queue_stop() -> dict[str, Any]:
 
 
 @api.get("/jobs")
-def list_jobs(state: str | None = None, offset: int = 0, limit: int = 100) -> dict[str, Any]:
-    from job_hygiene import collect_jobs, paginate
+def list_jobs(
+    state: str | None = None,
+    offset: int = 0,
+    limit: int = 100,
+    q: str | None = None,
+) -> dict[str, Any]:
+    from job_hygiene import collect_jobs, filter_jobs, paginate
 
     cfg = load_config()
     r = redis_client()
     all_jobs = collect_jobs(r, cfg, state=state, record_fn=_hash_to_record)
+    all_jobs = filter_jobs(all_jobs, q)
     page = paginate(all_jobs, offset=offset, limit=limit)
     # Serialize JobRecord models for JSON.
     page["items"] = [j.model_dump() if hasattr(j, "model_dump") else j for j in page["items"]]
     return page
+
+
+class JobsPurgeRequest(BaseModel):
+    """Delete finished restore jobs (and their log lists). Active jobs are kept."""
+
+    older_than_sec: int | None = Field(
+        default=None,
+        description="Only purge terminal jobs older than this many seconds; omit to purge all finished",
+    )
+    max_delete: int = Field(default=5000, ge=1, le=20000)
+
+
+@api.post("/jobs/purge")
+def purge_jobs(request: Request, body: JobsPurgeRequest | None = None) -> dict[str, Any]:
+    """Clear finished job records and logs from Redis (COMPLETED/FAILED/CANCELLED)."""
+    from job_hygiene import purge_terminal_jobs
+
+    cfg = load_config()
+    r = redis_client()
+    req = body or JobsPurgeRequest()
+    result = purge_terminal_jobs(
+        r,
+        cfg,
+        older_than_sec=req.older_than_sec,
+        max_delete=int(req.max_delete),
+    )
+    _audit_action(
+        request,
+        "jobs.purge",
+        {
+            "deleted": result.get("deleted"),
+            "older_than_sec": req.older_than_sec,
+        },
+    )
+    return result
 
 
 @api.get("/audit")
@@ -1588,10 +1783,12 @@ def health() -> JSONResponse:
     try:
         cfg = load_config()
         missing: list[str] = []
+        from clusters import load_pve_clusters
+
         if not (cfg.get("pbs") or cfg.get("pbs_servers")):
             missing.append("pbs_servers")
-        if not cfg.get("proxmox"):
-            missing.append("proxmox")
+        if not load_pve_clusters(cfg):
+            missing.append("pve_clusters")
         if not cfg.get("redis"):
             missing.append("redis")
         if missing:

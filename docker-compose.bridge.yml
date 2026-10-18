@@ -1,0 +1,20 @@
+# Optional override: classic bridge networking (container DNS name "redis", UI on :8001).
+# Use when host networking is unavailable (some locked hosts) or for side-by-side stacks.
+#
+#   # config.docker.yaml → redis.url: redis://redis:6379/0
+#   docker compose -f docker-compose.yml -f docker-compose.bridge.yml up -d
+#   UI: http://127.0.0.1:8001
+
+services:
+  redis:
+    ports: !reset []
+
+  api:
+    network_mode: !reset null
+    networks: [restore]
+    ports:
+      - "8001:8000"
+
+  worker:
+    network_mode: !reset null
+    networks: [restore]

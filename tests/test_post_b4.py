@@ -101,7 +101,7 @@ def test_location_unlink_marks_isolated() -> None:
 
 
 def test_enqueue_stores_network_and_http(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("jobs.connect_proxmox", lambda cfg: object())
+    monkeypatch.setattr("jobs.connect_proxmox", lambda cfg, cluster_id=None: object())
     monkeypatch.setattr("jobs.qemu_vmids_in_use_cluster", lambda px: set())
     r = FakeRedis()
     result = enqueue_restores(
@@ -125,7 +125,7 @@ def test_enqueue_stores_network_and_http(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_enqueue_dr_overwrite_destroys(monkeypatch: pytest.MonkeyPatch) -> None:
     destroyed: list[tuple[str, int]] = []
 
-    monkeypatch.setattr("jobs.connect_proxmox", lambda cfg: object())
+    monkeypatch.setattr("jobs.connect_proxmox", lambda cfg, cluster_id=None: object())
     monkeypatch.setattr("jobs.qemu_vmids_in_use_cluster", lambda px: {109})
     monkeypatch.setattr("jobs.find_qemu_node", lambda px, vmid: "pve1")
     monkeypatch.setattr(
@@ -158,7 +158,7 @@ def test_enqueue_dr_overwrite_destroys(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_enqueue_dr_overwrite_refuses_foreign_vm(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("jobs.connect_proxmox", lambda cfg: object())
+    monkeypatch.setattr("jobs.connect_proxmox", lambda cfg, cluster_id=None: object())
     monkeypatch.setattr("jobs.qemu_vmids_in_use_cluster", lambda px: {109})
     monkeypatch.setattr(
         "jobs.find_guest_resource",
