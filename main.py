@@ -54,16 +54,18 @@ ui_module.CONFIG_PATH = CONFIG_PATH
 
 
 def validate_session_secret(cfg: dict[str, Any]) -> None:
-    """Refuse startup when UI auth is enabled but session signing is weak."""
+    """Refuse startup when cookie sessions lack a strong private signing secret.
+
+    SessionMiddleware is always enabled, including token-only deployments. A
+    missing secret previously fell back to a publicly known development key,
+    which allowed forged operator cookies to bypass API tokens (RE-04).
+    """
     ui = cfg.get("ui") or {}
-    password = str(ui.get("password") or "").strip()
-    if not password:
-        return
     secret = str(ui.get("session_secret") or "").strip()
     if not secret:
         raise RuntimeError(
-            "ui.session_secret is required when ui.password is set "
-            f"(minimum {_MIN_SESSION_SECRET_LEN} characters)"
+            "ui.session_secret is required whenever the dashboard cookie session is enabled "
+            f"(minimum {_MIN_SESSION_SECRET_LEN} characters), including token-only deployments"
         )
     if len(secret) < _MIN_SESSION_SECRET_LEN:
         raise RuntimeError(
@@ -76,14 +78,9 @@ def validate_session_secret(cfg: dict[str, Any]) -> None:
 
 
 def load_session_secret(cfg: dict[str, Any]) -> str:
-    """Return session signing key; dev-only fallback when ui.password is unset."""
-    ui = cfg.get("ui") or {}
-    secret = str(ui.get("session_secret") or "").strip()
-    if secret:
-        return secret
-    if str(ui.get("password") or "").strip():
-        raise RuntimeError("ui.session_secret is required when ui.password is set")
-    return _DEFAULT_SESSION_SECRET
+    """Return the validated session signing key (no insecure fallback)."""
+    validate_session_secret(cfg)
+    return str((cfg.get("ui") or {}).get("session_secret") or "").strip()
 
 
 def load_config() -> dict[str, Any]:
@@ -308,8 +305,28 @@ def _assert_power_on_isolation(
     isolated: bool = False,
     allow_non_isolated: bool = False,
 ) -> None:
-    wants_boot = bool(power_on) or int(qga_wait_sec or 0) > 0 or bool(live_restore)
-    if not wants_boot or allow_non_isolated:
+    """Gate boots that can reach a shared L2.
+
+    Live restore boots during the PBS→PVE restore task, before the worker can
+    apply ``unlink``/``remap``. Post-restore NIC isolation therefore cannot
+    authorize live restore — only a location already marked isolated, or an
+    explicit ``allow_non_isolated``, may.
+    """
+    if allow_non_isolated:
+        return
+    if live_restore:
+        if isolated:
+            return
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "live_restore boots before NIC isolation can be applied; "
+                "use an already-isolated location, or pass allow_non_isolated=true "
+                "(powered-off restore + unlink/remap + power_on remains supported)"
+            ),
+        )
+    wants_boot = bool(power_on) or int(qga_wait_sec or 0) > 0
+    if not wants_boot:
         return
     net = _normalize_net_mode(network_mode)
     if isolated or net in {"unlink", "remap"}:
@@ -317,7 +334,7 @@ def _assert_power_on_isolation(
     raise HTTPException(
         status_code=400,
         detail=(
-            "Power-on / live-restore / QGA require network isolation "
+            "Power-on / QGA require network isolation "
             "(network_mode=unlink|remap or an isolated location), "
             "or pass allow_non_isolated=true"
         ),
@@ -342,6 +359,8 @@ class RestoreSelectedRequest(BaseModel):
     http_check_url: str = ""
     confirm_overwrite: bool = False
     allow_non_isolated: bool = False
+    add_to_ha: bool = False
+    ha_group: str = ""
 
 
 class JobRecord(BaseModel):
@@ -552,11 +571,18 @@ def restore_selected(request: Request, body: RestoreSelectedRequest) -> dict[str
         lab_bridge=body.lab_bridge,
         overwrite=body.overwrite,
         http_check_url=body.http_check_url,
+        add_to_ha=body.add_to_ha,
+        ha_group=body.ha_group,
     )
     _audit_action(
         request,
         "restore.enqueue",
-        {"enqueued": result.get("enqueued"), "mode": body.restore_mode, "overwrite": body.overwrite},
+        {
+            "enqueued": result.get("enqueued"),
+            "mode": body.restore_mode,
+            "overwrite": body.overwrite,
+            "add_to_ha": body.add_to_ha,
+        },
     )
     return result
 
@@ -1253,13 +1279,19 @@ def api_teardown_plan_run(run_id: str, body: PlanTeardownRequest | None = None) 
     if not run:
         raise HTTPException(status_code=404, detail="Plan run not found")
     body = body or PlanTeardownRequest()
-    if run.get("status") == PlanRunStatus.RUNNING.value and not body.force:
+    if run.get("status") in {
+        PlanRunStatus.STARTING.value,
+        PlanRunStatus.RUNNING.value,
+    } and not body.force:
         raise HTTPException(
             status_code=400,
             detail="Plan run is still RUNNING; cancel it first or pass force=true",
         )
     try:
-        if run.get("status") == PlanRunStatus.RUNNING.value and body.force:
+        if run.get("status") in {
+            PlanRunStatus.STARTING.value,
+            PlanRunStatus.RUNNING.value,
+        } and body.force:
             plans_module.cancel_plan_run(r, cfg, run_id, job_key_fn=job_key)
             run = plans_module.get_plan_run(r, cfg, run_id) or run
         updated = plans_module.teardown_plan_run(r, cfg, run, job_key_fn=job_key)

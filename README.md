@@ -227,7 +227,7 @@ Infrastructure metrics (Grafana, Netdata, PVE/PBS OpenTelemetry): **[docs/infra-
 Lab defaults favor convenience. For anything beyond a closed lab:
 
 1. **TLS** — put a reverse proxy (Caddy/nginx) in front of the UI port (`:8000` host-net or `:8001` bridge) with HTTPS and secure cookies; do not expose plain HTTP on a shared network.
-2. **`ui.password` / `ui.session_secret`** — strong unique values; the API **refuses to start** if a password is set but the session secret is missing, shorter than 32 characters, or the dev placeholder.
+2. **`ui.session_secret` (required) / `ui.password`** — strong unique values; the API **refuses to start** if `ui.session_secret` is missing, shorter than 32 characters, or the dev placeholder (including token-only deployments).
 3. **`worker.require_verified_to_run: true`** (or `plans.require_verified_to_run`) — block production Runs until readiness is VERIFIED (drills/Assure can still use `allow_unverified` where intended).
 4. **Secrets** — keep `config.docker.yaml` out of git; prefer API tokens over passwords; treat SMTP password and PBS/PVE tokens as sensitive.
 5. **Redis** — prefer localhost-only publish (`127.0.0.1:6380`) or internal Docker network; do not expose Redis on a shared LAN in production.
@@ -240,7 +240,7 @@ See also **Safety notes** below and **[DOCKER.md](DOCKER.md)**.
 
 ## Safety notes (power-on and verify)
 
-Power-on, live-restore, and QGA require **network isolation** (`unlink` / `remap`), an **isolated** location flag, or an explicit **allow non-isolated** override. On a shared production L2, prefer powered-off drills.
+Power-on and QGA require **network isolation** (`unlink` / `remap`), an **isolated** location flag, or an explicit **allow non-isolated** override. **Live restore** boots before NIC changes can run — it needs an already-**isolated** location or `allow_non_isolated` (post-restore unlink/remap alone is not enough). On a shared production L2, prefer powered-off drills.
 
 **HTTP checks from the orchestrator** need L3 from restore-engine to the guest URL. On bubble / remapped lab networks that path often does not exist — disable **Network checks from restore-engine** on the location and use **Require QGA** (works for Windows and Linux via the PVE guest agent). East-west “same VLAN” probes are a later optional design; they are not required for QGA-local assurance.
 
@@ -341,6 +341,8 @@ pytest --cov=. --cov-report=term-missing --cov-fail-under=0
 The suite is **offline** (FakeRedis + mocks) against `tests/fixtures/minimal_config.yaml` — no live PBS, Proxmox VE, or Redis required. It covers VMID allocation, archive volids, PBS parsing, auth, health/version, plans/jobs domain logic, worker `process_job` (mocked), hygiene/audit, and selected HTTP routes.
 
 **Feature vs test gaps:** see **[docs/gap-analysis.md](docs/gap-analysis.md)**.
+
+**Safety/security code review (2026-11-14):** see **[findings, reproduction evidence, and recommended fixes](docs/code-review-2026-11-14.md)**. The review records five high-priority issues and one medium-priority API defect; fixes are not included in the report.
 
 Contributing and security: **[CONTRIBUTING.md](CONTRIBUTING.md)**, **[SECURITY.md](SECURITY.md)**.
 

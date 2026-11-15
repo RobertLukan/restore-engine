@@ -149,13 +149,47 @@ def test_destroy_owned_allows_managed() -> None:
     assert px.nodes("pve").qemu(200).deleted is True
 
 
-def test_destroy_owned_allows_run_provenance_for_unmarked() -> None:
+def test_destroy_owned_refuses_provenance_for_unmarked() -> None:
+    """RE-01: historical provenance must not delete unmarked / reused VMIDs."""
     px = _FakePx(
         [{"type": "qemu", "vmid": 201, "node": "pve"}],
         {201: {"tags": "", "description": ""}},
     )
-    reason = destroy_owned_qemu_vm(px, "pve", 201, allow_run_provenance=True)  # type: ignore[arg-type]
-    assert reason == "run_provenance"
+    with pytest.raises(GuestOwnershipError, match="not provisioned"):
+        destroy_owned_qemu_vm(px, "pve", 201, allow_run_provenance=True)  # type: ignore[arg-type]
+
+
+def test_destroy_owned_refuses_provenance_wrong_batch() -> None:
+    """RE-01: provenance must not delete a managed guest from another batch."""
+    px = _FakePx(
+        [{"type": "qemu", "vmid": 200, "node": "pve"}],
+        {200: {"tags": f"{MANAGED_TAG};re-bbbbbbbbbbbb", "description": ""}},
+    )
+    with pytest.raises(GuestOwnershipError, match="batch"):
+        destroy_owned_qemu_vm(  # type: ignore[arg-type]
+            px,
+            "pve",
+            200,
+            batch_id="aaaaaaaaaaaa",
+            require_batch=True,
+            allow_run_provenance=True,
+        )
+
+
+def test_destroy_owned_refuses_foreign_reuse_with_require_batch() -> None:
+    px = _FakePx(
+        [{"type": "qemu", "vmid": 200, "node": "pve"}],
+        {200: {"tags": "prod", "description": ""}},
+    )
+    with pytest.raises(GuestOwnershipError, match="not provisioned"):
+        destroy_owned_qemu_vm(  # type: ignore[arg-type]
+            px,
+            "pve",
+            200,
+            batch_id="aaaaaaaaaaaa",
+            require_batch=True,
+            allow_run_provenance=True,
+        )
 
 
 def test_batch_id_from_plan_run_id() -> None:

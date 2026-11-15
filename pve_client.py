@@ -737,15 +737,14 @@ def destroy_owned_qemu_vm(
 ) -> str:
     """Destroy a QEMU VM only when restore-engine owns it.
 
-    Never destroys LXC. Refuses unmarked foreign QEMU unless ``allow_run_provenance``
-    is True (caller already proved this plan-run/job provisioned the VMID).
+    Never destroys LXC. Refuses unmarked foreign QEMU. Historical job provenance
+    (``allow_run_provenance``) is ignored: a VMID slot may have been reused, so
+    destruction requires a **current** ownership marker and, when ``require_batch``
+    is True, a matching ``re-<batch_id>`` / ``run=<plan_run_id>`` on the guest.
 
-    When ``require_batch`` is True, ownership alone is not enough: the guest must
-    match ``re-<batch_id>`` or description ``run=<plan_run_id>``, unless
-    ``allow_run_provenance`` covers an unmarked leftover from that run.
-
-    Returns a short reason string for logs (``managed`` / ``run_provenance`` / ``absent``).
+    Returns a short reason string for logs (``managed`` / ``absent``).
     """
+    _ = allow_run_provenance  # retained for call-site compatibility; never bypasses gates
     vmid = int(vmid)
     node = str(node).strip()
     guest = find_guest_resource(proxmox, vmid)
@@ -775,27 +774,21 @@ def destroy_owned_qemu_vm(
         except Exception:
             batch_ok = False
 
+    if not managed:
+        raise GuestOwnershipError(
+            f"Refusing to destroy VMID {vmid} on {node}: not provisioned by restore-engine "
+            f"(missing '{MANAGED_TAG}' marker). Remove foreign guests manually in Proxmox."
+        )
+
     if require_batch:
         if not (batch_id or plan_run_id):
             raise GuestOwnershipError(
                 f"Refusing to destroy VMID {vmid}: batch_id or plan_run_id required"
             )
-        if not batch_ok and not allow_run_provenance:
+        if not batch_ok:
             raise GuestOwnershipError(
                 f"Refusing to destroy VMID {vmid} on {node}: does not match batch "
                 f"{batch_tag_for_id(batch_id) if batch_id else '(none)'} / run={plan_run_id or '-'}"
-            )
-        if not managed and not allow_run_provenance:
-            raise GuestOwnershipError(
-                f"Refusing to destroy VMID {vmid} on {node}: not provisioned by restore-engine "
-                f"(missing '{MANAGED_TAG}' marker)."
-            )
-        if not managed and allow_run_provenance and not batch_ok:
-            # Unmarked leftover known from this plan-run's job list.
-            pass
-        elif managed and not batch_ok and not allow_run_provenance:
-            raise GuestOwnershipError(
-                f"Refusing to destroy VMID {vmid} on {node}: managed but wrong batch"
             )
 
     destroy_kwargs: dict[str, Any] = {
@@ -807,20 +800,8 @@ def destroy_owned_qemu_vm(
         "should_cancel": should_cancel,
         "on_tick": on_tick,
     }
-    if managed:
-        if require_batch and not batch_ok and not allow_run_provenance:
-            raise GuestOwnershipError(
-                f"Refusing to destroy VMID {vmid} on {node}: batch mismatch"
-            )
-        destroy_qemu_vm(proxmox, node, vmid, **destroy_kwargs)
-        return "managed"
-    if allow_run_provenance:
-        destroy_qemu_vm(proxmox, node, vmid, **destroy_kwargs)
-        return "run_provenance"
-    raise GuestOwnershipError(
-        f"Refusing to destroy VMID {vmid} on {node}: not provisioned by restore-engine "
-        f"(missing '{MANAGED_TAG}' marker). Remove foreign guests manually in Proxmox."
-    )
+    destroy_qemu_vm(proxmox, node, vmid, **destroy_kwargs)
+    return "managed"
 
 
 def get_qemu_config(proxmox: ProxmoxAPI, node: str, vmid: int) -> dict[str, Any]:

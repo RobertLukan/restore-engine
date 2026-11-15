@@ -22,6 +22,7 @@ class FakeRedis:
     def __init__(self) -> None:
         self.hashes: dict[str, dict[str, str]] = {}
         self.lists: dict[str, list[str]] = {}
+        self.kv: dict[str, str] = {}
 
     def hset(self, key: str, mapping: dict[str, Any] | None = None, **kwargs: Any) -> None:
         data = dict(mapping or {})
@@ -36,6 +37,25 @@ class FakeRedis:
 
     def hgetall(self, key: str) -> dict[str, str]:
         return dict(self.hashes.get(key) or {})
+
+    def set(
+        self,
+        key: str,
+        value: str,
+        nx: bool = False,
+        ex: int | None = None,
+        **_kwargs: Any,
+    ) -> bool:
+        if nx and key in self.kv:
+            return False
+        self.kv[key] = str(value)
+        return True
+
+    def delete(self, key: str) -> int:
+        if key in self.kv:
+            del self.kv[key]
+            return 1
+        return 0
 
 
 def _row(vmid: int) -> dict[str, Any]:

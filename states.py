@@ -31,6 +31,13 @@ class PlanAssurance(str, Enum):
 
 
 class PlanRunStatus(str, Enum):
+    """Plan-run lifecycle.
+
+    ``STARTING`` is published before the first group is enqueued so workers do
+    not treat an empty job list as successful completion (RE-05).
+    """
+
+    STARTING = "STARTING"
     RUNNING = "RUNNING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"

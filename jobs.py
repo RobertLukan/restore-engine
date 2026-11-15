@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -84,6 +85,55 @@ def active_restore_counts_by_node(r: redis.Redis, cfg: dict[str, Any]) -> dict[s
             continue
         counts[node] = counts.get(node, 0) + 1
     return counts
+
+
+def reserved_vmids_from_jobs(
+    r: redis.Redis,
+    cfg: dict[str, Any],
+    *,
+    cluster_id: str = "",
+) -> set[int]:
+    """VMIDs already claimed by PENDING/RESTORING jobs (per PVE cluster)."""
+    from clusters import DEFAULT_CLUSTER_ID
+
+    want = (cluster_id or "").strip() or DEFAULT_CLUSTER_ID
+    prefix = cfg["redis"]["job_key_prefix"]
+    suffix = cfg["redis"]["job_log_suffix"]
+    reserved: set[int] = set()
+    for key in r.scan_iter(f"{prefix}*", count=200):
+        if key.endswith(suffix):
+            continue
+        data = r.hgetall(key) or {}
+        state = data.get("state") or ""
+        if state not in {RestoreState.PENDING.value, RestoreState.RESTORING.value}:
+            continue
+        job_cluster = (data.get("pve_cluster_id") or "").strip() or DEFAULT_CLUSTER_ID
+        if job_cluster != want:
+            continue
+        try:
+            reserved.add(int(data.get("proxmox_vmid")))
+        except (TypeError, ValueError):
+            continue
+    return reserved
+
+
+def _vmid_alloc_lock_key(cfg: dict[str, Any], cluster_id: str) -> str:
+    prefix = cfg["redis"].get("vmid_alloc_lock_prefix", "restore:vmid_alloc:")
+    return f"{prefix}{cluster_id or 'default'}"
+
+
+def _acquire_vmid_alloc_lock(r: redis.Redis, cfg: dict[str, Any], cluster_id: str, *, ttl_sec: int = 30) -> bool:
+    """Best-effort Redis lock so concurrent enqueues serialize VMID reservation."""
+    key = _vmid_alloc_lock_key(cfg, cluster_id)
+    # SET NX with expiry; FakeRedis and redis-py both support this.
+    return bool(r.set(key, "1", nx=True, ex=max(5, int(ttl_sec))))
+
+
+def _release_vmid_alloc_lock(r: redis.Redis, cfg: dict[str, Any], cluster_id: str) -> None:
+    try:
+        r.delete(_vmid_alloc_lock_key(cfg, cluster_id))
+    except Exception:
+        pass
 
 
 def enqueue_restores(
@@ -189,10 +239,81 @@ def enqueue_restores(
     resolved_cluster_id = next(iter(cluster_ids)) or default_pve_cluster_id(cfg)
 
     proxmox = connect_proxmox(cfg, cluster_id=resolved_cluster_id)
+
+    locked = False
+    waited = 0.0
+    while waited <= 15.0:
+        if _acquire_vmid_alloc_lock(r, cfg, resolved_cluster_id):
+            locked = True
+            break
+        time.sleep(0.05)
+        waited += 0.05
+    if not locked:
+        raise RuntimeError(
+            f"Timed out waiting for VMID allocation lock on cluster {resolved_cluster_id}"
+        )
+
     try:
-        in_use = qemu_vmids_in_use_cluster(proxmox)
+        return _enqueue_restores_locked(
+            r,
+            cfg,
+            rows,
+            proxmox=proxmox,
+            resolved_cluster_id=resolved_cluster_id,
+            candidates=candidates,
+            by_node=by_node,
+            default_storage=default_storage,
+            vmid_start=vmid_start,
+            live_restore=live_restore,
+            bwlimit=bwlimit,
+            mode=mode,
+            plan_run_id=plan_run_id,
+            batch_id=batch_id,
+            plan_group_index=plan_group_index,
+            do_power_on=do_power_on,
+            qga_sec=qga_sec,
+            network_mode=network_mode,
+            lab_bridge=lab_bridge,
+            overwrite=overwrite,
+            http_check_url=http_check_url,
+            add_to_ha=add_to_ha,
+            ha_group=ha_group,
+        )
+    finally:
+        _release_vmid_alloc_lock(r, cfg, resolved_cluster_id)
+
+
+def _enqueue_restores_locked(
+    r: redis.Redis,
+    cfg: dict[str, Any],
+    rows: list[dict[str, Any]],
+    *,
+    proxmox: Any,
+    resolved_cluster_id: str,
+    candidates: list[str],
+    by_node: dict[str, str],
+    default_storage: str,
+    vmid_start: int,
+    live_restore: bool,
+    bwlimit: int,
+    mode: str,
+    plan_run_id: str,
+    batch_id: str,
+    plan_group_index: int | None,
+    do_power_on: bool,
+    qga_sec: int,
+    network_mode: str,
+    lab_bridge: str,
+    overwrite: bool,
+    http_check_url: str,
+    add_to_ha: bool,
+    ha_group: str,
+) -> dict[str, Any]:
+    try:
+        in_use = set(qemu_vmids_in_use_cluster(proxmox))
     except Exception as exc:
         raise RuntimeError(f"Cannot list guest VMIDs in Proxmox cluster: {exc}") from exc
+    in_use |= reserved_vmids_from_jobs(r, cfg, cluster_id=resolved_cluster_id)
 
     if mode == "dr":
         allocated_ids: list[int] = []
@@ -225,7 +346,7 @@ def enqueue_restores(
         except RuntimeError:
             raise
         unique_flag = True
-        force_flag = True
+        force_flag = False
 
     active = active_restore_counts_by_node(r, cfg)
     node_for_row = assign_nodes_least_loaded(candidates, len(rows), active_counts=active)
@@ -239,6 +360,8 @@ def enqueue_restores(
             if int(vmid) not in in_use:
                 continue
             guest = find_guest_resource(proxmox, int(vmid))
+            if not guest:
+                continue
             gtype = (guest or {}).get("type") or ""
             if gtype == "lxc":
                 raise RuntimeError(

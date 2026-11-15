@@ -54,8 +54,24 @@ class FakeRedis:
     def get(self, key: str) -> str | None:
         return self.kv.get(key)
 
-    def set(self, key: str, value: str, ex: int | None = None) -> None:  # noqa: ARG002
+    def set(
+        self,
+        key: str,
+        value: str,
+        nx: bool = False,
+        ex: int | None = None,
+        **_kwargs: Any,
+    ) -> bool:
+        if nx and key in self.kv:
+            return False
         self.kv[key] = str(value)
+        return True
+
+    def delete(self, key: str) -> int:
+        if key in self.kv:
+            del self.kv[key]
+            return 1
+        return 0
 
     def incr(self, key: str) -> int:
         n = int(self.kv.get(key) or 0) + 1
@@ -92,13 +108,24 @@ def test_location_remap_requires_bridge() -> None:
         )
 
 
-def test_location_unlink_marks_isolated() -> None:
+def test_location_unlink_does_not_imply_site_isolated() -> None:
+    """RE-02: post-restore unlink is not the same as already-isolated infrastructure."""
     loc = normalize_location(
         {"name": "lab", "node": "pve", "storage": "local-lvm", "network_mode": "unlink"}
     )
     assert loc["network_mode"] == "unlink"
-    assert loc["isolated"] is True
+    assert loc["isolated"] is False
     assert loc["network_checks_from_orchestrator"] is False
+    explicit = normalize_location(
+        {
+            "name": "bubble",
+            "node": "pve",
+            "storage": "local-lvm",
+            "network_mode": "none",
+            "isolated": True,
+        }
+    )
+    assert explicit["isolated"] is True
 
 
 def test_location_network_checks_from_orchestrator() -> None:

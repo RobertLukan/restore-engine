@@ -27,7 +27,7 @@ restore-engine is an **infrastructure admin tool** with a **trusted-operator** s
 
 - Browser login uses a shared `ui.password` and signed session cookie (`ui.session_secret`).
 - Optional API tokens (`ui.api_tokens`) with operator (full) or viewer (read-only) roles.
-- **Startup fails** if `ui.password` is set but `ui.session_secret` is missing, too short (<32), or the known dev placeholder.
+- **`ui.session_secret` is always required** (cookie sessions stay enabled even for token-only deployments). **Startup fails** if it is missing, too short (<32), or the known dev placeholder.
 
 ### Network exposure
 

@@ -7410,7 +7410,7 @@
           const dl = run.report_id
             ? (' <button type="button" class="secondary tiny btn-run-report" data-id="' + escapeHtml(run.report_id) + '">Report</button>')
             : "";
-          const cancelBtn = run.status === "RUNNING"
+          const cancelBtn = (run.status === "RUNNING" || run.status === "STARTING")
             ? (' <button type="button" class="danger tiny btn-run-cancel" data-id="' + escapeHtml(run.id) + '">Cancel</button>')
             : "";
           tr.innerHTML =

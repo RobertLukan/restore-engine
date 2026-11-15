@@ -1,13 +1,17 @@
-"""Startup guards for ui.session_secret."""
+"""Startup guards for ui.session_secret (RE-04)."""
 
 import pytest
 
-from main import validate_session_secret
+from main import _DEFAULT_SESSION_SECRET, load_session_secret, validate_session_secret
 
 
-def test_validate_session_secret_ok_when_password_unset():
-    validate_session_secret({})
-    validate_session_secret({"ui": {}})
+def test_validate_session_secret_rejects_missing_even_without_password():
+    with pytest.raises(RuntimeError, match="ui.session_secret is required"):
+        validate_session_secret({})
+    with pytest.raises(RuntimeError, match="ui.session_secret is required"):
+        validate_session_secret({"ui": {}})
+    with pytest.raises(RuntimeError, match="ui.session_secret is required"):
+        validate_session_secret({"ui": {"api_tokens": [{"name": "t", "token": "x", "role": "viewer"}]}})
 
 
 def test_validate_session_secret_ok_with_strong_secret():
@@ -19,27 +23,20 @@ def test_validate_session_secret_ok_with_strong_secret():
             }
         }
     )
-
-
-def test_validate_session_secret_rejects_missing():
-    with pytest.raises(RuntimeError, match="ui.session_secret is required"):
-        validate_session_secret({"ui": {"password": "secret"}})
+    validate_session_secret({"ui": {"session_secret": "b" * 32}})
 
 
 def test_validate_session_secret_rejects_short():
     with pytest.raises(RuntimeError, match="at least 32"):
-        validate_session_secret(
-            {"ui": {"password": "secret", "session_secret": "too-short"}}
-        )
+        validate_session_secret({"ui": {"session_secret": "too-short"}})
 
 
 def test_validate_session_secret_rejects_dev_placeholder():
     with pytest.raises(RuntimeError, match="default dev placeholder"):
-        validate_session_secret(
-            {
-                "ui": {
-                    "password": "secret",
-                    "session_secret": "dev-insecure-session-secret-change-me",
-                }
-            }
-        )
+        validate_session_secret({"ui": {"session_secret": _DEFAULT_SESSION_SECRET}})
+
+
+def test_load_session_secret_no_default_fallback():
+    with pytest.raises(RuntimeError, match="ui.session_secret is required"):
+        load_session_secret({"ui": {}})
+    assert load_session_secret({"ui": {"session_secret": "c" * 32}}) == "c" * 32

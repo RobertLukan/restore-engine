@@ -164,11 +164,17 @@ class PlanRunBusyError(ValueError):
     """Raised when starting a plan run while another plan run is already RUNNING."""
 
 
+_ACTIVE_PLAN_STATUSES = {
+    PlanRunStatus.STARTING.value,
+    PlanRunStatus.RUNNING.value,
+}
+
+
 def find_running_plan_run(r: redis.Redis, cfg: dict[str, Any]) -> dict[str, Any] | None:
-    """Return any RUNNING plan run from the active set, or None."""
+    """Return any STARTING/RUNNING plan run from the active set, or None."""
     for run_id in r.smembers(active_plan_runs_key(cfg)) or []:
         run = get_plan_run(r, cfg, str(run_id))
-        if run and run.get("status") == PlanRunStatus.RUNNING.value:
+        if run and run.get("status") in _ACTIVE_PLAN_STATUSES:
             return run
     return None
 
@@ -181,7 +187,7 @@ def assert_no_running_plan_run(r: redis.Redis, cfg: dict[str, Any]) -> None:
     label = active.get("plan_name") or active.get("plan_id") or "?"
     raise PlanRunBusyError(
         f"Another plan run is already in progress "
-        f"(plan={label}, run_id={active.get('id')}). "
+        f"(plan={label}, run_id={active.get('id')}, status={active.get('status')}). "
         "Wait for it to finish or cancel it before starting another."
     )
 
@@ -436,7 +442,9 @@ def normalize_location(
     if mode not in {"normal", "dr"}:
         raise ValueError("restore_mode must be 'normal' or 'dr'")
     net_mode = _normalize_network_mode(payload.get("network_mode"))
-    isolated = bool(payload.get("isolated", False)) or net_mode in {"unlink", "remap"}
+    # Explicit site isolation only — do not treat post-restore unlink/remap as
+    # already-isolated infrastructure (live restore boots before NIC changes).
+    isolated = bool(payload.get("isolated", False))
     http_check_url = str(payload.get("http_check_url") or "").strip()
     # RE-origin HTTP/TCP from the API/worker host. Bubble/isolated labs usually
     # have no path — operators opt in when restore-engine can reach guest IPs.
@@ -1314,7 +1322,7 @@ def save_plan_run(r: redis.Redis, cfg: dict[str, Any], run: dict[str, Any]) -> d
     pipe = r.pipeline(transaction=True)
     pipe.set(plan_run_key(cfg, run_id), _dump(run))
     pipe.sadd(plan_runs_index(cfg), run_id)
-    if run.get("status") == PlanRunStatus.RUNNING.value:
+    if run.get("status") in _ACTIVE_PLAN_STATUSES:
         pipe.sadd(active_plan_runs_key(cfg), run_id)
     else:
         pipe.srem(active_plan_runs_key(cfg), run_id)
@@ -1562,7 +1570,7 @@ def _start_plan_run_unlocked(
         "plan_id": plan["id"],
         "plan_name": plan.get("name", ""),
         "cutoff": cutoff,
-        "status": PlanRunStatus.RUNNING.value,
+        "status": PlanRunStatus.STARTING.value,
         "location_id": location["id"],
         "location_name": location.get("name", ""),
         "pve_cluster_id": loc_cluster,
@@ -1607,7 +1615,8 @@ def _start_plan_run_unlocked(
         raise ValueError("plan resolved to zero backups")
     run["current_group_index"] = start_idx
 
-    # Persist empty run shell first so jobs can reference it.
+    # Persist STARTING shell first so the one-active-plan guard holds, but
+    # advance_plan_runs will not treat empty job lists as completion (RE-05).
     save_plan_run(r, cfg, run)
 
     try:
@@ -1637,7 +1646,7 @@ def _start_plan_run_unlocked(
             pve_cluster_id=loc_cluster,
         )
     except Exception as exc:
-        # Avoid leaving a zombie RUNNING lock with zero jobs when enqueue fails.
+        # Avoid leaving a zombie active lock with zero jobs when enqueue fails.
         run = {
             **run,
             "status": PlanRunStatus.FAILED.value,
@@ -1652,7 +1661,6 @@ def _start_plan_run_unlocked(
     _record_assigned_targets(run, result)
     if not run.get("next_vmid"):
         run["next_vmid"] = int(location["vmid_start"])
-    save_plan_run(r, cfg, run)
 
     # Stash unresolved later groups as JSON on the run for the worker tick.
     run["pending_group_rows"] = [
@@ -1671,6 +1679,7 @@ def _start_plan_run_unlocked(
         ]
         for rows in group_rows
     ]
+    run["status"] = PlanRunStatus.RUNNING.value
     save_plan_run(r, cfg, run)
 
     plan_update = {
@@ -1701,7 +1710,14 @@ def advance_plan_runs(
     active_ids = list(r.smembers(active_plan_runs_key(cfg)) or [])
     for run_id in active_ids:
         run = get_plan_run(r, cfg, run_id)
-        if not run or run.get("status") != PlanRunStatus.RUNNING.value:
+        if not run:
+            r.srem(active_plan_runs_key(cfg), run_id)
+            continue
+        status = run.get("status")
+        if status == PlanRunStatus.STARTING.value:
+            # Still initializing — do not treat empty job lists as completion.
+            continue
+        if status != PlanRunStatus.RUNNING.value:
             r.srem(active_plan_runs_key(cfg), run_id)
             continue
 
@@ -2131,7 +2147,7 @@ def assurance_dashboard(
     try:
         for rid in r.smembers(active_plan_runs_key(cfg)) or []:
             run = get_plan_run(r, cfg, str(rid))
-            if not run or run.get("status") != PlanRunStatus.RUNNING.value:
+            if not run or run.get("status") not in _ACTIVE_PLAN_STATUSES:
                 continue
             if not run.get("drill"):
                 continue
@@ -2262,6 +2278,8 @@ def teardown_plan_run(
         destroy_owned_qemu_vm,
         destroy_task_timeout_sec,
         find_qemu_node,
+        qemu_is_managed_by_tool,
+        qemu_matches_batch,
         remove_qemu_from_ha,
     )
 
@@ -2276,8 +2294,10 @@ def teardown_plan_run(
     if run.get("teardown_status") == "completed":
         return run
 
-    if run.get("status") == PlanRunStatus.RUNNING.value:
-        raise ValueError("Cannot teardown a RUNNING plan run; cancel or wait for it to finish")
+    if run.get("status") in _ACTIVE_PLAN_STATUSES:
+        raise ValueError(
+            f"Cannot teardown a {run.get('status')} plan run; cancel or wait for it to finish"
+        )
 
     run_id = str(run.get("id") or "")
     batch_id = str(run.get("batch_id") or "").strip() or (
@@ -2328,19 +2348,6 @@ def teardown_plan_run(
     find_node = find_node_fn or find_qemu_node
     strip_ha = bool(run.get("add_to_ha", False))
 
-    provenance_vmids: set[int] = set()
-    for group_jobs in run.get("job_ids_by_group") or []:
-        for jid in group_jobs or []:
-            data = r.hgetall(job_key_fn(cfg, jid)) or {}
-            if not data:
-                continue
-            if not (data.get("pve_upid") or data.get("restore_started_at") or data.get("managed_marked") == "1"):
-                continue
-            try:
-                provenance_vmids.add(int(data.get("proxmox_vmid")))
-            except (TypeError, ValueError):
-                continue
-
     for entry in results:
         vmid = int(entry["vmid"])
         node = str(entry.get("node") or "").strip()
@@ -2357,6 +2364,19 @@ def teardown_plan_run(
                 entry["error"] = "node unknown"
                 entry["status"] = "failed"
                 continue
+            # Ownership/batch on the *current* guest before HA strip or destroy.
+            # Historical job VMIDs must not authorize deleting a replacement guest.
+            if destroy_fn is None and proxmox is not None:
+                if not qemu_is_managed_by_tool(proxmox, node, vmid):
+                    raise GuestOwnershipError(
+                        f"Refusing to destroy VMID {vmid} on {node}: not provisioned by restore-engine"
+                    )
+                if batch_id and not qemu_matches_batch(
+                    proxmox, node, vmid, batch_id=batch_id, plan_run_id=run_id
+                ):
+                    raise GuestOwnershipError(
+                        f"Refusing to destroy VMID {vmid} on {node}: batch mismatch"
+                    )
             if strip_ha and proxmox is not None and destroy_fn is None:
                 try:
                     remove_qemu_from_ha(proxmox, vmid)
@@ -2367,7 +2387,7 @@ def teardown_plan_run(
                     proxmox,
                     node,
                     vmid,
-                    allow_run_provenance=(vmid in provenance_vmids),
+                    allow_run_provenance=False,
                     batch_id=batch_id,
                     plan_run_id=run_id,
                     require_batch=bool(batch_id),
@@ -2679,7 +2699,7 @@ def cancel_plan_run(
     run = get_plan_run(r, cfg, run_id)
     if not run:
         raise ValueError(f"Plan run not found: {run_id}")
-    if run.get("status") != PlanRunStatus.RUNNING.value:
+    if run.get("status") not in _ACTIVE_PLAN_STATUSES:
         return aggregate_plan_run(r, cfg, run, job_key_fn=job_key_fn)
 
     queue_key = cfg["redis"]["queue_key"]

@@ -99,6 +99,20 @@ def test_normalize_plan_add_to_ha() -> None:
     assert data2["ha_group"] == ""
 
 
+def test_restore_selected_request_keeps_ha_fields() -> None:
+    """RE-06: ad-hoc restore-selected must not silently drop HA options."""
+    from main import RestoreSelectedRequest
+
+    body = RestoreSelectedRequest(
+        backup_ids=["main|vm/1/2026-01-01T00:00:00Z"],
+        add_to_ha=True,
+        ha_group="ha1",
+    )
+    dumped = body.model_dump()
+    assert dumped["add_to_ha"] is True
+    assert dumped["ha_group"] == "ha1"
+
+
 def test_enqueue_stores_add_to_ha(monkeypatch: pytest.MonkeyPatch) -> None:
     r = FakeRedis()
     monkeypatch.setattr(
